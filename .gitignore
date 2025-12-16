@@ -1,0 +1,169 @@
+# =============================================================================
+# OpenCoreGraphics .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Swift Package Manager
+# -----------------------------------------------------------------------------
+.build/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/xcode/package.xcworkspace/xcshareddata/
+.swiftpm/configuration/registries.json
+Packages/
+Package.resolved
+
+# -----------------------------------------------------------------------------
+# Xcode
+# -----------------------------------------------------------------------------
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# -----------------------------------------------------------------------------
+# Build Artifacts
+# -----------------------------------------------------------------------------
+build/
+*.o
+*.a
+*.dylib
+*.dSYM/
+*.ipa
+*.app
+*.framework
+
+# WASM build outputs
+*.wasm
+*.wat
+*.js.map
+
+# -----------------------------------------------------------------------------
+# Test Artifacts
+# -----------------------------------------------------------------------------
+*.xcresult/
+coverage/
+.coverage/
+lcov.info
+codecov.yml
+
+# -----------------------------------------------------------------------------
+# macOS
+# -----------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# -----------------------------------------------------------------------------
+# IDE / Editors
+# -----------------------------------------------------------------------------
+# Xcode user-specific
+xcuserdata/
+
+# JetBrains (AppCode, etc.)
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Vim/Neovim
+*.swp
+*.swo
+*~
+.vim/
+.nvim/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# -----------------------------------------------------------------------------
+# Claude Code
+# -----------------------------------------------------------------------------
+.claude/
+
+# -----------------------------------------------------------------------------
+# Documentation
+# -----------------------------------------------------------------------------
+docs/_build/
+.jazzy/
+.docc-build/
+
+# -----------------------------------------------------------------------------
+# Credentials and Secrets
+# -----------------------------------------------------------------------------
+.netrc
+*.pem
+*.p12
+*.key
+*.cer
+*.mobileprovision
+secrets/
+credentials/
+.secrets
+
+# -----------------------------------------------------------------------------
+# Environment
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+.envrc
+
+# -----------------------------------------------------------------------------
+# Dependency Managers (Legacy)
+# -----------------------------------------------------------------------------
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Carthage
+Carthage/Build/
+Carthage/Checkouts/
+
+# -----------------------------------------------------------------------------
+# Temporary Files
+# -----------------------------------------------------------------------------
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+*.orig
+
+# -----------------------------------------------------------------------------
+# OS Generated
+# -----------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
