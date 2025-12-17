@@ -115,7 +115,7 @@ public class CGGradient: @unchecked Sendable {
         self.contentHeadroom = 1.0
     }
 
-    /// Creates a gradient object from a color space and CFArray of colors.
+    /// Creates a gradient object from a color space and array of colors.
     ///
     /// - Parameters:
     ///   - colorsSpace: The color space for the gradient (can be nil to use colors' space).

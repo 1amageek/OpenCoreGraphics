@@ -208,10 +208,102 @@ struct CGDataConsumerTests {
     @Suite("Type ID")
     struct TypeIDTests {
 
-        @Test("Get type ID")
-        func getTypeID() {
-            // Just verify it doesn't crash
-            let _ = CGDataConsumer.typeID
+        @Test("Get type ID returns consistent value")
+        func getTypeIDConsistent() {
+            let typeID1 = CGDataConsumer.typeID
+            let typeID2 = CGDataConsumer.typeID
+
+            #expect(typeID1 == typeID2)
+        }
+    }
+
+    // MARK: - Sendable Tests
+
+    @Suite("Sendable Conformance")
+    struct SendableTests {
+
+        @Test("CGDataConsumer is Sendable")
+        func dataConsumerIsSendable() {
+            let data = Data()
+            let consumer = CGDataConsumer(data: data)
+
+            // Verify CGDataConsumer can be used as Sendable
+            let sendableConsumer: (any Sendable)? = consumer
+            #expect(sendableConsumer != nil)
+        }
+
+        @Test("CGDataConsumerCallbacks is Sendable")
+        func callbacksIsSendable() {
+            let callbacks = CGDataConsumerCallbacks(
+                putBytes: { _, _, count in return count },
+                releaseConsumer: nil
+            )
+
+            // Verify CGDataConsumerCallbacks can be used as Sendable
+            let sendableCallbacks: any Sendable = callbacks
+            #expect(type(of: sendableCallbacks) == CGDataConsumerCallbacks.self)
+        }
+    }
+
+    // MARK: - Custom Callback Tests
+
+    @Suite("Custom Callback Behavior")
+    struct CustomCallbackTests {
+
+        @Test("Custom callback receives correct data")
+        func customCallbackReceivesData() {
+            var receivedData = Data()
+
+            var callbacks = CGDataConsumerCallbacks(
+                putBytes: { info, buffer, count in
+                    guard let buffer = buffer else { return 0 }
+                    let bufferPointer = UnsafeRawBufferPointer(start: buffer, count: count)
+                    receivedData.append(contentsOf: bufferPointer)
+                    return count
+                },
+                releaseConsumer: nil
+            )
+
+            guard let consumer = withUnsafePointer(to: &callbacks, { ptr in
+                CGDataConsumer(info: nil, cbks: ptr)
+            }) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let testBytes: [UInt8] = [0x48, 0x65, 0x6C, 0x6C, 0x6F] // "Hello"
+            let written = testBytes.withUnsafeBufferPointer { buffer in
+                consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            #expect(written == 5)
+            #expect(receivedData.count == 5)
+            #expect(Array(receivedData) == testBytes)
+        }
+
+        @Test("Custom callback can return partial write")
+        func customCallbackPartialWrite() {
+            var callbacks = CGDataConsumerCallbacks(
+                putBytes: { _, _, count in
+                    // Only write half the bytes
+                    return count / 2
+                },
+                releaseConsumer: nil
+            )
+
+            guard let consumer = withUnsafePointer(to: &callbacks, { ptr in
+                CGDataConsumer(info: nil, cbks: ptr)
+            }) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let testBytes: [UInt8] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            let written = testBytes.withUnsafeBufferPointer { buffer in
+                consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            #expect(written == 5) // Half of 10
         }
     }
 }

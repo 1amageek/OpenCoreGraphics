@@ -594,4 +594,310 @@ struct CGImageTests {
             }
         }
     }
+
+    // MARK: - Cropping Logic Tests
+
+    @Suite("Cropping Logic")
+    struct CroppingLogicTests {
+
+        /// Creates an image with patterned pixel data where each pixel encodes its position
+        private func createPatternedImage(width: Int, height: Int) -> CGImage? {
+            let bytesPerPixel = 4
+            let bytesPerRow = width * bytesPerPixel
+            var data = Data(count: bytesPerRow * height)
+
+            data.withUnsafeMutableBytes { ptr in
+                let bytes = ptr.bindMemory(to: UInt8.self)
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let offset = y * bytesPerRow + x * bytesPerPixel
+                        // Encode position in pixel values (mod 256)
+                        bytes[offset] = UInt8(x % 256)      // R = x position
+                        bytes[offset + 1] = UInt8(y % 256)  // G = y position
+                        bytes[offset + 2] = 0               // B = 0
+                        bytes[offset + 3] = 255             // A = opaque
+                    }
+                }
+            }
+
+            let provider = CGDataProvider(data: data)
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+
+            return CGImage(
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo,
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+            )
+        }
+
+        @Test("Cropped image dimensions are correct")
+        func croppedDimensions() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 10, y: 20, width: 30, height: 40))
+
+            #expect(cropped?.width == 30)
+            #expect(cropped?.height == 40)
+        }
+
+        @Test("Cropped image bytesPerRow is correct")
+        func croppedBytesPerRow() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: 50, height: 50))
+
+            // 50 pixels * 4 bytes per pixel = 200 bytes per row
+            #expect(cropped?.bytesPerRow == 200)
+        }
+
+        @Test("Cropping entire image returns same dimensions")
+        func cropEntireImage() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: 100, height: 100))
+
+            #expect(cropped?.width == 100)
+            #expect(cropped?.height == 100)
+        }
+
+        @Test("Cropping preserves bitsPerComponent")
+        func cropPreservesBitsPerComponent() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 10, y: 10, width: 50, height: 50))
+
+            #expect(cropped?.bitsPerComponent == image.bitsPerComponent)
+        }
+
+        @Test("Cropping preserves bitsPerPixel")
+        func cropPreservesBitsPerPixel() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 10, y: 10, width: 50, height: 50))
+
+            #expect(cropped?.bitsPerPixel == image.bitsPerPixel)
+        }
+
+        @Test("Cropping preserves colorSpace")
+        func cropPreservesColorSpace() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 10, y: 10, width: 50, height: 50))
+
+            #expect(cropped?.colorSpace?.model == image.colorSpace?.model)
+        }
+
+        @Test("Cropping outside right edge returns nil")
+        func cropOutsideRightEdge() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 80, y: 0, width: 30, height: 50))
+
+            #expect(cropped == nil)
+        }
+
+        @Test("Cropping outside bottom edge returns nil")
+        func cropOutsideBottomEdge() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 0, y: 80, width: 50, height: 30))
+
+            #expect(cropped == nil)
+        }
+
+        @Test("Cropping with negative x returns nil")
+        func cropNegativeX() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: -10, y: 0, width: 50, height: 50))
+
+            #expect(cropped == nil)
+        }
+
+        @Test("Cropping with negative y returns nil")
+        func cropNegativeY() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 0, y: -10, width: 50, height: 50))
+
+            #expect(cropped == nil)
+        }
+
+        @Test("Cropping with zero width returns nil")
+        func cropZeroWidth() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 10, y: 10, width: 0, height: 50))
+
+            #expect(cropped == nil)
+        }
+
+        @Test("Cropping with zero height returns nil")
+        func cropZeroHeight() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 10, y: 10, width: 50, height: 0))
+
+            #expect(cropped == nil)
+        }
+
+        @Test("Pixel data is correctly copied during crop - top-left corner verification")
+        func pixelDataCopiedCorrectly() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            // Crop starting at (10, 20) with size 30x40
+            let cropped = image.cropping(to: CGRect(x: 10, y: 20, width: 30, height: 40))
+
+            guard let croppedImage = cropped,
+                  let croppedData = croppedImage.dataProvider?.data else {
+                #expect(Bool(false), "Failed to get cropped image data")
+                return
+            }
+
+            // Verify top-left pixel of cropped image
+            // Original position was (10, 20), so R should be 10, G should be 20
+            croppedData.withUnsafeBytes { ptr in
+                let bytes = ptr.bindMemory(to: UInt8.self)
+                let r = bytes[0]
+                let g = bytes[1]
+
+                #expect(r == 10, "Expected R=10 (original x position), got \(r)")
+                #expect(g == 20, "Expected G=20 (original y position), got \(g)")
+            }
+        }
+
+        @Test("Pixel data is correctly copied during crop - bottom-right corner verification")
+        func pixelDataBottomRightCorrect() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            // Crop starting at (10, 20) with size 30x40
+            let cropped = image.cropping(to: CGRect(x: 10, y: 20, width: 30, height: 40))
+
+            guard let croppedImage = cropped,
+                  let croppedData = croppedImage.dataProvider?.data else {
+                #expect(Bool(false), "Failed to get cropped image data")
+                return
+            }
+
+            let bytesPerPixel = 4
+            let bytesPerRow = croppedImage.bytesPerRow
+
+            // Verify bottom-right pixel of cropped image
+            // Original position was (10+29, 20+39) = (39, 59)
+            croppedData.withUnsafeBytes { ptr in
+                let bytes = ptr.bindMemory(to: UInt8.self)
+                let lastRowOffset = 39 * bytesPerRow  // row 39 (0-indexed)
+                let lastPixelOffset = lastRowOffset + 29 * bytesPerPixel  // column 29 (0-indexed)
+
+                let r = bytes[lastPixelOffset]
+                let g = bytes[lastPixelOffset + 1]
+
+                #expect(r == 39, "Expected R=39 (original x=10+29), got \(r)")
+                #expect(g == 59, "Expected G=59 (original y=20+39), got \(g)")
+            }
+        }
+
+        @Test("Multiple crops produce correct accumulated offset")
+        func multipleCrops() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            // First crop: starting at (10, 10) with size 50x50
+            guard let firstCrop = image.cropping(to: CGRect(x: 10, y: 10, width: 50, height: 50)) else {
+                #expect(Bool(false), "Failed to create first crop")
+                return
+            }
+
+            // Second crop: starting at (5, 5) within first crop, size 20x20
+            // This corresponds to original position (15, 15)
+            guard let secondCrop = firstCrop.cropping(to: CGRect(x: 5, y: 5, width: 20, height: 20)),
+                  let croppedData = secondCrop.dataProvider?.data else {
+                #expect(Bool(false), "Failed to create second crop")
+                return
+            }
+
+            // Verify top-left pixel: original position should be (15, 15)
+            croppedData.withUnsafeBytes { ptr in
+                let bytes = ptr.bindMemory(to: UInt8.self)
+                let r = bytes[0]
+                let g = bytes[1]
+
+                #expect(r == 15, "Expected R=15 (original x=10+5), got \(r)")
+                #expect(g == 15, "Expected G=15 (original y=10+5), got \(g)")
+            }
+        }
+
+        @Test("Cropped image has correct data size")
+        func croppedDataSize() {
+            guard let image = createPatternedImage(width: 100, height: 100) else {
+                #expect(Bool(false), "Failed to create test image")
+                return
+            }
+
+            let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: 25, height: 30))
+
+            guard let croppedImage = cropped,
+                  let croppedData = croppedImage.dataProvider?.data else {
+                #expect(Bool(false), "Failed to get cropped image data")
+                return
+            }
+
+            // Expected: 25 pixels * 4 bytes * 30 rows = 3000 bytes
+            let expectedSize = 25 * 4 * 30
+            #expect(croppedData.count == expectedSize)
+        }
+    }
 }

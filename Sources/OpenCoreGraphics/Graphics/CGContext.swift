@@ -543,9 +543,19 @@ public class CGContext: @unchecked Sendable {
         currentState.lineWidth = width
     }
 
+    /// The current line cap style.
+    public var lineCap: CGLineCap {
+        return currentState.lineCap
+    }
+
     /// Sets the style for the endpoints of lines drawn in a graphics context.
     public func setLineCap(_ cap: CGLineCap) {
         currentState.lineCap = cap
+    }
+
+    /// The current line join style.
+    public var lineJoin: CGLineJoin {
+        return currentState.lineJoin
     }
 
     /// Sets the style for the joins of connected lines.
@@ -553,9 +563,19 @@ public class CGContext: @unchecked Sendable {
         currentState.lineJoin = join
     }
 
+    /// The current miter limit.
+    public var miterLimit: CGFloat {
+        return currentState.miterLimit
+    }
+
     /// Sets the miter limit for the context.
     public func setMiterLimit(_ limit: CGFloat) {
         currentState.miterLimit = limit
+    }
+
+    /// The current flatness value.
+    public var flatness: CGFloat {
+        return currentState.flatness
     }
 
     /// Sets the pattern for dashed lines.
@@ -599,9 +619,19 @@ public class CGContext: @unchecked Sendable {
 
     // MARK: - Transparency and Compositing
 
+    /// The current alpha value.
+    public var alpha: CGFloat {
+        return currentState.alpha
+    }
+
     /// Sets the opacity level for objects drawn in a graphics context.
     public func setAlpha(_ alpha: CGFloat) {
         currentState.alpha = alpha
+    }
+
+    /// The current blend mode.
+    public var blendMode: CGBlendMode {
+        return currentState.blendMode
     }
 
     /// Sets the compositing mode for a graphics context.
@@ -630,9 +660,19 @@ public class CGContext: @unchecked Sendable {
 
     // MARK: - Antialiasing
 
+    /// Whether antialiasing is enabled.
+    public var shouldAntialias: Bool {
+        return currentState.shouldAntialias
+    }
+
     /// Sets antialiasing on or off for a graphics context.
     public func setShouldAntialias(_ shouldAntialias: Bool) {
         currentState.shouldAntialias = shouldAntialias
+    }
+
+    /// Whether antialiasing is allowed.
+    public var allowsAntialiasing: Bool {
+        return currentState.allowsAntialiasing
     }
 
     /// Sets whether or not to allow antialiasing.
@@ -740,6 +780,11 @@ public class CGContext: @unchecked Sendable {
 
     // MARK: - Text Drawing
 
+    /// The current text drawing mode.
+    public var textDrawingMode: CGTextDrawingMode {
+        return currentState.textDrawingMode
+    }
+
     /// Sets the text drawing mode.
     public func setTextDrawingMode(_ mode: CGTextDrawingMode) {
         currentState.textDrawingMode = mode
@@ -763,6 +808,11 @@ public class CGContext: @unchecked Sendable {
     /// The current text matrix.
     public var textMatrix: CGAffineTransform {
         return currentState.textMatrix
+    }
+
+    /// The current character spacing.
+    public var characterSpacing: CGFloat {
+        return currentState.characterSpacing
     }
 
     /// Sets the spacing between characters.

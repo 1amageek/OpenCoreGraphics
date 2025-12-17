@@ -468,6 +468,299 @@ struct CGAffineTransformTests {
             #expect(decoded.isIdentity)
         }
     }
+
+    // MARK: - Mathematical Correctness Tests
+
+    @Suite("Mathematical Correctness")
+    struct MathematicalCorrectnessTests {
+
+        private func isApproximatelyEqual(_ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.0001) -> Bool {
+            return abs(a - b) < tolerance
+        }
+
+        @Test("Transform times inverse equals identity")
+        func transformTimesInverseEqualsIdentity() {
+            let transform = CGAffineTransform(translationX: 15, y: 25)
+                .scaledBy(x: 2.0, y: 3.0)
+                .rotated(by: CGFloat.pi / 6)
+
+            let inverse = transform.inverted()
+            let product = transform.concatenating(inverse)
+
+            // Should be approximately identity matrix
+            #expect(isApproximatelyEqual(product.a, 1.0))
+            #expect(isApproximatelyEqual(product.b, 0.0))
+            #expect(isApproximatelyEqual(product.c, 0.0))
+            #expect(isApproximatelyEqual(product.d, 1.0))
+            #expect(isApproximatelyEqual(product.tx, 0.0))
+            #expect(isApproximatelyEqual(product.ty, 0.0))
+        }
+
+        @Test("Inverse times transform also equals identity")
+        func inverseTimesTransformEqualsIdentity() {
+            let transform = CGAffineTransform(rotationAngle: CGFloat.pi / 3)
+                .scaledBy(x: 1.5, y: 2.5)
+                .translatedBy(x: 100, y: 200)
+
+            let inverse = transform.inverted()
+            let product = inverse.concatenating(transform)
+
+            #expect(isApproximatelyEqual(product.a, 1.0))
+            #expect(isApproximatelyEqual(product.b, 0.0))
+            #expect(isApproximatelyEqual(product.c, 0.0))
+            #expect(isApproximatelyEqual(product.d, 1.0))
+            #expect(isApproximatelyEqual(product.tx, 0.0))
+            #expect(isApproximatelyEqual(product.ty, 0.0))
+        }
+
+        @Test("Decompose then recompose returns equivalent transform for simple transforms")
+        func decomposeRecomposeEquivalent() {
+            // Test with a simpler transform (scale only) which can be accurately decomposed
+            let original = CGAffineTransform(scaleX: 2.0, y: 3.0)
+
+            let components = original.decomposed()
+            let recomposed = CGAffineTransform(components)
+
+            // Test by applying both to the same point
+            let testPoints = [
+                CGPoint(x: 0, y: 0),
+                CGPoint(x: 10, y: 0),
+                CGPoint(x: 0, y: 10),
+                CGPoint(x: 10, y: 20)
+            ]
+
+            for point in testPoints {
+                let p1 = point.applying(original)
+                let p2 = point.applying(recomposed)
+                #expect(isApproximatelyEqual(p1.x, p2.x), "Point \(point) x mismatch: \(p1.x) vs \(p2.x)")
+                #expect(isApproximatelyEqual(p1.y, p2.y), "Point \(point) y mismatch: \(p1.y) vs \(p2.y)")
+            }
+        }
+
+        @Test("Decompose returns valid scale components")
+        func decomposeReturnsValidScale() {
+            let transform = CGAffineTransform(scaleX: 2.5, y: 1.5)
+            let components = transform.decomposed()
+
+            #expect(isApproximatelyEqual(components.scale.width, 2.5))
+            #expect(isApproximatelyEqual(components.scale.height, 1.5))
+        }
+
+        @Test("Decompose returns valid translation components")
+        func decomposeReturnsValidTranslation() {
+            let transform = CGAffineTransform(translationX: 15, y: 25)
+            let components = transform.decomposed()
+
+            #expect(isApproximatelyEqual(components.translation.dx, 15))
+            #expect(isApproximatelyEqual(components.translation.dy, 25))
+        }
+
+        @Test("Horizontal shear transforms correctly")
+        func horizontalShear() {
+            // Shear matrix: [1, 0, shear, 1, 0, 0]
+            // x' = x + shear * y
+            // y' = y
+            let shear: CGFloat = 0.5
+            let transform = CGAffineTransform(a: 1, b: 0, c: shear, d: 1, tx: 0, ty: 0)
+
+            let point = CGPoint(x: 0, y: 10)
+            let transformed = point.applying(transform)
+
+            // x' = 0 + 0.5 * 10 = 5
+            #expect(isApproximatelyEqual(transformed.x, 5.0))
+            #expect(isApproximatelyEqual(transformed.y, 10.0))
+        }
+
+        @Test("Vertical shear transforms correctly")
+        func verticalShear() {
+            // Shear matrix: [1, shear, 0, 1, 0, 0]
+            // x' = x
+            // y' = shear * x + y
+            let shear: CGFloat = 0.5
+            let transform = CGAffineTransform(a: 1, b: shear, c: 0, d: 1, tx: 0, ty: 0)
+
+            let point = CGPoint(x: 10, y: 0)
+            let transformed = point.applying(transform)
+
+            #expect(isApproximatelyEqual(transformed.x, 10.0))
+            // y' = 0.5 * 10 + 0 = 5
+            #expect(isApproximatelyEqual(transformed.y, 5.0))
+        }
+
+        @Test("Singular matrix (zero determinant) inversion returns self")
+        func singularMatrixInversion() {
+            // Singular matrix: det = a*d - b*c = 1*2 - 2*1 = 0
+            let singular = CGAffineTransform(a: 1, b: 2, c: 2, d: 4, tx: 0, ty: 0)
+            let inverted = singular.inverted()
+
+            // When matrix is singular, implementation returns self
+            #expect(inverted == singular)
+        }
+
+        @Test("Scaling by zero creates singular matrix")
+        func zeroScaleSingular() {
+            let zeroScale = CGAffineTransform(scaleX: 0, y: 0)
+            let inverted = zeroScale.inverted()
+
+            #expect(inverted == zeroScale)
+        }
+
+        @Test("Matrix multiplication is associative")
+        func matrixMultiplicationAssociative() {
+            let a = CGAffineTransform(translationX: 10, y: 20)
+            let b = CGAffineTransform(scaleX: 2, y: 3)
+            let c = CGAffineTransform(rotationAngle: CGFloat.pi / 4)
+
+            // (A * B) * C should equal A * (B * C)
+            let ab_c = a.concatenating(b).concatenating(c)
+            let a_bc = a.concatenating(b.concatenating(c))
+
+            let testPoint = CGPoint(x: 5, y: 7)
+            let p1 = testPoint.applying(ab_c)
+            let p2 = testPoint.applying(a_bc)
+
+            #expect(isApproximatelyEqual(p1.x, p2.x))
+            #expect(isApproximatelyEqual(p1.y, p2.y))
+        }
+
+        @Test("Rotation preserves distance from origin")
+        func rotationPreservesDistance() {
+            let point = CGPoint(x: 3, y: 4)  // distance = 5
+            let originalDistance = sqrt(point.x * point.x + point.y * point.y)
+
+            let angles: [CGFloat] = [0.0, CGFloat.pi / 6, CGFloat.pi / 4, CGFloat.pi / 3, CGFloat.pi / 2, CGFloat.pi]
+
+            for angle in angles {
+                let transform = CGAffineTransform(rotationAngle: angle)
+                let rotated = point.applying(transform)
+                let newDistance = sqrt(rotated.x * rotated.x + rotated.y * rotated.y)
+
+                #expect(isApproximatelyEqual(originalDistance, newDistance),
+                       "Rotation by \(angle) changed distance from \(originalDistance) to \(newDistance)")
+            }
+        }
+
+        @Test("Scale changes distance proportionally")
+        func scaleChangesDistanceProportionally() {
+            let point = CGPoint(x: 3, y: 4)  // distance = 5
+            let uniformScale: CGFloat = 2.0
+
+            let transform = CGAffineTransform(scaleX: uniformScale, y: uniformScale)
+            let scaled = point.applying(transform)
+
+            let originalDistance = sqrt(point.x * point.x + point.y * point.y)
+            let newDistance = sqrt(scaled.x * scaled.x + scaled.y * scaled.y)
+
+            #expect(isApproximatelyEqual(newDistance, originalDistance * uniformScale))
+        }
+
+        @Test("Translation does not change shape")
+        func translationPreservesVectors() {
+            let p1 = CGPoint(x: 0, y: 0)
+            let p2 = CGPoint(x: 10, y: 0)
+            let p3 = CGPoint(x: 0, y: 10)
+
+            let transform = CGAffineTransform(translationX: 100, y: 200)
+
+            let t1 = p1.applying(transform)
+            let t2 = p2.applying(transform)
+            let t3 = p3.applying(transform)
+
+            // Vector from t1 to t2 should be same as p1 to p2
+            let vec12_original = CGPoint(x: p2.x - p1.x, y: p2.y - p1.y)
+            let vec12_transformed = CGPoint(x: t2.x - t1.x, y: t2.y - t1.y)
+            #expect(isApproximatelyEqual(vec12_original.x, vec12_transformed.x))
+            #expect(isApproximatelyEqual(vec12_original.y, vec12_transformed.y))
+
+            // Vector from t1 to t3 should be same as p1 to p3
+            let vec13_original = CGPoint(x: p3.x - p1.x, y: p3.y - p1.y)
+            let vec13_transformed = CGPoint(x: t3.x - t1.x, y: t3.y - t1.y)
+            #expect(isApproximatelyEqual(vec13_original.x, vec13_transformed.x))
+            #expect(isApproximatelyEqual(vec13_original.y, vec13_transformed.y))
+        }
+    }
+
+    // MARK: - Apply Operations Tests
+
+    @Suite("Apply Operations")
+    struct ApplyOperationsTests {
+
+        private func isApproximatelyEqual(_ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.0001) -> Bool {
+            return abs(a - b) < tolerance
+        }
+
+        @Test("Apply transform to CGSize scales correctly")
+        func applySizeScaling() {
+            let size = CGSize(width: 10, height: 20)
+            let transform = CGAffineTransform(scaleX: 2, y: 3)
+
+            let transformed = size.applying(transform)
+
+            #expect(isApproximatelyEqual(transformed.width, 20))
+            #expect(isApproximatelyEqual(transformed.height, 60))
+        }
+
+        @Test("Apply rotation to CGSize")
+        func applySizeRotation() {
+            let size = CGSize(width: 10, height: 0)
+            let transform = CGAffineTransform(rotationAngle: CGFloat.pi / 2)
+
+            let transformed = size.applying(transform)
+
+            // After 90 degree rotation, width becomes height
+            #expect(isApproximatelyEqual(transformed.width, 0))
+            #expect(isApproximatelyEqual(transformed.height, 10))
+        }
+
+        @Test("Apply identity to CGRect returns same rect")
+        func applyIdentityToRect() {
+            let rect = CGRect(x: 10, y: 20, width: 30, height: 40)
+            let transformed = rect.applying(CGAffineTransform.identity)
+
+            #expect(transformed == rect)
+        }
+
+        @Test("Apply translation to CGRect moves origin")
+        func applyTranslationToRect() {
+            let rect = CGRect(x: 10, y: 20, width: 30, height: 40)
+            let transform = CGAffineTransform(translationX: 100, y: 200)
+
+            let transformed = rect.applying(transform)
+
+            #expect(isApproximatelyEqual(transformed.origin.x, 110))
+            #expect(isApproximatelyEqual(transformed.origin.y, 220))
+            #expect(isApproximatelyEqual(transformed.size.width, 30))
+            #expect(isApproximatelyEqual(transformed.size.height, 40))
+        }
+
+        @Test("Apply scale to CGRect scales both origin and size")
+        func applyScaleToRect() {
+            let rect = CGRect(x: 10, y: 20, width: 30, height: 40)
+            let transform = CGAffineTransform(scaleX: 2, y: 2)
+
+            let transformed = rect.applying(transform)
+
+            #expect(isApproximatelyEqual(transformed.origin.x, 20))
+            #expect(isApproximatelyEqual(transformed.origin.y, 40))
+            #expect(isApproximatelyEqual(transformed.size.width, 60))
+            #expect(isApproximatelyEqual(transformed.size.height, 80))
+        }
+    }
+
+    // MARK: - Sendable Conformance Tests
+
+    @Suite("Sendable Conformance")
+    struct SendableTests {
+
+        @Test("CGAffineTransform can be sent across actor boundaries")
+        func sendableConformance() async {
+            let transform = CGAffineTransform(translationX: 10, y: 20)
+            let result = await Task {
+                return transform.tx
+            }.value
+            #expect(result == 10.0)
+        }
+    }
 }
 
 // MARK: - CGAffineTransformComponents Tests

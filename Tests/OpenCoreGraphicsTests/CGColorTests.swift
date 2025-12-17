@@ -329,4 +329,186 @@ struct CGColorTests {
             #expect(color.components?[0] == 0.001)
         }
     }
+
+    // MARK: - Color Conversion Logic Tests
+
+    @Suite("Color Conversion Logic")
+    struct ColorConversionLogicTests {
+
+        private func isApproximatelyEqual(_ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.001) -> Bool {
+            return abs(a - b) < tolerance
+        }
+
+        @Test("Gray to RGB conversion produces equal R, G, B components")
+        func grayToRGBEqualComponents() {
+            let grayValues: [CGFloat] = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+            for gray in grayValues {
+                let grayColor = CGColor(gray: gray, alpha: 1.0)
+                let converted = grayColor.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+
+                guard let c = converted else {
+                    #expect(Bool(false), "Conversion failed for gray=\(gray)")
+                    continue
+                }
+
+                let r = c.components?[0] ?? -1
+                let g = c.components?[1] ?? -1
+                let b = c.components?[2] ?? -1
+
+                // For gray, R = G = B = gray value
+                #expect(isApproximatelyEqual(r, g), "R(\(r)) should equal G(\(g)) for gray=\(gray)")
+                #expect(isApproximatelyEqual(g, b), "G(\(g)) should equal B(\(b)) for gray=\(gray)")
+                #expect(isApproximatelyEqual(r, gray), "R(\(r)) should equal gray(\(gray))")
+            }
+        }
+
+        @Test("White RGB to gray conversion produces white gray")
+        func whiteRGBToGray() {
+            let white = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            let converted = white.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            #expect(isApproximatelyEqual(converted?.components?[0] ?? 0, 1.0),
+                   "White RGB should convert to white gray")
+        }
+
+        @Test("Black RGB to gray conversion produces black gray")
+        func blackRGBToGray() {
+            let black = CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            let converted = black.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            #expect(isApproximatelyEqual(converted?.components?[0] ?? 1, 0.0),
+                   "Black RGB should convert to black gray")
+        }
+
+        @Test("Alpha value preserved during conversion")
+        func alphaPreservedDuringConversion() {
+            let alphaValues: [CGFloat] = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+            for alpha in alphaValues {
+                let color = CGColor(red: 0.5, green: 0.3, blue: 0.7, alpha: alpha)
+                let converted = color.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+                #expect(converted?.alpha == alpha,
+                       "Alpha \(alpha) should be preserved after conversion, got \(converted?.alpha ?? -1)")
+            }
+        }
+
+        @Test("Copy with alpha creates independent color")
+        func copyWithAlphaIndependent() {
+            let original = CGColor(red: 1.0, green: 0.5, blue: 0.25, alpha: 1.0)
+            let copy = original.copy(alpha: 0.3)
+
+            // Original should be unchanged
+            #expect(original.alpha == 1.0)
+
+            // Copy should have new alpha
+            #expect(copy?.alpha == 0.3)
+
+            // Color components should be the same
+            #expect(copy?.components?[0] == 1.0)
+            #expect(copy?.components?[1] == 0.5)
+            #expect(copy?.components?[2] == 0.25)
+        }
+
+        @Test("Copy with same alpha produces equal color")
+        func copyWithSameAlphaEqual() {
+            let original = CGColor(red: 1.0, green: 0.5, blue: 0.25, alpha: 0.8)
+            let copy = original.copy(alpha: 0.8)
+
+            #expect(copy == original)
+        }
+
+        @Test("Conversion round trip gray -> RGB -> gray")
+        func conversionRoundTripGray() {
+            let grayValues: [CGFloat] = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+            for gray in grayValues {
+                let original = CGColor(gray: gray, alpha: 1.0)
+                let rgb = original.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+                let backToGray = rgb?.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+                #expect(backToGray != nil)
+                #expect(isApproximatelyEqual(backToGray?.components?[0] ?? -1, gray),
+                       "Round trip for gray=\(gray) failed: got \(backToGray?.components?[0] ?? -1)")
+            }
+        }
+
+        @Test("Mid-gray RGB converts to approximately 0.5 gray")
+        func midGrayRGBToGray() {
+            // Mid gray RGB (0.5, 0.5, 0.5) should convert to approximately 0.5 gray
+            let midGray = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
+            let converted = midGray.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            #expect(isApproximatelyEqual(converted?.components?[0] ?? 0, 0.5))
+        }
+
+        @Test("Color conversion preserves number of components for same model")
+        func conversionPreservesComponentsCount() {
+            let rgb1 = CGColor(red: 1.0, green: 0.5, blue: 0.25, alpha: 1.0)
+            let converted = rgb1.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+
+            #expect(converted?.numberOfComponents == rgb1.numberOfComponents)
+        }
+
+        @Test("CMYK color can be created")
+        func cmykColorCreation() {
+            // Verify CMYK color can be created and has correct properties
+            let cyan = CGColor(genericCMYKCyan: 1.0, magenta: 0.0, yellow: 0.0, black: 0.0, alpha: 1.0)
+
+            #expect(cyan.numberOfComponents == 5)  // C, M, Y, K, Alpha
+            #expect(cyan.colorSpace?.model == .cmyk)
+            #expect(cyan.components?[0] == 1.0)  // Cyan
+            #expect(cyan.components?[1] == 0.0)  // Magenta
+            #expect(cyan.components?[2] == 0.0)  // Yellow
+            #expect(cyan.components?[3] == 0.0)  // Black
+            #expect(cyan.alpha == 1.0)
+        }
+
+        @Test("All rendering intents work without crash")
+        func allRenderingIntentsWork() {
+            let color = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
+            let intents: [CGColorRenderingIntent] = [
+                .defaultIntent,
+                .absoluteColorimetric,
+                .relativeColorimetric,
+                .perceptual,
+                .saturation
+            ]
+
+            for intent in intents {
+                let converted = color.converted(to: .deviceGray, intent: intent, options: nil)
+                #expect(converted != nil, "Conversion with intent \(intent) should succeed")
+            }
+        }
+
+        @Test("Component values are clamped to 0-1 range after conversion")
+        func componentsClamped() {
+            let color = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
+            let converted = color.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+            if let gray = converted?.components?[0] {
+                #expect(gray >= 0.0 && gray <= 1.0,
+                       "Gray component should be in 0-1 range, got \(gray)")
+            }
+        }
+    }
+
+    // MARK: - Sendable Conformance Tests
+
+    @Suite("Sendable Conformance")
+    struct SendableTests {
+
+        @Test("CGColor can be sent across actor boundaries")
+        func sendableConformance() async {
+            let color = CGColor(red: 1.0, green: 0.5, blue: 0.25, alpha: 1.0)
+            let result = await Task {
+                return color.alpha
+            }.value
+            #expect(result == 1.0)
+        }
+    }
 }

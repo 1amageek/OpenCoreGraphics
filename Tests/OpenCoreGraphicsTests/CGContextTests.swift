@@ -533,8 +533,11 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.lineCap == .butt) // Default value
             context.setLineCap(.round)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.lineCap == .round)
+            context.setLineCap(.square)
+            #expect(context.lineCap == .square)
         }
 
         @Test("Set line join")
@@ -544,8 +547,11 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.lineJoin == .miter) // Default value
             context.setLineJoin(.bevel)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.lineJoin == .bevel)
+            context.setLineJoin(.round)
+            #expect(context.lineJoin == .round)
         }
 
         @Test("Set miter limit")
@@ -555,31 +561,66 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.miterLimit == 10.0) // Default value
             context.setMiterLimit(20.0)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.miterLimit == 20.0)
         }
 
-        @Test("Set line dash")
-        func setLineDash() {
+        @Test("Set flatness")
+        func setFlatness() {
             guard let context = createTestContext() else {
                 #expect(Bool(false), "Failed to create context")
                 return
             }
 
-            context.setLineDash(phase: 0, lengths: [5, 3])
-            // No direct getter, just verify it doesn't crash
+            #expect(context.flatness == 0.5) // Default value
+            context.setFlatness(1.0)
+            #expect(context.flatness == 1.0)
         }
 
-        @Test("Clear line dash")
-        func clearLineDash() {
+        @Test("Line cap is saved and restored by GState")
+        func lineCapSaveRestore() {
             guard let context = createTestContext() else {
                 #expect(Bool(false), "Failed to create context")
                 return
             }
 
-            context.setLineDash(phase: 0, lengths: [5, 3])
-            context.setLineDash(phase: 0, lengths: [])
-            // No direct getter, just verify it doesn't crash
+            context.setLineCap(.round)
+            context.saveGState()
+            context.setLineCap(.square)
+            #expect(context.lineCap == .square)
+            context.restoreGState()
+            #expect(context.lineCap == .round)
+        }
+
+        @Test("Line join is saved and restored by GState")
+        func lineJoinSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineJoin(.bevel)
+            context.saveGState()
+            context.setLineJoin(.round)
+            #expect(context.lineJoin == .round)
+            context.restoreGState()
+            #expect(context.lineJoin == .bevel)
+        }
+
+        @Test("Miter limit is saved and restored by GState")
+        func miterLimitSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setMiterLimit(15.0)
+            context.saveGState()
+            context.setMiterLimit(25.0)
+            #expect(context.miterLimit == 25.0)
+            context.restoreGState()
+            #expect(context.miterLimit == 15.0)
         }
     }
 
@@ -609,8 +650,11 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.alpha == 1.0) // Default value
             context.setAlpha(0.5)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.alpha == 0.5)
+            context.setAlpha(0.0)
+            #expect(context.alpha == 0.0)
         }
 
         @Test("Set blend mode")
@@ -620,8 +664,41 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.blendMode == .normal) // Default value
             context.setBlendMode(.multiply)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.blendMode == .multiply)
+            context.setBlendMode(.screen)
+            #expect(context.blendMode == .screen)
+        }
+
+        @Test("Alpha is saved and restored by GState")
+        func alphaSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setAlpha(0.8)
+            context.saveGState()
+            context.setAlpha(0.3)
+            #expect(context.alpha == 0.3)
+            context.restoreGState()
+            #expect(context.alpha == 0.8)
+        }
+
+        @Test("Blend mode is saved and restored by GState")
+        func blendModeSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setBlendMode(.overlay)
+            context.saveGState()
+            context.setBlendMode(.difference)
+            #expect(context.blendMode == .difference)
+            context.restoreGState()
+            #expect(context.blendMode == .overlay)
         }
     }
 
@@ -651,8 +728,11 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.interpolationQuality == .default) // Default value
             context.setInterpolationQuality(.high)
             #expect(context.interpolationQuality == .high)
+            context.setInterpolationQuality(.low)
+            #expect(context.interpolationQuality == .low)
         }
 
         @Test("Set should antialias")
@@ -662,8 +742,38 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.shouldAntialias == true) // Default value
             context.setShouldAntialias(false)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.shouldAntialias == false)
+            context.setShouldAntialias(true)
+            #expect(context.shouldAntialias == true)
+        }
+
+        @Test("Set allows antialiasing")
+        func setAllowsAntialiasing() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            #expect(context.allowsAntialiasing == true) // Default value
+            context.setAllowsAntialiasing(false)
+            #expect(context.allowsAntialiasing == false)
+        }
+
+        @Test("Antialiasing settings are saved and restored by GState")
+        func antialiasSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setShouldAntialias(false)
+            context.saveGState()
+            context.setShouldAntialias(true)
+            #expect(context.shouldAntialias == true)
+            context.restoreGState()
+            #expect(context.shouldAntialias == false)
         }
     }
 
@@ -693,8 +803,11 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.textDrawingMode == .fill) // Default value
             context.setTextDrawingMode(.stroke)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.textDrawingMode == .stroke)
+            context.setTextDrawingMode(.fillStroke)
+            #expect(context.textDrawingMode == .fillStroke)
         }
 
         @Test("Set text position")
@@ -704,6 +817,8 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.textPosition.x == 0) // Default value
+            #expect(context.textPosition.y == 0)
             context.setTextPosition(x: 10, y: 20)
             let pos = context.textPosition
             #expect(pos.x == 10)
@@ -717,9 +832,11 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.textMatrix.isIdentity) // Default value
             let matrix = CGAffineTransform(scaleX: 2, y: 2)
             context.setTextMatrix(matrix)
             #expect(context.textMatrix.a == 2)
+            #expect(context.textMatrix.d == 2)
         }
 
         @Test("Set character spacing")
@@ -729,8 +846,41 @@ struct CGContextTests {
                 return
             }
 
+            #expect(context.characterSpacing == 0.0) // Default value
             context.setCharacterSpacing(2.0)
-            // No direct getter, just verify it doesn't crash
+            #expect(context.characterSpacing == 2.0)
+            context.setCharacterSpacing(-1.0) // Negative spacing is valid
+            #expect(context.characterSpacing == -1.0)
+        }
+
+        @Test("Text drawing mode is saved and restored by GState")
+        func textDrawingModeSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setTextDrawingMode(.clip)
+            context.saveGState()
+            context.setTextDrawingMode(.strokeClip)
+            #expect(context.textDrawingMode == .strokeClip)
+            context.restoreGState()
+            #expect(context.textDrawingMode == .clip)
+        }
+
+        @Test("Character spacing is saved and restored by GState")
+        func characterSpacingSaveRestore() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setCharacterSpacing(3.0)
+            context.saveGState()
+            context.setCharacterSpacing(5.0)
+            #expect(context.characterSpacing == 5.0)
+            context.restoreGState()
+            #expect(context.characterSpacing == 3.0)
         }
     }
 
@@ -882,6 +1032,430 @@ struct CGContextTests {
 
             let image = CGBitmapContextCreateImage(context)
             #expect(image != nil)
+        }
+    }
+
+    // MARK: - Coordinate Transformation Logic Tests
+
+    @Suite("Coordinate Transformation Logic")
+    struct CoordinateTransformationLogicTests {
+
+        fileprivate func createTestContext() -> CGContext? {
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            return CGContext(
+                data: nil,
+                width: 100,
+                height: 100,
+                bitsPerComponent: 8,
+                bytesPerRow: 400,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            )
+        }
+
+        private func isApproximatelyEqual(_ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.001) -> Bool {
+            return abs(a - b) < tolerance
+        }
+
+        @Test("Coordinate conversion round trip")
+        func coordinateConversionRoundTrip() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            // Apply complex transformation
+            context.translateBy(x: 10, y: 20)
+            context.scaleBy(x: 2, y: 3)
+            context.rotate(by: CGFloat.pi / 6)
+
+            let originalPoint = CGPoint(x: 15, y: 25)
+
+            // Convert to device space and back
+            let devicePoint = context.convertToDeviceSpace(originalPoint)
+            let roundTrippedPoint = context.convertToUserSpace(devicePoint)
+
+            #expect(isApproximatelyEqual(roundTrippedPoint.x, originalPoint.x))
+            #expect(isApproximatelyEqual(roundTrippedPoint.y, originalPoint.y))
+        }
+
+        @Test("Translation shifts coordinates correctly")
+        func translationShiftsCoordinates() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.translateBy(x: 50, y: 30)
+
+            let userPoint = CGPoint(x: 10, y: 20)
+            let devicePoint = context.convertToDeviceSpace(userPoint)
+
+            // Device coordinates should be (10 + 50, 20 + 30) = (60, 50)
+            #expect(isApproximatelyEqual(devicePoint.x, 60))
+            #expect(isApproximatelyEqual(devicePoint.y, 50))
+        }
+
+        @Test("Scaling multiplies coordinates correctly")
+        func scalingMultipliesCoordinates() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.scaleBy(x: 2, y: 3)
+
+            let userPoint = CGPoint(x: 10, y: 10)
+            let devicePoint = context.convertToDeviceSpace(userPoint)
+
+            // Device coordinates should be (10 * 2, 10 * 3) = (20, 30)
+            #expect(isApproximatelyEqual(devicePoint.x, 20))
+            #expect(isApproximatelyEqual(devicePoint.y, 30))
+        }
+
+        @Test("Rotation by 90 degrees swaps coordinates")
+        func rotation90DegreesSwapsCoordinates() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.rotate(by: CGFloat.pi / 2)
+
+            // Point (10, 0) should rotate to (0, 10)
+            let userPoint = CGPoint(x: 10, y: 0)
+            let devicePoint = context.convertToDeviceSpace(userPoint)
+
+            #expect(isApproximatelyEqual(devicePoint.x, 0))
+            #expect(isApproximatelyEqual(devicePoint.y, 10))
+        }
+
+        @Test("Scale then translate order matters")
+        func scaleTranslateOrder() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            // Scale by 2, then translate by 10
+            context.scaleBy(x: 2, y: 2)
+            context.translateBy(x: 10, y: 10)
+
+            // Point (0, 0) goes through: scale (0,0) -> translate (10, 10) scaled = (20, 20)
+            let devicePoint = context.convertToDeviceSpace(CGPoint.zero)
+            #expect(isApproximatelyEqual(devicePoint.x, 20))
+            #expect(isApproximatelyEqual(devicePoint.y, 20))
+        }
+
+        @Test("Convert CGSize to device space scales correctly")
+        func convertSizeToDeviceSpace() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.scaleBy(x: 2, y: 3)
+
+            let userSize = CGSize(width: 10, height: 10)
+            let deviceSize = context.convertToDeviceSpace(userSize)
+
+            #expect(isApproximatelyEqual(deviceSize.width, 20))
+            #expect(isApproximatelyEqual(deviceSize.height, 30))
+        }
+
+        @Test("Convert CGRect to device space transforms correctly")
+        func convertRectToDeviceSpace() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.translateBy(x: 10, y: 20)
+            context.scaleBy(x: 2, y: 2)
+
+            let userRect = CGRect(x: 5, y: 5, width: 10, height: 10)
+            let deviceRect = context.convertToDeviceSpace(userRect)
+
+            // Origin: (5*2 + 10, 5*2 + 20) = (20, 30)
+            // Size: (10*2, 10*2) = (20, 20)
+            #expect(isApproximatelyEqual(deviceRect.origin.x, 20))
+            #expect(isApproximatelyEqual(deviceRect.origin.y, 30))
+            #expect(isApproximatelyEqual(deviceRect.size.width, 20))
+            #expect(isApproximatelyEqual(deviceRect.size.height, 20))
+        }
+
+        @Test("CTM is identity by default")
+        func ctmIdentityByDefault() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            #expect(context.ctm.isIdentity)
+        }
+
+        @Test("Concatenate custom transform")
+        func concatenateCustomTransform() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            // Create a shear transformation
+            let shear = CGAffineTransform(a: 1, b: 0, c: 0.5, d: 1, tx: 0, ty: 0)
+            context.concatenate(shear)
+
+            let point = CGPoint(x: 0, y: 10)
+            let transformed = context.convertToDeviceSpace(point)
+
+            // x' = x + 0.5 * y = 0 + 0.5 * 10 = 5
+            #expect(isApproximatelyEqual(transformed.x, 5))
+            #expect(isApproximatelyEqual(transformed.y, 10))
+        }
+    }
+
+    // MARK: - Graphics State Stack Logic Tests
+
+    @Suite("Graphics State Stack Logic")
+    struct GraphicsStateStackLogicTests {
+
+        fileprivate func createTestContext() -> CGContext? {
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            return CGContext(
+                data: nil,
+                width: 100,
+                height: 100,
+                bitsPerComponent: 8,
+                bytesPerRow: 400,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            )
+        }
+
+        private func isApproximatelyEqual(_ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.001) -> Bool {
+            return abs(a - b) < tolerance
+        }
+
+        @Test("GState saves and restores CTM")
+        func gstateSavesRestoresCTM() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.translateBy(x: 10, y: 20)
+            context.saveGState()
+            context.translateBy(x: 50, y: 50)
+
+            // After additional translation
+            #expect(context.ctm.tx == 60)
+            #expect(context.ctm.ty == 70)
+
+            context.restoreGState()
+
+            // After restore, should be back to original translation
+            #expect(context.ctm.tx == 10)
+            #expect(context.ctm.ty == 20)
+        }
+
+        @Test("GState saves and restores line width")
+        func gstateSavesRestoresLineWidth() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(5.0)
+            context.saveGState()
+            context.setLineWidth(10.0)
+            context.saveGState()
+            context.setLineWidth(15.0)
+
+            #expect(context.lineWidth == 15.0)
+            context.restoreGState()
+            #expect(context.lineWidth == 10.0)
+            context.restoreGState()
+            #expect(context.lineWidth == 5.0)
+        }
+
+        @Test("GState saves and restores text position")
+        func gstateSavesRestoresTextPosition() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setTextPosition(x: 10, y: 20)
+            context.saveGState()
+            context.setTextPosition(x: 50, y: 60)
+
+            #expect(context.textPosition.x == 50)
+            #expect(context.textPosition.y == 60)
+
+            context.restoreGState()
+
+            #expect(context.textPosition.x == 10)
+            #expect(context.textPosition.y == 20)
+        }
+
+        @Test("GState saves and restores text matrix")
+        func gstateSavesRestoresTextMatrix() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            let matrix1 = CGAffineTransform(scaleX: 2, y: 2)
+            context.setTextMatrix(matrix1)
+            context.saveGState()
+
+            let matrix2 = CGAffineTransform(rotationAngle: CGFloat.pi / 4)
+            context.setTextMatrix(matrix2)
+
+            #expect(isApproximatelyEqual(context.textMatrix.a, matrix2.a))
+
+            context.restoreGState()
+
+            #expect(isApproximatelyEqual(context.textMatrix.a, 2))
+        }
+
+        @Test("GState saves and restores interpolation quality")
+        func gstateSavesRestoresInterpolationQuality() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setInterpolationQuality(.high)
+            context.saveGState()
+            context.setInterpolationQuality(.low)
+
+            #expect(context.interpolationQuality == .low)
+
+            context.restoreGState()
+
+            #expect(context.interpolationQuality == .high)
+        }
+
+        @Test("Deep nesting of GState stack works correctly")
+        func deepNestedGStateStack() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            // Create deep nesting
+            for i in 1...10 {
+                context.setLineWidth(CGFloat(i))
+                context.saveGState()
+            }
+
+            // Verify current line width
+            #expect(context.lineWidth == 10.0)
+
+            // Unwind the stack
+            for i in (1...10).reversed() {
+                context.restoreGState()
+                #expect(context.lineWidth == CGFloat(i))
+            }
+        }
+
+        @Test("Restore on empty stack does nothing")
+        func restoreOnEmptyStackDoesNothing() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(5.0)
+
+            // Restore without any saves should not crash and keep current state
+            context.restoreGState()
+            context.restoreGState()
+            context.restoreGState()
+
+            #expect(context.lineWidth == 5.0)
+        }
+    }
+
+    // MARK: - Pixel Data Initialization Tests
+
+    @Suite("Pixel Data Initialization")
+    struct PixelDataInitializationTests {
+
+        @Test("Initial context pixels are all zero (transparent)")
+        func initialPixelsAreZero() {
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: 10,
+                height: 10,
+                bitsPerComponent: 8,
+                bytesPerRow: 40,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ), let data = context.data else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            let ptr = data.assumingMemoryBound(to: UInt8.self)
+            let totalBytes = 10 * 40 // 10 rows * 40 bytes per row
+
+            // All bytes should be 0 (transparent)
+            for i in 0..<totalBytes {
+                #expect(ptr[i] == 0, "Byte at index \(i) should be 0 but was \(ptr[i])")
+            }
+        }
+
+        @Test("Make image produces correct dimensions")
+        func makeImageProducesCorrectDimensions() {
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: 50,
+                height: 30,
+                bitsPerComponent: 8,
+                bytesPerRow: 200,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            let image = context.makeImage()
+
+            #expect(image?.width == 50)
+            #expect(image?.height == 30)
+            #expect(image?.bitsPerComponent == 8)
+            #expect(image?.bytesPerRow == 200)
+        }
+
+        @Test("Make image preserves color space")
+        func makeImagePreservesColorSpace() {
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: 50,
+                height: 30,
+                bitsPerComponent: 8,
+                bytesPerRow: 200,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            let image = context.makeImage()
+
+            #expect(image?.colorSpace?.model == .rgb)
         }
     }
 }

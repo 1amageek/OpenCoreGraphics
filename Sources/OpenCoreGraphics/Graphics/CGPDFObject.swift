@@ -333,10 +333,10 @@ public func CGPDFStringGetLength(_ string: CGPDFStringRef) -> Int {
     return 0 // Placeholder
 }
 
-/// Returns a CFString object that represents a PDF string as text.
+/// Returns a String object that represents a PDF string as text.
 ///
 /// - Parameter string: The PDF string.
-/// - Returns: A CFString representation.
+/// - Returns: A String representation.
 public func CGPDFStringCopyTextString(_ string: CGPDFStringRef) -> String? {
     return nil // Placeholder
 }

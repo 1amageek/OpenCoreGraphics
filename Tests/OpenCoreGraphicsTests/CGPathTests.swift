@@ -527,4 +527,264 @@ struct CGPathTests {
             #expect(!path.isEmpty)
         }
     }
+
+    // MARK: - Geometry Logic Tests
+
+    @Suite("Geometry Logic")
+    struct GeometryLogicTests {
+
+        // MARK: - Rectangle Contains Tests
+
+        @Test("Rectangle path contains works correctly for interior points")
+        func rectangleContainsInterior() {
+            let path = CGPath(rect: CGRect(x: 10, y: 10, width: 80, height: 80))
+
+            // Interior points should be inside
+            #expect(path.contains(CGPoint(x: 50, y: 50)))
+            #expect(path.contains(CGPoint(x: 11, y: 11)))
+            #expect(path.contains(CGPoint(x: 89, y: 89)))
+            #expect(path.contains(CGPoint(x: 50, y: 11)))
+            #expect(path.contains(CGPoint(x: 50, y: 89)))
+        }
+
+        @Test("Rectangle path contains works correctly for exterior points")
+        func rectangleContainsExterior() {
+            let path = CGPath(rect: CGRect(x: 10, y: 10, width: 80, height: 80))
+
+            // Points outside should not be contained
+            #expect(!path.contains(CGPoint(x: 5, y: 50)))   // left of rect
+            #expect(!path.contains(CGPoint(x: 95, y: 50)))  // right of rect
+            #expect(!path.contains(CGPoint(x: 50, y: 5)))   // above rect
+            #expect(!path.contains(CGPoint(x: 50, y: 95)))  // below rect
+            #expect(!path.contains(CGPoint(x: 0, y: 0)))    // far outside
+            #expect(!path.contains(CGPoint(x: 100, y: 100)))
+        }
+
+        // MARK: - Ellipse Contains Tests
+
+        @Test("Ellipse path does not contain corner points")
+        func ellipseDoesNotContainCorners() {
+            let path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 100, height: 100))
+
+            // Corners of bounding rect should NOT be inside ellipse
+            #expect(!path.contains(CGPoint(x: 1, y: 1)))
+            #expect(!path.contains(CGPoint(x: 99, y: 1)))
+            #expect(!path.contains(CGPoint(x: 1, y: 99)))
+            #expect(!path.contains(CGPoint(x: 99, y: 99)))
+        }
+
+        @Test("Ellipse path contains center point")
+        func ellipseContainsCenter() {
+            let path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 100, height: 100))
+
+            // Center should definitely be inside
+            #expect(path.contains(CGPoint(x: 50, y: 50)))
+        }
+
+        @Test("Ellipse path contains points on major axis")
+        func ellipseContainsMajorAxisPoints() {
+            let path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 100, height: 100))
+
+            // Points near the edge on the horizontal axis
+            #expect(path.contains(CGPoint(x: 5, y: 50)))   // near left edge
+            #expect(path.contains(CGPoint(x: 95, y: 50)))  // near right edge
+            #expect(path.contains(CGPoint(x: 50, y: 5)))   // near top edge
+            #expect(path.contains(CGPoint(x: 50, y: 95)))  // near bottom edge
+        }
+
+        // MARK: - Compound Path Bounding Box Tests
+
+        @Test("Compound path bounding box encompasses all subpaths")
+        func compoundPathBoundingBox() {
+            let path = CGMutablePath()
+            path.addRect(CGRect(x: 0, y: 0, width: 50, height: 50))
+            path.addRect(CGRect(x: 100, y: 100, width: 50, height: 50))
+
+            let bbox = path.boundingBox
+            #expect(bbox.minX == 0)
+            #expect(bbox.minY == 0)
+            #expect(bbox.maxX == 150)
+            #expect(bbox.maxY == 150)
+        }
+
+        @Test("Disjoint paths bounding box is union of individual bounds")
+        func disjointPathsBoundingBox() {
+            let path = CGMutablePath()
+
+            // Three disjoint rectangles
+            path.addRect(CGRect(x: 0, y: 0, width: 10, height: 10))
+            path.addRect(CGRect(x: 50, y: 50, width: 10, height: 10))
+            path.addRect(CGRect(x: 200, y: 0, width: 10, height: 10))
+
+            let bbox = path.boundingBox
+            #expect(bbox.minX == 0)
+            #expect(bbox.minY == 0)
+            #expect(bbox.maxX == 210)
+            #expect(bbox.maxY == 60)
+        }
+
+        // MARK: - Bezier Curve Bounding Box Tests
+
+        @Test("Quadratic bezier bounding box includes control point influence")
+        func quadraticBezierBoundingBox() {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 0, y: 0))
+            path.addQuadCurve(to: CGPoint(x: 100, y: 0), control: CGPoint(x: 50, y: 100))
+
+            let bbox = path.boundingBox
+            // The curve should extend upward due to control point
+            #expect(bbox.maxY >= 50)  // At least halfway to control point
+            #expect(bbox.minX == 0)
+            #expect(bbox.maxX == 100)
+        }
+
+        @Test("Cubic bezier bounding box is calculated correctly")
+        func cubicBezierBoundingBox() {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 0, y: 50))
+            path.addCurve(
+                to: CGPoint(x: 100, y: 50),
+                control1: CGPoint(x: 30, y: 0),
+                control2: CGPoint(x: 70, y: 100)
+            )
+
+            let bbox = path.boundingBox
+            // Curve should extend both up and down from the endpoints
+            #expect(bbox.minY < 50)  // Should extend below y=50
+            #expect(bbox.maxY > 50)  // Should extend above y=50
+        }
+
+        // MARK: - Even-Odd Fill Rule Tests
+
+        @Test("Even-odd fill rule with concentric rectangles")
+        func evenOddFillRuleConcentricRects() {
+            let path = CGMutablePath()
+            // Outer rectangle
+            path.addRect(CGRect(x: 0, y: 0, width: 100, height: 100))
+            // Inner rectangle
+            path.addRect(CGRect(x: 25, y: 25, width: 50, height: 50))
+
+            // Both should be contained with default (winding) rule for simple shapes
+            // Note: actual winding behavior may vary based on subpath direction
+            #expect(path.contains(CGPoint(x: 10, y: 10)))  // In outer rect only
+
+            // With even-odd rule: inner rectangle creates a "hole"
+            #expect(!path.contains(CGPoint(x: 50, y: 50), using: .evenOdd))
+            #expect(path.contains(CGPoint(x: 10, y: 10), using: .evenOdd))
+        }
+
+        @Test("Even-odd fill rule with overlapping rectangles")
+        func evenOddFillRuleOverlappingRects() {
+            let path = CGMutablePath()
+            path.addRect(CGRect(x: 0, y: 0, width: 60, height: 100))
+            path.addRect(CGRect(x: 40, y: 0, width: 60, height: 100))
+
+            // Overlap region (40-60) should be outside with even-odd
+            #expect(!path.contains(CGPoint(x: 50, y: 50), using: .evenOdd))
+
+            // Non-overlap regions should be inside
+            #expect(path.contains(CGPoint(x: 20, y: 50), using: .evenOdd))
+            #expect(path.contains(CGPoint(x: 80, y: 50), using: .evenOdd))
+        }
+
+        // MARK: - Path Equality Tests
+
+        @Test("Paths with same geometry are equal")
+        func pathsWithSameGeometryEqual() {
+            let path1 = CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100))
+            let path2 = CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100))
+
+            #expect(path1 == path2)
+        }
+
+        @Test("Paths with different geometry are not equal")
+        func pathsWithDifferentGeometryNotEqual() {
+            let path1 = CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100))
+            let path2 = CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 50))
+
+            #expect(path1 != path2)
+        }
+
+        @Test("Path equality compares element-by-element")
+        func pathEqualityElementByElement() {
+            let path1 = CGMutablePath()
+            path1.move(to: CGPoint(x: 0, y: 0))
+            path1.addLine(to: CGPoint(x: 100, y: 100))
+
+            let path2 = CGMutablePath()
+            path2.move(to: CGPoint(x: 0, y: 0))
+            path2.addLine(to: CGPoint(x: 100, y: 100))
+
+            #expect(path1 == path2)
+        }
+
+        @Test("Path built differently but same shape is equal")
+        func pathBuiltDifferentlyButSameShape() {
+            // Build same rectangle two different ways
+            let path1 = CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100))
+
+            let path2 = CGMutablePath()
+            path2.move(to: CGPoint(x: 0, y: 0))
+            path2.addLine(to: CGPoint(x: 100, y: 0))
+            path2.addLine(to: CGPoint(x: 100, y: 100))
+            path2.addLine(to: CGPoint(x: 0, y: 100))
+            path2.closeSubpath()
+
+            // These should be equal if implementation compares geometry
+            #expect(path1 == path2)
+        }
+
+        // MARK: - Arc Geometry Tests
+
+        @Test("Full circle arc contains its center")
+        func fullCircleContainsCenter() {
+            let path = CGMutablePath()
+            path.addArc(
+                center: CGPoint(x: 50, y: 50),
+                radius: 25,
+                startAngle: 0,
+                endAngle: CGFloat.pi * 2,
+                clockwise: false
+            )
+            path.closeSubpath()
+
+            #expect(path.contains(CGPoint(x: 50, y: 50)))
+        }
+
+        @Test("Full circle arc does not contain point outside radius")
+        func fullCircleDoesNotContainOutsidePoint() {
+            let path = CGMutablePath()
+            path.addArc(
+                center: CGPoint(x: 50, y: 50),
+                radius: 25,
+                startAngle: 0,
+                endAngle: CGFloat.pi * 2,
+                clockwise: false
+            )
+            path.closeSubpath()
+
+            // Point 30 units from center (radius is 25)
+            #expect(!path.contains(CGPoint(x: 80, y: 50)))
+        }
+
+        @Test("Arc bounding box is correct for quarter circle")
+        func arcBoundingBoxQuarterCircle() {
+            let path = CGMutablePath()
+            // Quarter circle in first quadrant
+            path.addArc(
+                center: CGPoint(x: 0, y: 0),
+                radius: 50,
+                startAngle: 0,
+                endAngle: CGFloat.pi / 2,
+                clockwise: false
+            )
+
+            let bbox = path.boundingBox
+            // Should span from (50, 0) to (0, 50) approximately
+            #expect(bbox.maxX >= 49)
+            #expect(bbox.maxY >= 49)
+            #expect(bbox.minX <= 1)
+            #expect(bbox.minY <= 1)
+        }
+    }
 }
