@@ -52,7 +52,7 @@ let containsPoint = rect.contains(point)
 - `CGContext`, `CGImage`, `CGPath`, `CGMutablePath`, `CGLayer`
 
 ### Colors & Color Spaces
-- `CGColor`, `CGColorSpace`, `CGColorModel`, `CGColorConversionInfo`
+- `CGColor`, `CGColorSpace`, `CGColorSpaceModel`, `CGColorConversionInfo`
 - `CGComponent`, `CGBitmapInfo`, `CGImageAlphaInfo`
 
 ### Gradients & Patterns
@@ -105,41 +105,16 @@ swift sdk list
 
 ## WASM Compatibility
 
-This library is designed with WASM compatibility as a primary goal. Unlike Apple's CoreGraphics which relies on CoreFoundation types, OpenCoreGraphics uses pure Swift types that work in WASM environments.
+This library is designed with WASM compatibility as a primary goal. All implementations use pure Swift types that work seamlessly in WebAssembly environments.
 
-### Type Mappings
+### Pure Swift Implementation
 
-CoreFoundation types are not available in WASM. This library uses Swift standard types instead:
+OpenCoreGraphics is built entirely with Swift standard types:
 
-| CoreGraphics (Apple) | OpenCoreGraphics | Notes |
-|---------------------|------------------|-------|
-| `CFString` | `String` | Toll-free bridged on Apple platforms |
-| `CFDictionary` | `[String: Any]` | Dictionary representation |
-| `CFData` | `Data` | Swift Foundation Data |
-| `CFTypeID` | `UInt` | Type identifier |
-| `CFURL` | `URL` | Swift Foundation URL |
-| `NSData` | `Data` | Swift Foundation Data |
-
-### API Differences
-
-Some APIs use Swift types instead of CoreFoundation types:
-
-```swift
-// CGColorSpace color space names
-// Apple: CFString
-// OpenCoreGraphics: String
-let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)  // String type
-
-// Dictionary representations
-// Apple: CFDictionary
-// OpenCoreGraphics: [String: Any]
-let dict: [String: Any] = point.dictionaryRepresentation
-
-// PDF context keys
-// Apple: CFString constants
-// OpenCoreGraphics: String constants
-let authorKey: String = kCGPDFContextAuthor
-```
+- `String` for names and identifiers
+- `Data` for binary data
+- `[String: Any]` for property lists and dictionaries
+- `UInt` for type identifiers
 
 ### Supported Color Spaces
 
