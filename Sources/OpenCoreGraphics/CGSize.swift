@@ -8,6 +8,7 @@
 import Foundation
 
 /// A structure that contains width and height values.
+@frozen
 public struct CGSize: Sendable {
 
     /// A width value.
@@ -68,21 +69,19 @@ public struct CGSize: Sendable {
     // MARK: - Dictionary Representation
 
     /// Returns a dictionary representation of this size.
-    public var dictionaryRepresentation: CFDictionary {
-        let dict: [CFString: Any] = [
-            "Width" as CFString: width.native,
-            "Height" as CFString: height.native
+    public var dictionaryRepresentation: [String: Any] {
+        return [
+            "Width": width.native,
+            "Height": height.native
         ]
-        return dict as CFDictionary
     }
 
     /// Creates a size from a dictionary representation.
     ///
     /// - Parameter dict: A dictionary containing "Width" and "Height" keys with numeric values.
-    public init?(dictionaryRepresentation dict: CFDictionary) {
-        guard let dictionary = dict as? [String: Any],
-              let width = dictionary["Width"] as? Double,
-              let height = dictionary["Height"] as? Double else {
+    public init?(dictionaryRepresentation dict: [String: Any]) {
+        guard let width = dict["Width"] as? Double,
+              let height = dict["Height"] as? Double else {
             return nil
         }
         self.init(width: width, height: height)

@@ -6,6 +6,7 @@
 //
 
 /// A structure that contains a two-dimensional vector.
+@frozen
 public struct CGVector: Sendable {
 
     /// The x component of the vector.

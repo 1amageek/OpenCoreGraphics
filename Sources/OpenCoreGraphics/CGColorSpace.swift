@@ -68,7 +68,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     public let model: CGColorSpaceModel
 
     /// The name of the color space.
-    public let name: CFString?
+    public let name: String?
 
     /// The number of color components in the color space.
     public let numberOfComponents: Int
@@ -94,7 +94,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     /// Internal initializer
     internal init(
         model: CGColorSpaceModel,
-        name: CFString?,
+        name: String?,
         numberOfComponents: Int,
         baseColorSpace: CGColorSpace? = nil,
         colorTable: [UInt8]? = nil,
@@ -117,118 +117,117 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     // MARK: - System-Defined Color Space Names (class let)
 
     /// The Display P3 color space, created by Apple.
-    nonisolated(unsafe) public static let displayP3: CFString = "kCGColorSpaceDisplayP3" as CFString
+    public static let displayP3: String = "kCGColorSpaceDisplayP3"
 
     /// The Display P3 color space, using the HLG transfer function.
-    nonisolated(unsafe) public static let displayP3_HLG: CFString = "kCGColorSpaceDisplayP3_HLG" as CFString
+    public static let displayP3_HLG: String = "kCGColorSpaceDisplayP3_HLG"
 
     /// The Display P3 color space, using the PQ transfer function.
-    nonisolated(unsafe) public static let displayP3_PQ: CFString = "kCGColorSpaceDisplayP3_PQ" as CFString
+    public static let displayP3_PQ: String = "kCGColorSpaceDisplayP3_PQ"
 
     /// The Display P3 color space with a linear transfer function and extended-range values.
-    nonisolated(unsafe) public static let extendedLinearDisplayP3: CFString = "kCGColorSpaceExtendedLinearDisplayP3" as CFString
+    public static let extendedLinearDisplayP3: String = "kCGColorSpaceExtendedLinearDisplayP3"
 
     /// The extended Display P3 color space.
-    nonisolated(unsafe) public static let extendedDisplayP3: CFString = "kCGColorSpaceExtendedDisplayP3" as CFString
+    public static let extendedDisplayP3: String = "kCGColorSpaceExtendedDisplayP3"
 
     /// The Display P3 color space with a linear transfer function.
-    nonisolated(unsafe) public static let linearDisplayP3: CFString = "kCGColorSpaceLinearDisplayP3" as CFString
+    public static let linearDisplayP3: String = "kCGColorSpaceLinearDisplayP3"
 
     /// The standard Red Green Blue (sRGB) color space.
-    nonisolated(unsafe) public static let sRGB: CFString = "kCGColorSpaceSRGB" as CFString
+    public static let sRGB: String = "kCGColorSpaceSRGB"
 
     /// The sRGB color space with a linear transfer function.
-    nonisolated(unsafe) public static let linearSRGB: CFString = "kCGColorSpaceLinearSRGB" as CFString
+    public static let linearSRGB: String = "kCGColorSpaceLinearSRGB"
 
     /// The extended sRGB color space.
-    nonisolated(unsafe) public static let extendedSRGB: CFString = "kCGColorSpaceExtendedSRGB" as CFString
+    public static let extendedSRGB: String = "kCGColorSpaceExtendedSRGB"
 
     /// The sRGB color space with a linear transfer function and extended-range values.
-    nonisolated(unsafe) public static let extendedLinearSRGB: CFString = "kCGColorSpaceExtendedLinearSRGB" as CFString
+    public static let extendedLinearSRGB: String = "kCGColorSpaceExtendedLinearSRGB"
 
     /// The generic gray color space that has an exponential transfer function with a power of 2.2.
-    nonisolated(unsafe) public static let genericGrayGamma2_2: CFString = "kCGColorSpaceGenericGrayGamma2_2" as CFString
+    public static let genericGrayGamma2_2: String = "kCGColorSpaceGenericGrayGamma2_2"
 
     /// The extended gray color space.
-    nonisolated(unsafe) public static let extendedGray: CFString = "kCGColorSpaceExtendedGray" as CFString
+    public static let extendedGray: String = "kCGColorSpaceExtendedGray"
 
     /// The gray color space using a linear transfer function.
-    nonisolated(unsafe) public static let linearGray: CFString = "kCGColorSpaceLinearGray" as CFString
+    public static let linearGray: String = "kCGColorSpaceLinearGray"
 
     /// The extended gray color space with a linear transfer function.
-    nonisolated(unsafe) public static let extendedLinearGray: CFString = "kCGColorSpaceExtendedLinearGray" as CFString
+    public static let extendedLinearGray: String = "kCGColorSpaceExtendedLinearGray"
 
     /// The generic CMYK color space.
-    nonisolated(unsafe) public static let genericCMYK: CFString = "kCGColorSpaceGenericCMYK" as CFString
+    public static let genericCMYK: String = "kCGColorSpaceGenericCMYK"
 
     /// The generic RGB color space with a linear transfer function.
-    nonisolated(unsafe) public static let genericRGBLinear: CFString = "kCGColorSpaceGenericRGBLinear" as CFString
+    public static let genericRGBLinear: String = "kCGColorSpaceGenericRGBLinear"
 
     /// The XYZ color space, as defined by the CIE 1931 standard.
-    nonisolated(unsafe) public static let genericXYZ: CFString = "kCGColorSpaceGenericXYZ" as CFString
+    public static let genericXYZ: String = "kCGColorSpaceGenericXYZ"
 
     /// The generic LAB color space.
-    nonisolated(unsafe) public static let genericLab: CFString = "kCGColorSpaceGenericLab" as CFString
+    public static let genericLab: String = "kCGColorSpaceGenericLab"
 
     /// The ACEScg color space.
-    nonisolated(unsafe) public static let acescgLinear: CFString = "kCGColorSpaceACESCGLinear" as CFString
+    public static let acescgLinear: String = "kCGColorSpaceACESCGLinear"
 
     /// The Adobe RGB (1998) color space.
-    nonisolated(unsafe) public static let adobeRGB1998: CFString = "kCGColorSpaceAdobeRGB1998" as CFString
+    public static let adobeRGB1998: String = "kCGColorSpaceAdobeRGB1998"
 
     /// The DCI P3 color space, which is the digital cinema standard.
-    nonisolated(unsafe) public static let dcip3: CFString = "kCGColorSpaceDCIP3" as CFString
+    public static let dcip3: String = "kCGColorSpaceDCIP3"
 
     /// The Reference Output Medium Metric (ROMM) RGB color space.
-    nonisolated(unsafe) public static let rommrgb: CFString = "kCGColorSpaceROMMRGB" as CFString
+    public static let rommrgb: String = "kCGColorSpaceROMMRGB"
 
     /// The recommendation of the International Telecommunication Union (ITU) Radiocommunication sector for the BT.709 color space.
-    nonisolated(unsafe) public static let itur_709: CFString = "kCGColorSpaceITUR_709" as CFString
+    public static let itur_709: String = "kCGColorSpaceITUR_709"
 
     /// The ITU-R BT.709 color space with HLG transfer function.
-    nonisolated(unsafe) public static let itur_709_HLG: CFString = "kCGColorSpaceITUR_709_HLG" as CFString
+    public static let itur_709_HLG: String = "kCGColorSpaceITUR_709_HLG"
 
     /// The ITU-R BT.709 color space with PQ transfer function.
-    nonisolated(unsafe) public static let itur_709_PQ: CFString = "kCGColorSpaceITUR_709_PQ" as CFString
+    public static let itur_709_PQ: String = "kCGColorSpaceITUR_709_PQ"
 
     /// The recommendation of the International Telecommunication Union (ITU) Radiocommunication sector for the BT.2020 color space.
-    nonisolated(unsafe) public static let itur_2020: CFString = "kCGColorSpaceITUR_2020" as CFString
+    public static let itur_2020: String = "kCGColorSpaceITUR_2020"
 
     /// The ITU-R BT.2020 color space with sRGB gamma.
-    nonisolated(unsafe) public static let itur_2020_sRGBGamma: CFString = "kCGColorSpaceITUR_2020_sRGBGamma" as CFString
+    public static let itur_2020_sRGBGamma: String = "kCGColorSpaceITUR_2020_sRGBGamma"
 
     /// The ITU-R BT.2020 color space with a linear transfer function and extended range values.
-    nonisolated(unsafe) public static let extendedLinearITUR_2020: CFString = "kCGColorSpaceExtendedLinearITUR_2020" as CFString
+    public static let extendedLinearITUR_2020: String = "kCGColorSpaceExtendedLinearITUR_2020"
 
     /// The extended ITU-R BT.2020 color space.
-    nonisolated(unsafe) public static let extendedITUR_2020: CFString = "kCGColorSpaceExtendedITUR_2020" as CFString
+    public static let extendedITUR_2020: String = "kCGColorSpaceExtendedITUR_2020"
 
     /// The ITU-R BT.2020 color space with a linear transfer function.
-    nonisolated(unsafe) public static let linearITUR_2020: CFString = "kCGColorSpaceLinearITUR_2020" as CFString
+    public static let linearITUR_2020: String = "kCGColorSpaceLinearITUR_2020"
 
     /// The ITU-R BT.2100 color space with HLG transfer function.
-    nonisolated(unsafe) public static let itur_2100_HLG: CFString = "kCGColorSpaceITUR_2100_HLG" as CFString
+    public static let itur_2100_HLG: String = "kCGColorSpaceITUR_2100_HLG"
 
     /// The ITU-R BT.2100 color space with PQ transfer function.
-    nonisolated(unsafe) public static let itur_2100_PQ: CFString = "kCGColorSpaceITUR_2100_PQ" as CFString
+    public static let itur_2100_PQ: String = "kCGColorSpaceITUR_2100_PQ"
 
     /// The Core Media 709 color space.
-    nonisolated(unsafe) public static let coreMedia709: CFString = "kCGColorSpaceCoreMedia709" as CFString
+    public static let coreMedia709: String = "kCGColorSpaceCoreMedia709"
 
-    // MARK: - Core Foundation Type ID
+    // MARK: - Type ID
 
-    /// Returns the Core Foundation type identifier for Quartz color spaces.
-    public static var typeID: CFTypeID {
-        // In a real implementation, this would return the actual CF type ID
+    /// Returns the type identifier for Quartz color spaces.
+    public static var typeID: UInt {
+        // In a real implementation, this would return the actual type ID
         return 0
     }
 
     // MARK: - Creating Color Spaces
 
     /// Creates a specified type of Quartz color space.
-    public convenience init?(name: CFString) {
-        let nameString = name as String
-        switch nameString {
+    public convenience init?(name: String) {
+        switch name {
         case "kCGColorSpaceSRGB", "sRGB":
             self.init(model: .rgb, name: name, numberOfComponents: 3)
         case "kCGColorSpaceDisplayP3":
@@ -416,24 +415,19 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     }
 
     /// Creates an ICC-based color space using the ICC profile contained in the specified data.
-    public convenience init?(iccData: CFTypeRef) {
-        // Check if the CFTypeRef is actually CFData by comparing type IDs
-        guard CFGetTypeID(iccData) == CFDataGetTypeID() else { return nil }
-        let cfData = iccData as! CFData
-        let data = cfData as Data
-
+    public convenience init?(iccData: Data) {
         // Parse ICC profile header to determine color space type
         // For now, default to RGB
         self.init(
             model: .rgb,
             name: nil,
             numberOfComponents: 3,
-            iccProfileData: data
+            iccProfileData: iccData
         )
     }
 
     /// Creates a color space from a property list.
-    public convenience init?(propertyListPlist plist: CFPropertyList) {
+    public convenience init?(propertyListPlist plist: Any) {
         guard let dict = plist as? [String: Any],
               let modelValue = dict["model"] as? Int32,
               let model = CGColorSpaceModel(rawValue: modelValue),
@@ -445,7 +439,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
         self.init(
             model: model,
-            name: name.map { $0 as CFString },
+            name: name,
             numberOfComponents: components
         )
     }
@@ -464,7 +458,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     /// Returns whether the RGB color space covers a significant portion of the NTSC color gamut.
     public var isWideGamutRGB: Bool {
-        guard model == .rgb, let name = name as String? else { return false }
+        guard model == .rgb, let name = name else { return false }
         return name.contains("DisplayP3") ||
                name.contains("ExtendedSRGB") ||
                name.contains("ITUR_2020") ||
@@ -475,34 +469,34 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     /// Returns whether this is an HDR color space.
     public func isHDR() -> Bool {
-        guard let name = name as String? else { return false }
+        guard let name = name else { return false }
         return name.contains("HLG") ||
                name.contains("PQ") ||
                name.contains("2100")
     }
 
     /// Returns a copy of the ICC profile data of the provided color space.
-    public func copyICCData() -> CFData? {
-        return iccProfileData.map { $0 as CFData }
+    public func copyICCData() -> Data? {
+        return iccProfileData
     }
 
     /// Returns a copy of the color space's properties.
-    public func copyPropertyList() -> CFPropertyList? {
+    public func copyPropertyList() -> Any? {
         var dict: [String: Any] = [
             "model": model.rawValue,
             "numberOfComponents": numberOfComponents
         ]
         if let name = name {
-            dict["name"] = name as String
+            dict["name"] = name
         }
-        return dict as CFPropertyList
+        return dict
     }
 
     // MARK: - Equatable
 
     public static func == (lhs: CGColorSpace, rhs: CGColorSpace) -> Bool {
         return lhs.model == rhs.model &&
-               lhs.name as String? == rhs.name as String? &&
+               lhs.name == rhs.name &&
                lhs.numberOfComponents == rhs.numberOfComponents
     }
 
@@ -510,7 +504,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(model)
-        hasher.combine(name as String?)
+        hasher.combine(name)
         hasher.combine(numberOfComponents)
     }
 }
@@ -521,7 +515,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 public func CGColorSpaceCreateDeviceRGB() -> CGColorSpace {
     return CGColorSpace(
         model: .rgb,
-        name: "DeviceRGB" as CFString,
+        name: "DeviceRGB",
         numberOfComponents: 3
     )
 }
@@ -530,7 +524,7 @@ public func CGColorSpaceCreateDeviceRGB() -> CGColorSpace {
 public func CGColorSpaceCreateDeviceCMYK() -> CGColorSpace {
     return CGColorSpace(
         model: .cmyk,
-        name: "DeviceCMYK" as CFString,
+        name: "DeviceCMYK",
         numberOfComponents: 4
     )
 }
@@ -539,7 +533,7 @@ public func CGColorSpaceCreateDeviceCMYK() -> CGColorSpace {
 public func CGColorSpaceCreateDeviceGray() -> CGColorSpace {
     return CGColorSpace(
         model: .monochrome,
-        name: "DeviceGray" as CFString,
+        name: "DeviceGray",
         numberOfComponents: 1
     )
 }

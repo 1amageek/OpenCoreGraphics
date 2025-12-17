@@ -62,14 +62,14 @@ public class CGDataConsumer: @unchecked Sendable {
     private enum ConsumerType {
         case callback(info: UnsafeMutableRawPointer?, callbacks: CGDataConsumerCallbacks)
         case url(URL)
-        case data(NSMutableData)
+        case data
     }
 
     /// The consumer type.
     private let consumerType: ConsumerType
 
     /// Accumulated data for data-backed consumers.
-    private var accumulatedData: NSMutableData?
+    private var accumulatedData: Data?
 
     // MARK: - Initializers
 
@@ -88,14 +88,14 @@ public class CGDataConsumer: @unchecked Sendable {
     /// - Parameter url: The URL to write to.
     public init?(url: URL) {
         self.consumerType = .url(url)
-        self.accumulatedData = NSMutableData()
+        self.accumulatedData = Data()
     }
 
-    /// Creates a data consumer that writes to a CFData object.
+    /// Creates a data consumer that writes to a Data object.
     ///
-    /// - Parameter data: The mutable data object to write to.
-    public init?(data: NSMutableData) {
-        self.consumerType = .data(data)
+    /// - Parameter data: Initial data to start with (optional).
+    public init?(data: Data = Data()) {
+        self.consumerType = .data
         self.accumulatedData = data
     }
 
@@ -106,7 +106,7 @@ public class CGDataConsumer: @unchecked Sendable {
         case .url(let url):
             // Write accumulated data to URL
             if let data = accumulatedData {
-                try? data.write(to: url, options: .atomic)
+                try? data.write(to: url)
             }
         case .data:
             // Data is already written to the mutable data object
@@ -130,7 +130,8 @@ public class CGDataConsumer: @unchecked Sendable {
         case .callback(let info, let callbacks):
             return callbacks.putBytes?(info, buffer, count) ?? 0
         case .url, .data:
-            accumulatedData?.append(buffer, length: count)
+            let bufferPointer = UnsafeRawBufferPointer(start: buffer, count: count)
+            accumulatedData?.append(contentsOf: bufferPointer)
             return count
         }
     }

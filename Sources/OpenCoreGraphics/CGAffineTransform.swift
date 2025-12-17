@@ -8,6 +8,7 @@
 import Foundation
 
 /// An affine transformation matrix for use in drawing 2D graphics.
+@frozen
 public struct CGAffineTransform: Sendable {
 
     /// The entry at position [1,1] in the matrix.

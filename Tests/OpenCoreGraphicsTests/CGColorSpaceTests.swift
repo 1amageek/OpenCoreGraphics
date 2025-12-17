@@ -97,7 +97,7 @@ struct CGColorSpaceTests {
 
         @Test("Init with unknown name returns nil")
         func initUnknownName() {
-            let colorSpace = CGColorSpace(name: "UnknownColorSpace" as CFString)
+            let colorSpace = CGColorSpace(name: "UnknownColorSpace")
             #expect(colorSpace == nil)
         }
     }

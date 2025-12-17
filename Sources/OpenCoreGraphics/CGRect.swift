@@ -8,6 +8,7 @@
 import Foundation
 
 /// A structure that contains the location and dimensions of a rectangle.
+@frozen
 public struct CGRect: Sendable {
 
     /// A point that specifies the coordinates of the rectangle's origin.
@@ -335,25 +336,23 @@ public struct CGRect: Sendable {
     // MARK: - Dictionary Representation
 
     /// Returns a dictionary representation of this rectangle.
-    public var dictionaryRepresentation: CFDictionary {
-        let dict: [CFString: Any] = [
-            "X" as CFString: origin.x.native,
-            "Y" as CFString: origin.y.native,
-            "Width" as CFString: size.width.native,
-            "Height" as CFString: size.height.native
+    public var dictionaryRepresentation: [String: Any] {
+        return [
+            "X": origin.x.native,
+            "Y": origin.y.native,
+            "Width": size.width.native,
+            "Height": size.height.native
         ]
-        return dict as CFDictionary
     }
 
     /// Creates a rectangle from a dictionary representation.
     ///
     /// - Parameter dict: A dictionary containing "X", "Y", "Width", and "Height" keys with numeric values.
-    public init?(dictionaryRepresentation dict: CFDictionary) {
-        guard let dictionary = dict as? [String: Any],
-              let x = dictionary["X"] as? Double,
-              let y = dictionary["Y"] as? Double,
-              let width = dictionary["Width"] as? Double,
-              let height = dictionary["Height"] as? Double else {
+    public init?(dictionaryRepresentation dict: [String: Any]) {
+        guard let x = dict["X"] as? Double,
+              let y = dict["Y"] as? Double,
+              let width = dict["Width"] as? Double,
+              let height = dict["Height"] as? Double else {
             return nil
         }
         self.init(x: x, y: y, width: width, height: height)

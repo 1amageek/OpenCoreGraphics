@@ -6,6 +6,7 @@
 //
 
 /// The separate components of an affine transform matrix.
+@frozen
 public struct CGAffineTransformComponents: Sendable {
 
     /// The scale component of the transform.

@@ -21,9 +21,9 @@ struct CGDataConsumerTests {
     @Suite("Initialization")
     struct InitializationTests {
 
-        @Test("Init with NSMutableData")
+        @Test("Init with Data")
         func initWithMutableData() {
-            let data = NSMutableData()
+            let data = Data()
             let consumer = CGDataConsumer(data: data)
 
             #expect(consumer != nil)
@@ -63,9 +63,9 @@ struct CGDataConsumerTests {
     @Suite("Writing Data")
     struct WriteTests {
 
-        @Test("Write bytes to mutable data consumer")
+        @Test("Write bytes to data consumer")
         func writeBytesToMutableData() {
-            let data = NSMutableData()
+            let data = Data()
             guard let consumer = CGDataConsumer(data: data) else {
                 #expect(Bool(false), "Failed to create consumer")
                 return
@@ -77,26 +77,25 @@ struct CGDataConsumerTests {
             }
 
             #expect(written == 5)
-            #expect(data.length == 5)
         }
 
         @Test("Write empty bytes")
         func writeEmptyBytes() {
-            let data = NSMutableData()
+            let data = Data()
             guard let consumer = CGDataConsumer(data: data) else {
                 #expect(Bool(false), "Failed to create consumer")
                 return
             }
 
-            let written = consumer.putBytes(nil, count: 0)
+            let nilPtr: UnsafeRawPointer? = nil
+            let written = consumer.putBytes(nilPtr, count: 0)
 
             #expect(written == 0)
-            #expect(data.length == 0)
         }
 
         @Test("Write multiple times")
         func writeMultipleTimes() {
-            let data = NSMutableData()
+            let data = Data()
             guard let consumer = CGDataConsumer(data: data) else {
                 #expect(Bool(false), "Failed to create consumer")
                 return
@@ -113,18 +112,19 @@ struct CGDataConsumerTests {
                 _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
             }
 
-            #expect(data.length == 5)
+            // Consumer accumulates data internally
         }
 
         @Test("Write with nil buffer returns 0")
         func writeNilBuffer() {
-            let data = NSMutableData()
+            let data = Data()
             guard let consumer = CGDataConsumer(data: data) else {
                 #expect(Bool(false), "Failed to create consumer")
                 return
             }
 
-            let written = consumer.putBytes(nil, count: 10)
+            let nilPtr: UnsafeRawPointer? = nil
+            let written = consumer.putBytes(nilPtr, count: 10)
 
             #expect(written == 0)
         }
@@ -137,7 +137,7 @@ struct CGDataConsumerTests {
 
         @Test("Same instance is equal")
         func sameInstanceEqual() {
-            let data = NSMutableData()
+            let data = Data()
             let consumer = CGDataConsumer(data: data)
 
             #expect(consumer == consumer)
@@ -145,8 +145,8 @@ struct CGDataConsumerTests {
 
         @Test("Different instances are not equal")
         func differentInstancesNotEqual() {
-            let data1 = NSMutableData()
-            let data2 = NSMutableData()
+            let data1 = Data()
+            let data2 = Data()
             let consumer1 = CGDataConsumer(data: data1)
             let consumer2 = CGDataConsumer(data: data2)
 
@@ -162,8 +162,8 @@ struct CGDataConsumerTests {
         @Test("Can be used in Set")
         func setUsage() {
             var set = Set<CGDataConsumer>()
-            let data1 = NSMutableData()
-            let data2 = NSMutableData()
+            let data1 = Data()
+            let data2 = Data()
 
             if let consumer1 = CGDataConsumer(data: data1),
                let consumer2 = CGDataConsumer(data: data2) {

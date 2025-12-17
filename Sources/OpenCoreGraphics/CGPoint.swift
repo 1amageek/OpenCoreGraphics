@@ -8,6 +8,7 @@
 import Foundation
 
 /// A structure that contains a point in a two-dimensional coordinate system.
+@frozen
 public struct CGPoint: Sendable {
 
     /// The x-coordinate of the point.
@@ -68,21 +69,19 @@ public struct CGPoint: Sendable {
     // MARK: - Dictionary Representation
 
     /// Returns a dictionary representation of this point.
-    public var dictionaryRepresentation: CFDictionary {
-        let dict: [CFString: Any] = [
-            "X" as CFString: x.native,
-            "Y" as CFString: y.native
+    public var dictionaryRepresentation: [String: Any] {
+        return [
+            "X": x.native,
+            "Y": y.native
         ]
-        return dict as CFDictionary
     }
 
     /// Creates a point from a dictionary representation.
     ///
     /// - Parameter dict: A dictionary containing "X" and "Y" keys with numeric values.
-    public init?(dictionaryRepresentation dict: CFDictionary) {
-        guard let dictionary = dict as? [String: Any],
-              let x = dictionary["X"] as? Double,
-              let y = dictionary["Y"] as? Double else {
+    public init?(dictionaryRepresentation dict: [String: Any]) {
+        guard let x = dict["X"] as? Double,
+              let y = dict["Y"] as? Double else {
             return nil
         }
         self.init(x: x, y: y)

@@ -124,7 +124,7 @@ public final class CGImage: @unchecked Sendable {
     }
 
     /// The Universal Type Identifier for the image.
-    public var utType: CFString? {
+    public var utType: String? {
         nil
     }
 
@@ -591,9 +591,9 @@ public final class CGImage: @unchecked Sendable {
 
     // MARK: - Type ID
 
-    /// Returns the Core Foundation type identifier for CGImage objects.
-    public class var typeID: CFTypeID {
-        0 // Placeholder for CF type ID
+    /// Returns the type identifier for CGImage objects.
+    public class var typeID: UInt {
+        0 // Placeholder for type ID
     }
 }
 

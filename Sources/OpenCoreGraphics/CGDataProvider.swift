@@ -170,11 +170,6 @@ public class CGDataProvider: @unchecked Sendable {
         self.providerType = .direct(data)
     }
 
-    /// Creates a data provider from a CFData object.
-    public init?(data cfData: NSData) {
-        self.providerType = .direct(cfData as Data)
-    }
-
     /// Creates a data provider from a URL.
     public init?(url: URL) {
         guard let data = try? Data(contentsOf: url) else { return nil }

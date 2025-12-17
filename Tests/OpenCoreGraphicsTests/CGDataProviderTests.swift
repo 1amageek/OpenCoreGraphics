@@ -32,15 +32,6 @@ struct CGDataProviderTests {
             #expect(provider.size == 6)
         }
 
-        @Test("Init with NSData")
-        func initWithNSData() {
-            let testData = NSData(bytes: [0, 1, 2, 3] as [UInt8], length: 4)
-            let provider = CGDataProvider(data: testData)
-
-            #expect(provider != nil)
-            #expect(provider?.size == 4)
-        }
-
         @Test("Init with empty data")
         func initWithEmptyData() {
             let testData = Data()

@@ -442,7 +442,7 @@ public class CGContext: @unchecked Sendable {
     /// Begins a transparency layer.
     ///
     /// - Parameter auxiliaryInfo: An optional dictionary of auxiliary information.
-    public func beginTransparencyLayer(auxiliaryInfo: CFDictionary?) {
+    public func beginTransparencyLayer(auxiliaryInfo: [String: Any]?) {
         saveGState()
         // In a real implementation, this would begin compositing to an offscreen buffer
     }
@@ -452,7 +452,7 @@ public class CGContext: @unchecked Sendable {
     /// - Parameters:
     ///   - rect: The bounding rectangle for the transparency layer.
     ///   - auxiliaryInfo: An optional dictionary of auxiliary information.
-    public func beginTransparencyLayer(in rect: CGRect, auxiliaryInfo: CFDictionary?) {
+    public func beginTransparencyLayer(in rect: CGRect, auxiliaryInfo: [String: Any]?) {
         saveGState()
         clip(to: rect)
         // In a real implementation, this would begin compositing to an offscreen buffer
@@ -857,7 +857,7 @@ public class CGContext: @unchecked Sendable {
     /// Begins a new page in a PDF graphics context.
     ///
     /// - Parameter pageInfo: An optional dictionary containing page-specific information.
-    public func beginPDFPage(_ pageInfo: CFDictionary?) {
+    public func beginPDFPage(_ pageInfo: [String: Any]?) {
         // In a real implementation, this would start a new PDF page
     }
 
@@ -876,7 +876,7 @@ public class CGContext: @unchecked Sendable {
     /// - Parameters:
     ///   - name: The name of the destination.
     ///   - point: The point in the current page that links to the destination.
-    public func addDestination(_ name: CFString, at point: CGPoint) {
+    public func addDestination(_ name: String, at point: CGPoint) {
         // In a real implementation, this would add a named destination
     }
 
@@ -885,7 +885,7 @@ public class CGContext: @unchecked Sendable {
     /// - Parameters:
     ///   - name: The name of the destination to jump to.
     ///   - rect: The rectangle that triggers the jump.
-    public func setDestination(_ name: CFString, for rect: CGRect) {
+    public func setDestination(_ name: String, for rect: CGRect) {
         // In a real implementation, this would set up a link to a destination
     }
 
@@ -894,14 +894,14 @@ public class CGContext: @unchecked Sendable {
     /// - Parameters:
     ///   - url: The URL to link to.
     ///   - rect: The rectangle that triggers the link.
-    public func setURL(_ url: CFURL, for rect: CGRect) {
+    public func setURL(_ url: URL, for rect: CGRect) {
         // In a real implementation, this would create a URL link in the PDF
     }
 
     /// Associates a document metadata stream with a PDF context.
     ///
     /// - Parameter metadata: The metadata to add to the document.
-    public func addDocumentMetadata(_ metadata: CFData?) {
+    public func addDocumentMetadata(_ metadata: Data?) {
         // In a real implementation, this would add document metadata
     }
 }
@@ -915,7 +915,7 @@ extension CGContext {
     ///   - url: The URL where the PDF file will be written.
     ///   - mediaBox: The default size and location of a page.
     ///   - auxiliaryInfo: Additional information for the PDF context.
-    public convenience init?(_ url: CFURL, mediaBox: UnsafePointer<CGRect>?, _ auxiliaryInfo: CFDictionary?) {
+    public convenience init?(_ url: URL, mediaBox: UnsafePointer<CGRect>?, _ auxiliaryInfo: [String: Any]?) {
         // PDF context creation not supported in this implementation
         return nil
     }
@@ -926,7 +926,7 @@ extension CGContext {
     ///   - consumer: The data consumer that receives the PDF data.
     ///   - mediaBox: The default size and location of a page.
     ///   - auxiliaryInfo: Additional information for the PDF context.
-    public convenience init?(consumer: CGDataConsumer, mediaBox: UnsafePointer<CGRect>?, _ auxiliaryInfo: CFDictionary?) {
+    public convenience init?(consumer: CGDataConsumer, mediaBox: UnsafePointer<CGRect>?, _ auxiliaryInfo: [String: Any]?) {
         // PDF context creation not supported in this implementation
         return nil
     }
@@ -1012,74 +1012,74 @@ extension CGContext {
 // MARK: - PDF Context Auxiliary Dictionary Keys
 
 /// The corresponding value is a string that represents the name of the person who created the document.
-nonisolated(unsafe) public let kCGPDFContextAuthor: CFString = "kCGPDFContextAuthor" as CFString
+public let kCGPDFContextAuthor: String = "kCGPDFContextAuthor"
 
 /// The corresponding value is a string that represents the name of the application used to produce the document.
-nonisolated(unsafe) public let kCGPDFContextCreator: CFString = "kCGPDFContextCreator" as CFString
+public let kCGPDFContextCreator: String = "kCGPDFContextCreator"
 
 /// The corresponding value is a string that represents the title of the document.
-nonisolated(unsafe) public let kCGPDFContextTitle: CFString = "kCGPDFContextTitle" as CFString
+public let kCGPDFContextTitle: String = "kCGPDFContextTitle"
 
 /// The corresponding value is a string that represents the subject of the document.
-nonisolated(unsafe) public let kCGPDFContextSubject: CFString = "kCGPDFContextSubject" as CFString
+public let kCGPDFContextSubject: String = "kCGPDFContextSubject"
 
 /// The corresponding value is an array of strings that represent the keywords for the document.
-nonisolated(unsafe) public let kCGPDFContextKeywords: CFString = "kCGPDFContextKeywords" as CFString
+public let kCGPDFContextKeywords: String = "kCGPDFContextKeywords"
 
 /// The corresponding value is a string that represents the owner password for the document.
-nonisolated(unsafe) public let kCGPDFContextOwnerPassword: CFString = "kCGPDFContextOwnerPassword" as CFString
+public let kCGPDFContextOwnerPassword: String = "kCGPDFContextOwnerPassword"
 
 /// The corresponding value is a string that represents the user password for the document.
-nonisolated(unsafe) public let kCGPDFContextUserPassword: CFString = "kCGPDFContextUserPassword" as CFString
+public let kCGPDFContextUserPassword: String = "kCGPDFContextUserPassword"
 
 /// The corresponding value is a number that represents the encryption key length.
-nonisolated(unsafe) public let kCGPDFContextEncryptionKeyLength: CFString = "kCGPDFContextEncryptionKeyLength" as CFString
+public let kCGPDFContextEncryptionKeyLength: String = "kCGPDFContextEncryptionKeyLength"
 
 /// Whether the document allows printing when unlocked with the user password.
-nonisolated(unsafe) public let kCGPDFContextAllowsPrinting: CFString = "kCGPDFContextAllowsPrinting" as CFString
+public let kCGPDFContextAllowsPrinting: String = "kCGPDFContextAllowsPrinting"
 
 /// Whether the document allows copying when unlocked with the user password.
-nonisolated(unsafe) public let kCGPDFContextAllowsCopying: CFString = "kCGPDFContextAllowsCopying" as CFString
+public let kCGPDFContextAllowsCopying: String = "kCGPDFContextAllowsCopying"
 
 /// The output intent for the document.
-nonisolated(unsafe) public let kCGPDFContextOutputIntent: CFString = "kCGPDFContextOutputIntent" as CFString
+public let kCGPDFContextOutputIntent: String = "kCGPDFContextOutputIntent"
 
 /// An array of output intents for the document.
-nonisolated(unsafe) public let kCGPDFContextOutputIntents: CFString = "kCGPDFContextOutputIntents" as CFString
+public let kCGPDFContextOutputIntents: String = "kCGPDFContextOutputIntents"
 
 // MARK: - PDF Context Box Keys
 
 /// The media box for the document or for a given page.
-nonisolated(unsafe) public let kCGPDFContextMediaBox: CFString = "kCGPDFContextMediaBox" as CFString
+public let kCGPDFContextMediaBox: String = "kCGPDFContextMediaBox"
 
 /// The crop box for the document or for a given page.
-nonisolated(unsafe) public let kCGPDFContextCropBox: CFString = "kCGPDFContextCropBox" as CFString
+public let kCGPDFContextCropBox: String = "kCGPDFContextCropBox"
 
 /// The bleed box for the document or for a given page.
-nonisolated(unsafe) public let kCGPDFContextBleedBox: CFString = "kCGPDFContextBleedBox" as CFString
+public let kCGPDFContextBleedBox: String = "kCGPDFContextBleedBox"
 
 /// The trim box for the document or for a given page.
-nonisolated(unsafe) public let kCGPDFContextTrimBox: CFString = "kCGPDFContextTrimBox" as CFString
+public let kCGPDFContextTrimBox: String = "kCGPDFContextTrimBox"
 
 /// The art box for the document or for a given page.
-nonisolated(unsafe) public let kCGPDFContextArtBox: CFString = "kCGPDFContextArtBox" as CFString
+public let kCGPDFContextArtBox: String = "kCGPDFContextArtBox"
 
 // MARK: - PDF/X Output Intent Keys
 
 /// The output intent subtype. This key is required.
-nonisolated(unsafe) public let kCGPDFXOutputIntentSubtype: CFString = "kCGPDFXOutputIntentSubtype" as CFString
+public let kCGPDFXOutputIntentSubtype: String = "kCGPDFXOutputIntentSubtype"
 
 /// The output condition identifier.
-nonisolated(unsafe) public let kCGPDFXOutputConditionIdentifier: CFString = "kCGPDFXOutputConditionIdentifier" as CFString
+public let kCGPDFXOutputConditionIdentifier: String = "kCGPDFXOutputConditionIdentifier"
 
 /// A text string identifying the intended output device or production condition in a human-readable form.
-nonisolated(unsafe) public let kCGPDFXOutputCondition: CFString = "kCGPDFXOutputCondition" as CFString
+public let kCGPDFXOutputCondition: String = "kCGPDFXOutputCondition"
 
 /// The registry name.
-nonisolated(unsafe) public let kCGPDFXRegistryName: CFString = "kCGPDFXRegistryName" as CFString
+public let kCGPDFXRegistryName: String = "kCGPDFXRegistryName"
 
 /// Additional information about the output condition.
-nonisolated(unsafe) public let kCGPDFXInfo: CFString = "kCGPDFXInfo" as CFString
+public let kCGPDFXInfo: String = "kCGPDFXInfo"
 
 /// The destination output profile.
-nonisolated(unsafe) public let kCGPDFXDestinationOutputProfile: CFString = "kCGPDFXDestinationOutputProfile" as CFString
+public let kCGPDFXDestinationOutputProfile: String = "kCGPDFXDestinationOutputProfile"
