@@ -5,17 +5,14 @@
 //  Tests for CGShading
 //
 
-import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
 private typealias CGShading = OpenCoreGraphics.CGShading
 private typealias CGFunction = OpenCoreGraphics.CGFunction
 private typealias CGFunctionCallbacks = OpenCoreGraphics.CGFunctionCallbacks
 private typealias CGColorSpace = OpenCoreGraphics.CGColorSpace
-private typealias CGPoint = OpenCoreGraphics.CGPoint
 
 @Suite("CGShading Tests")
 struct CGShadingTests {
@@ -23,13 +20,13 @@ struct CGShadingTests {
     // MARK: - Helper Methods
 
     fileprivate func createTestFunction() -> CGFunction? {
-        var domain: [CGFloat] = [0.0, 1.0]
-        var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]  // RGBA
+        let domain: [CGFloat] = [0.0, 1.0]
+        let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]  // RGBA
         var callbacks = CGFunctionCallbacks(
             version: 0,
             evaluate: { _, input, output in
                 guard let input = input, let output = output else { return }
-                let t = input[0].native
+                let t = Double(input[0])
                 output[0] = CGFloat(t)       // R
                 output[1] = CGFloat(0.0)     // G
                 output[2] = CGFloat(1.0 - t) // B
@@ -60,8 +57,8 @@ struct CGShadingTests {
     struct AxialShadingTests {
 
         fileprivate func createTestFunction() -> CGFunction? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -91,7 +88,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 axialSpace: colorSpace,
                 start: CGPoint(x: 0, y: 0),
@@ -103,8 +100,8 @@ struct CGShadingTests {
 
             #expect(shading != nil)
             #expect(shading?.type == .axial)
-            #expect(shading?.startPoint.x.native == 0)
-            #expect(shading?.endPoint.x.native == 100)
+            #expect(shading?.startPoint.x == 0)
+            #expect(shading?.endPoint.x == 100)
             #expect(shading?.extendStart == true)
             #expect(shading?.extendEnd == true)
         }
@@ -116,7 +113,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 axialHeadroom: 2.0,
                 space: colorSpace,
@@ -138,7 +135,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 axialSpace: colorSpace,
                 start: CGPoint(x: 0, y: 0),
@@ -148,8 +145,8 @@ struct CGShadingTests {
                 extendEnd: true
             )
 
-            #expect(shading?.startRadius.native == 0)
-            #expect(shading?.endRadius.native == 0)
+            #expect(shading?.startRadius == 0)
+            #expect(shading?.endRadius == 0)
         }
     }
 
@@ -159,8 +156,8 @@ struct CGShadingTests {
     struct RadialShadingTests {
 
         fileprivate func createTestFunction() -> CGFunction? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -190,7 +187,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 radialSpace: colorSpace,
                 start: CGPoint(x: 50, y: 50),
@@ -204,8 +201,8 @@ struct CGShadingTests {
 
             #expect(shading != nil)
             #expect(shading?.type == .radial)
-            #expect(shading?.startRadius.native == 0)
-            #expect(shading?.endRadius.native == 100)
+            #expect(shading?.startRadius == 0)
+            #expect(shading?.endRadius == 100)
         }
 
         @Test("Radial shading with headroom")
@@ -215,7 +212,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 radialHeadroom: 1.5,
                 space: colorSpace,
@@ -239,7 +236,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 radialSpace: colorSpace,
                 start: CGPoint(x: 25, y: 25),
@@ -251,10 +248,10 @@ struct CGShadingTests {
                 extendEnd: true
             )
 
-            #expect(shading?.startPoint.x.native == 25)
-            #expect(shading?.startPoint.y.native == 25)
-            #expect(shading?.endPoint.x.native == 75)
-            #expect(shading?.endPoint.y.native == 75)
+            #expect(shading?.startPoint.x == 25)
+            #expect(shading?.startPoint.y == 25)
+            #expect(shading?.endPoint.x == 75)
+            #expect(shading?.endPoint.y == 75)
         }
     }
 
@@ -264,8 +261,8 @@ struct CGShadingTests {
     struct PropertiesTests {
 
         fileprivate func createTestFunction() -> CGFunction? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -295,7 +292,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 axialSpace: colorSpace,
                 start: .zero,
@@ -315,7 +312,7 @@ struct CGShadingTests {
                 return
             }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let shading = CGShading(
                 axialSpace: colorSpace,
                 start: .zero,
@@ -340,8 +337,8 @@ struct CGShadingTests {
     struct EquatableTests {
 
         fileprivate func createTestShading() -> CGShading? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -363,7 +360,7 @@ struct CGShadingTests {
                 }
             }) else { return nil }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             return CGShading(
                 axialSpace: colorSpace,
                 start: .zero,
@@ -394,8 +391,8 @@ struct CGShadingTests {
     struct HashableTests {
 
         fileprivate func createTestShading() -> CGShading? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -417,7 +414,7 @@ struct CGShadingTests {
                 }
             }) else { return nil }
 
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             return CGShading(
                 axialSpace: colorSpace,
                 start: .zero,

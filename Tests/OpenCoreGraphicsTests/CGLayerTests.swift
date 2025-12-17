@@ -10,10 +10,10 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGLayer = OpenCoreGraphics.CGLayer
 private typealias CGContext = OpenCoreGraphics.CGContext
-private typealias CGSize = OpenCoreGraphics.CGSize
+private typealias CGSize = Foundation.CGSize
 private typealias CGColorSpace = OpenCoreGraphics.CGColorSpace
 private typealias CGBitmapInfo = OpenCoreGraphics.CGBitmapInfo
 private typealias CGImageAlphaInfo = OpenCoreGraphics.CGImageAlphaInfo
@@ -24,7 +24,7 @@ struct CGLayerTests {
     // MARK: - Helper Methods
 
     fileprivate func createTestContext() -> CGContext? {
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpace.deviceRGB
         let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         return CGContext(
             data: nil,
@@ -43,7 +43,7 @@ struct CGLayerTests {
     struct InitializationTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -66,8 +66,8 @@ struct CGLayerTests {
             let layer = CGLayer(context: context, size: CGSize(width: 50, height: 50))
 
             #expect(layer != nil)
-            #expect(layer?.size.width.native == 50)
-            #expect(layer?.size.height.native == 50)
+            #expect(layer?.size.width == 50)
+            #expect(layer?.size.height == 50)
         }
 
         @Test("Init with zero width returns nil")
@@ -126,7 +126,7 @@ struct CGLayerTests {
     struct PropertiesTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -148,8 +148,8 @@ struct CGLayerTests {
 
             let layer = CGLayer(context: context, size: CGSize(width: 75, height: 100))
 
-            #expect(layer?.size.width.native == 75)
-            #expect(layer?.size.height.native == 100)
+            #expect(layer?.size.width == 75)
+            #expect(layer?.size.height == 100)
         }
 
         @Test("Context property")
@@ -171,7 +171,7 @@ struct CGLayerTests {
     struct FactoryFunctionTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -219,8 +219,8 @@ struct CGLayerTests {
 
             let size = CGLayerGetSize(layer)
 
-            #expect(size.width.native == 60)
-            #expect(size.height.native == 80)
+            #expect(size.width == 60)
+            #expect(size.height == 80)
         }
     }
 
@@ -230,7 +230,7 @@ struct CGLayerTests {
     struct EdgeCaseTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -253,8 +253,8 @@ struct CGLayerTests {
             let layer = CGLayer(context: context, size: CGSize(width: 1, height: 1))
 
             #expect(layer != nil)
-            #expect(layer?.size.width.native == 1)
-            #expect(layer?.size.height.native == 1)
+            #expect(layer?.size.width == 1)
+            #expect(layer?.size.height == 1)
         }
 
         @Test("Large layer")
@@ -279,8 +279,8 @@ struct CGLayerTests {
             let layer = CGLayer(context: context, size: CGSize(width: 200, height: 50))
 
             #expect(layer != nil)
-            #expect(layer?.size.width.native == 200)
-            #expect(layer?.size.height.native == 50)
+            #expect(layer?.size.width == 200)
+            #expect(layer?.size.height == 50)
         }
     }
 }

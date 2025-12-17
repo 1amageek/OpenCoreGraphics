@@ -6,17 +6,20 @@ import PackageDescription
 let package = Package(
     name: "OpenCoreGraphics",
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "OpenCoreGraphics",
             targets: ["OpenCoreGraphics"]
         ),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
+        // Protocol conformances and extensions for geometry types
         .target(
-            name: "OpenCoreGraphics"
+            name: "CGExtensions"
+        ),
+        // Main target with CoreGraphics-compatible types
+        .target(
+            name: "OpenCoreGraphics",
+            dependencies: ["CGExtensions"]
         ),
         .testTarget(
             name: "OpenCoreGraphicsTests",

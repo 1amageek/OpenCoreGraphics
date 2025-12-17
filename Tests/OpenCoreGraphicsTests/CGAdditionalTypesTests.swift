@@ -12,7 +12,7 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGTextDrawingMode = OpenCoreGraphics.CGTextDrawingMode
 private typealias CGInterpolationQuality = OpenCoreGraphics.CGInterpolationQuality
 private typealias CGError = OpenCoreGraphics.CGError
@@ -499,7 +499,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Init with valid parameters")
         func initWithValidParameters() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 100,
                 height: 100,
@@ -515,7 +515,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Init with zero width returns nil")
         func initWithZeroWidth() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 0,
                 height: 100,
@@ -529,7 +529,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Init with zero height returns nil")
         func initWithZeroHeight() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 100,
                 height: 0,
@@ -543,7 +543,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Init with zero bytes per row returns nil")
         func initWithZeroBytesPerRow() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 100,
                 height: 100,
@@ -575,7 +575,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Width and height")
         func widthAndHeight() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 200,
                 height: 150,
@@ -590,7 +590,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Bytes per row")
         func bytesPerRow() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 100,
                 height: 100,
@@ -604,7 +604,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Data pointer")
         func dataPointer() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 100,
                 height: 100,
@@ -622,7 +622,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Same instance is equal")
         func sameInstanceEqual() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = CGRenderingBufferProvider(
                 width: 100,
                 height: 100,
@@ -636,7 +636,7 @@ struct CGRenderingBufferProviderTests {
 
         @Test("Different instances are not equal")
         func differentInstancesNotEqual() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider1 = CGRenderingBufferProvider(
                 width: 100,
                 height: 100,
@@ -662,7 +662,7 @@ struct CGRenderingBufferProviderTests {
         @Test("Can be used in Set")
         func setUsage() {
             var set = Set<CGRenderingBufferProvider>()
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
 
             if let p1 = CGRenderingBufferProvider(width: 100, height: 100, bytesPerRow: 400, pixelFormat: 0, colorSpace: colorSpace),
                let p2 = CGRenderingBufferProvider(width: 100, height: 100, bytesPerRow: 400, pixelFormat: 0, colorSpace: colorSpace) {

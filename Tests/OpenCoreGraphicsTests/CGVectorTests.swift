@@ -5,12 +5,10 @@
 //  Tests for CGVector type
 //
 
-import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
-// Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+// Type alias to avoid ambiguity with CoreFoundation types on macOS
 private typealias CGVector = OpenCoreGraphics.CGVector
 
 @Suite("CGVector Tests")
@@ -24,36 +22,36 @@ struct CGVectorTests {
         @Test("Default initializer creates zero vector")
         func defaultInit() {
             let vector = CGVector()
-            #expect(vector.dx.native == 0.0)
-            #expect(vector.dy.native == 0.0)
+            #expect(vector.dx == 0.0)
+            #expect(vector.dy == 0.0)
         }
 
         @Test("Init with CGFloat components")
         func initWithCGFloat() {
             let vector = CGVector(dx: CGFloat(10.0), dy: CGFloat(20.0))
-            #expect(vector.dx.native == 10.0)
-            #expect(vector.dy.native == 20.0)
+            #expect(vector.dx == 10.0)
+            #expect(vector.dy == 20.0)
         }
 
         @Test("Init with Double components")
         func initWithDouble() {
             let vector = CGVector(dx: 10.5, dy: 20.5)
-            #expect(vector.dx.native == 10.5)
-            #expect(vector.dy.native == 20.5)
+            #expect(vector.dx == 10.5)
+            #expect(vector.dy == 20.5)
         }
 
         @Test("Init with Int components")
         func initWithInt() {
             let vector = CGVector(dx: 10, dy: 20)
-            #expect(vector.dx.native == 10.0)
-            #expect(vector.dy.native == 20.0)
+            #expect(vector.dx == 10.0)
+            #expect(vector.dy == 20.0)
         }
 
         @Test("Init with negative components")
         func initWithNegative() {
             let vector = CGVector(dx: -5.0, dy: -10.0)
-            #expect(vector.dx.native == -5.0)
-            #expect(vector.dy.native == -10.0)
+            #expect(vector.dx == -5.0)
+            #expect(vector.dy == -10.0)
         }
     }
 
@@ -65,8 +63,8 @@ struct CGVectorTests {
         @Test("Zero vector")
         func zeroVector() {
             let zero = CGVector.zero
-            #expect(zero.dx.native == 0.0)
-            #expect(zero.dy.native == 0.0)
+            #expect(zero.dx == 0.0)
+            #expect(zero.dy == 0.0)
         }
     }
 
@@ -79,16 +77,16 @@ struct CGVectorTests {
         func mutateDx() {
             var vector = CGVector(dx: 10.0, dy: 20.0)
             vector.dx = CGFloat(50.0)
-            #expect(vector.dx.native == 50.0)
-            #expect(vector.dy.native == 20.0)
+            #expect(vector.dx == 50.0)
+            #expect(vector.dy == 20.0)
         }
 
         @Test("Mutate dy component")
         func mutateDy() {
             var vector = CGVector(dx: 10.0, dy: 20.0)
             vector.dy = CGFloat(50.0)
-            #expect(vector.dx.native == 10.0)
-            #expect(vector.dy.native == 50.0)
+            #expect(vector.dx == 10.0)
+            #expect(vector.dy == 50.0)
         }
     }
 
@@ -248,18 +246,18 @@ struct CGVectorTests {
         @Test("Mixed positive and negative")
         func mixedComponents() {
             let vector = CGVector(dx: 10.0, dy: -20.0)
-            #expect(vector.dx.native == 10.0)
-            #expect(vector.dy.native == -20.0)
+            #expect(vector.dx == 10.0)
+            #expect(vector.dy == -20.0)
         }
 
         @Test("Unit vectors")
         func unitVectors() {
             let unitX = CGVector(dx: 1.0, dy: 0.0)
             let unitY = CGVector(dx: 0.0, dy: 1.0)
-            #expect(unitX.dx.native == 1.0)
-            #expect(unitX.dy.native == 0.0)
-            #expect(unitY.dx.native == 0.0)
-            #expect(unitY.dy.native == 1.0)
+            #expect(unitX.dx == 1.0)
+            #expect(unitX.dy == 0.0)
+            #expect(unitY.dx == 0.0)
+            #expect(unitY.dy == 1.0)
         }
     }
 }

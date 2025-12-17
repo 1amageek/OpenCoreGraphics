@@ -13,8 +13,8 @@ import Testing
 private typealias CGFont = OpenCoreGraphics.CGFont
 private typealias CGFontPostScriptFormat = OpenCoreGraphics.CGFontPostScriptFormat
 private typealias CGDataProvider = OpenCoreGraphics.CGDataProvider
-private typealias CGRect = OpenCoreGraphics.CGRect
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGRect = Foundation.CGRect
+private typealias CGFloat = Foundation.CGFloat
 
 // MARK: - CGFontPostScriptFormat Tests
 
@@ -109,22 +109,22 @@ struct CGFontTests {
             let bbox = font?.fontBBox
 
             #expect(bbox != nil)
-            #expect(bbox?.origin.x.native == 0)
-            #expect(bbox?.origin.y.native == -200)
-            #expect(bbox?.width.native == 1000)
-            #expect(bbox?.height.native == 1000)
+            #expect(bbox?.origin.x == 0)
+            #expect(bbox?.origin.y == -200)
+            #expect(bbox?.width == 1000)
+            #expect(bbox?.height == 1000)
         }
 
         @Test("Italic angle")
         func italicAngle() {
             let font = CGFont(name: "Helvetica")
-            #expect(font?.italicAngle.native == 0)
+            #expect(font?.italicAngle == 0)
         }
 
         @Test("Stem V")
         func stemV() {
             let font = CGFont(name: "Helvetica")
-            #expect(font?.stemV.native == 80)
+            #expect(font?.stemV == 80)
         }
 
         @Test("Table tags")
@@ -211,7 +211,7 @@ struct CGFontTests {
             let bbox = font?.boundingBox(for: 0)
 
             #expect(bbox != nil)
-            #expect(bbox?.width.native == 500)
+            #expect(bbox?.width == 500)
         }
 
         @Test("Get bounding boxes for multiple glyphs")

@@ -10,10 +10,10 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
-private typealias CGPoint = OpenCoreGraphics.CGPoint
-private typealias CGSize = OpenCoreGraphics.CGSize
-private typealias CGRect = OpenCoreGraphics.CGRect
+private typealias CGFloat = Foundation.CGFloat
+private typealias CGPoint = Foundation.CGPoint
+private typealias CGSize = Foundation.CGSize
+private typealias CGRect = Foundation.CGRect
 private typealias CGAffineTransform = OpenCoreGraphics.CGAffineTransform
 private typealias CGPath = OpenCoreGraphics.CGPath
 private typealias CGMutablePath = OpenCoreGraphics.CGMutablePath
@@ -40,10 +40,10 @@ struct CGPathTests {
             let rect = CGRect(x: 10.0, y: 20.0, width: 100.0, height: 200.0)
             let path = CGPath(rect: rect)
             let bbox = path.boundingBox
-            #expect(abs(bbox.minX.native - 10.0) < 0.0001)
-            #expect(abs(bbox.minY.native - 20.0) < 0.0001)
-            #expect(abs(bbox.width.native - 100.0) < 0.0001)
-            #expect(abs(bbox.height.native - 200.0) < 0.0001)
+            #expect(abs(bbox.minX - 10.0) < 0.0001)
+            #expect(abs(bbox.minY - 20.0) < 0.0001)
+            #expect(abs(bbox.width - 100.0) < 0.0001)
+            #expect(abs(bbox.height - 200.0) < 0.0001)
         }
 
         @Test("Rectangular path with transform")
@@ -54,8 +54,8 @@ struct CGPathTests {
                 CGPath(rect: rect, transform: ptr)
             }
             let bbox = path.boundingBox
-            #expect(abs(bbox.minX.native - 10.0) < 0.0001)
-            #expect(abs(bbox.minY.native - 20.0) < 0.0001)
+            #expect(abs(bbox.minX - 10.0) < 0.0001)
+            #expect(abs(bbox.minY - 20.0) < 0.0001)
         }
 
         @Test("isRect returns true for rectangular path")
@@ -65,10 +65,10 @@ struct CGPathTests {
             var detectedRect = CGRect.zero
             let isRect = path.isRect(&detectedRect)
             #expect(isRect)
-            #expect(abs(detectedRect.minX.native - 10.0) < 0.0001)
-            #expect(abs(detectedRect.minY.native - 20.0) < 0.0001)
-            #expect(abs(detectedRect.width.native - 100.0) < 0.0001)
-            #expect(abs(detectedRect.height.native - 200.0) < 0.0001)
+            #expect(abs(detectedRect.minX - 10.0) < 0.0001)
+            #expect(abs(detectedRect.minY - 20.0) < 0.0001)
+            #expect(abs(detectedRect.width - 100.0) < 0.0001)
+            #expect(abs(detectedRect.height - 200.0) < 0.0001)
         }
     }
 
@@ -90,8 +90,8 @@ struct CGPathTests {
             let path = CGPath(ellipseIn: rect)
             let bbox = path.boundingBox
             // Due to bezier approximation, bounds should be close
-            #expect(abs(bbox.minX.native - rect.minX.native) < 1.0)
-            #expect(abs(bbox.minY.native - rect.minY.native) < 1.0)
+            #expect(abs(bbox.minX - rect.minX) < 1.0)
+            #expect(abs(bbox.minY - rect.minY) < 1.0)
         }
 
         @Test("isRect returns false for elliptical path")
@@ -121,8 +121,8 @@ struct CGPathTests {
             let rect = CGRect(x: 10.0, y: 20.0, width: 100.0, height: 200.0)
             let path = CGPath(roundedRect: rect, cornerWidth: 10.0, cornerHeight: 10.0)
             let bbox = path.boundingBox
-            #expect(abs(bbox.minX.native - rect.minX.native) < 1.0)
-            #expect(abs(bbox.minY.native - rect.minY.native) < 1.0)
+            #expect(abs(bbox.minX - rect.minX) < 1.0)
+            #expect(abs(bbox.minY - rect.minY) < 1.0)
         }
 
         @Test("Corner radius clamped to half dimension")
@@ -156,8 +156,8 @@ struct CGPathTests {
         func currentPointAfterMove() {
             let path = CGMutablePath()
             path.move(to: CGPoint(x: 10.0, y: 20.0))
-            #expect(path.currentPoint.x.native == 10.0)
-            #expect(path.currentPoint.y.native == 20.0)
+            #expect(path.currentPoint.x == 10.0)
+            #expect(path.currentPoint.y == 20.0)
         }
 
         @Test("currentPoint after line")
@@ -165,8 +165,8 @@ struct CGPathTests {
             let path = CGMutablePath()
             path.move(to: CGPoint(x: 0.0, y: 0.0))
             path.addLine(to: CGPoint(x: 100.0, y: 100.0))
-            #expect(path.currentPoint.x.native == 100.0)
-            #expect(path.currentPoint.y.native == 100.0)
+            #expect(path.currentPoint.x == 100.0)
+            #expect(path.currentPoint.y == 100.0)
         }
 
         @Test("currentPoint for empty path is zero")
@@ -191,8 +191,8 @@ struct CGPathTests {
         func moveToPoint() {
             let path = CGMutablePath()
             path.move(to: CGPoint(x: 10.0, y: 20.0))
-            #expect(path.currentPoint.x.native == 10.0)
-            #expect(path.currentPoint.y.native == 20.0)
+            #expect(path.currentPoint.x == 10.0)
+            #expect(path.currentPoint.y == 20.0)
         }
 
         @Test("Add line")
@@ -202,8 +202,8 @@ struct CGPathTests {
             path.addLine(to: CGPoint(x: 100.0, y: 100.0))
             #expect(!path.isEmpty)
             let bbox = path.boundingBox
-            #expect(bbox.maxX.native == 100.0)
-            #expect(bbox.maxY.native == 100.0)
+            #expect(bbox.maxX == 100.0)
+            #expect(bbox.maxY == 100.0)
         }
 
         @Test("Add lines")
@@ -217,8 +217,8 @@ struct CGPathTests {
             ]
             path.addLines(between: points)
             let bbox = path.boundingBox
-            #expect(bbox.width.native == 100.0)
-            #expect(bbox.height.native == 100.0)
+            #expect(bbox.width == 100.0)
+            #expect(bbox.height == 100.0)
         }
 
         @Test("Add rect")
@@ -226,8 +226,8 @@ struct CGPathTests {
             let path = CGMutablePath()
             path.addRect(CGRect(x: 10.0, y: 20.0, width: 100.0, height: 200.0))
             let bbox = path.boundingBox
-            #expect(abs(bbox.minX.native - 10.0) < 0.0001)
-            #expect(abs(bbox.minY.native - 20.0) < 0.0001)
+            #expect(abs(bbox.minX - 10.0) < 0.0001)
+            #expect(abs(bbox.minY - 20.0) < 0.0001)
         }
 
         @Test("Add multiple rects")
@@ -239,8 +239,8 @@ struct CGPathTests {
             ]
             path.addRects(rects)
             let bbox = path.boundingBox
-            #expect(bbox.minX.native == 0.0)
-            #expect(bbox.maxX.native == 150.0)
+            #expect(bbox.minX == 0.0)
+            #expect(bbox.maxX == 150.0)
         }
 
         @Test("Add ellipse")
@@ -267,7 +267,7 @@ struct CGPathTests {
             path.move(to: CGPoint(x: 0.0, y: 0.0))
             path.addQuadCurve(to: CGPoint(x: 100.0, y: 0.0), control: CGPoint(x: 50.0, y: 50.0))
             let bbox = path.boundingBox
-            #expect(bbox.maxY.native >= 50.0)
+            #expect(bbox.maxY >= 50.0)
         }
 
         @Test("Add cubic curve")
@@ -302,8 +302,8 @@ struct CGPathTests {
             path2.addPath(path1)
 
             let bbox = path2.boundingBox
-            #expect(bbox.minX.native == 0.0)
-            #expect(bbox.maxX.native == 150.0)
+            #expect(bbox.minX == 0.0)
+            #expect(bbox.maxX == 150.0)
         }
     }
 
@@ -317,8 +317,8 @@ struct CGPathTests {
             let path = CGMutablePath()
             let transform = CGAffineTransform(translationX: 10.0, y: 20.0)
             path.move(to: CGPoint(x: 0.0, y: 0.0), transform: transform)
-            #expect(path.currentPoint.x.native == 10.0)
-            #expect(path.currentPoint.y.native == 20.0)
+            #expect(path.currentPoint.x == 10.0)
+            #expect(path.currentPoint.y == 20.0)
         }
 
         @Test("Add line with transform")
@@ -327,8 +327,8 @@ struct CGPathTests {
             let transform = CGAffineTransform(scaleX: 2.0, y: 2.0)
             path.move(to: CGPoint(x: 0.0, y: 0.0))
             path.addLine(to: CGPoint(x: 50.0, y: 50.0), transform: transform)
-            #expect(path.currentPoint.x.native == 100.0)
-            #expect(path.currentPoint.y.native == 100.0)
+            #expect(path.currentPoint.x == 100.0)
+            #expect(path.currentPoint.y == 100.0)
         }
 
         @Test("Add rect with transform")
@@ -337,8 +337,8 @@ struct CGPathTests {
             let transform = CGAffineTransform(translationX: 100.0, y: 100.0)
             path.addRect(CGRect(x: 0.0, y: 0.0, width: 50.0, height: 50.0), transform: transform)
             let bbox = path.boundingBox
-            #expect(bbox.minX.native == 100.0)
-            #expect(bbox.minY.native == 100.0)
+            #expect(bbox.minX == 100.0)
+            #expect(bbox.minY == 100.0)
         }
     }
 
@@ -391,8 +391,8 @@ struct CGPathTests {
             }
             #expect(copy != nil)
             if let bbox = copy?.boundingBox {
-                #expect(abs(bbox.minX.native - 10.0) < 0.0001)
-                #expect(abs(bbox.minY.native - 20.0) < 0.0001)
+                #expect(abs(bbox.minX - 10.0) < 0.0001)
+                #expect(abs(bbox.minY - 20.0) < 0.0001)
             }
         }
 
@@ -403,7 +403,7 @@ struct CGPathTests {
             #expect(mutableCopy != nil)
             mutableCopy?.addRect(CGRect(x: 200.0, y: 200.0, width: 50.0, height: 50.0))
             // Original should be unchanged
-            #expect(original.boundingBox.maxX.native < 200.0)
+            #expect(original.boundingBox.maxX < 200.0)
         }
     }
 

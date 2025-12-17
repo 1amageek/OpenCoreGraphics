@@ -5,7 +5,6 @@
 //  Tests for CGColorSpace, CGColorSpaceModel, and CGColorRenderingIntent types
 //
 
-import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
@@ -109,7 +108,7 @@ struct CGColorSpaceTests {
 
         @Test("Create Device RGB")
         func createDeviceRGB() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             #expect(colorSpace.model == .rgb)
             #expect(colorSpace.numberOfComponents == 3)
             #expect(colorSpace.name as String? == "DeviceRGB")
@@ -117,7 +116,7 @@ struct CGColorSpaceTests {
 
         @Test("Create Device CMYK")
         func createDeviceCMYK() {
-            let colorSpace = CGColorSpaceCreateDeviceCMYK()
+            let colorSpace = CGColorSpace.deviceCMYK
             #expect(colorSpace.model == .cmyk)
             #expect(colorSpace.numberOfComponents == 4)
             #expect(colorSpace.name as String? == "DeviceCMYK")
@@ -125,7 +124,7 @@ struct CGColorSpaceTests {
 
         @Test("Create Device Gray")
         func createDeviceGray() {
-            let colorSpace = CGColorSpaceCreateDeviceGray()
+            let colorSpace = CGColorSpace.deviceGray
             #expect(colorSpace.model == .monochrome)
             #expect(colorSpace.numberOfComponents == 1)
             #expect(colorSpace.name as String? == "DeviceGray")
@@ -139,7 +138,7 @@ struct CGColorSpaceTests {
 
         @Test("Init indexed color space")
         func initIndexed() {
-            let baseSpace = CGColorSpaceCreateDeviceRGB()
+            let baseSpace = CGColorSpace.deviceRGB
             let colorTable: [UInt8] = Array(repeating: 0, count: 768) // 256 * 3
             let colorSpace = colorTable.withUnsafeBufferPointer { buffer in
                 CGColorSpace(indexedBaseSpace: baseSpace, last: 255, colorTable: buffer.baseAddress!)
@@ -152,7 +151,7 @@ struct CGColorSpaceTests {
 
         @Test("Init indexed with invalid last returns nil")
         func initIndexedInvalidLast() {
-            let baseSpace = CGColorSpaceCreateDeviceRGB()
+            let baseSpace = CGColorSpace.deviceRGB
             let colorTable: [UInt8] = Array(repeating: 0, count: 768)
             let colorSpace = colorTable.withUnsafeBufferPointer { buffer in
                 CGColorSpace(indexedBaseSpace: baseSpace, last: 256, colorTable: buffer.baseAddress!)
@@ -162,7 +161,7 @@ struct CGColorSpaceTests {
 
         @Test("Init indexed with negative last returns nil")
         func initIndexedNegativeLast() {
-            let baseSpace = CGColorSpaceCreateDeviceRGB()
+            let baseSpace = CGColorSpace.deviceRGB
             let colorTable: [UInt8] = Array(repeating: 0, count: 768)
             let colorSpace = colorTable.withUnsafeBufferPointer { buffer in
                 CGColorSpace(indexedBaseSpace: baseSpace, last: -1, colorTable: buffer.baseAddress!)
@@ -178,7 +177,7 @@ struct CGColorSpaceTests {
 
         @Test("Init pattern color space with base")
         func initPatternWithBase() {
-            let baseSpace = CGColorSpaceCreateDeviceRGB()
+            let baseSpace = CGColorSpace.deviceRGB
             let colorSpace = CGColorSpace(patternBaseSpace: baseSpace)
             #expect(colorSpace != nil)
             #expect(colorSpace?.model == .pattern)
@@ -203,9 +202,9 @@ struct CGColorSpaceTests {
 
         @Test("supportsOutput for standard color spaces")
         func supportsOutput() {
-            let rgb = CGColorSpaceCreateDeviceRGB()
-            let cmyk = CGColorSpaceCreateDeviceCMYK()
-            let gray = CGColorSpaceCreateDeviceGray()
+            let rgb = CGColorSpace.deviceRGB
+            let cmyk = CGColorSpace.deviceCMYK
+            let gray = CGColorSpace.deviceGray
 
             #expect(rgb.supportsOutput)
             #expect(cmyk.supportsOutput)
@@ -214,7 +213,7 @@ struct CGColorSpaceTests {
 
         @Test("supportsOutput for indexed returns false")
         func supportsOutputIndexed() {
-            let baseSpace = CGColorSpaceCreateDeviceRGB()
+            let baseSpace = CGColorSpace.deviceRGB
             let colorTable: [UInt8] = Array(repeating: 0, count: 768)
             let indexed = colorTable.withUnsafeBufferPointer { buffer in
                 CGColorSpace(indexedBaseSpace: baseSpace, last: 255, colorTable: buffer.baseAddress!)
@@ -248,7 +247,7 @@ struct CGColorSpaceTests {
 
         @Test("isWideGamutRGB for non-RGB returns false")
         func isWideGamutNonRGB() {
-            let gray = CGColorSpaceCreateDeviceGray()
+            let gray = CGColorSpace.deviceGray
             #expect(gray.isWideGamutRGB == false)
         }
     }
@@ -260,15 +259,15 @@ struct CGColorSpaceTests {
 
         @Test("Equal color spaces")
         func equalColorSpaces() {
-            let rgb1 = CGColorSpaceCreateDeviceRGB()
-            let rgb2 = CGColorSpaceCreateDeviceRGB()
+            let rgb1 = CGColorSpace.deviceRGB
+            let rgb2 = CGColorSpace.deviceRGB
             #expect(rgb1 == rgb2)
         }
 
         @Test("Unequal color spaces different model")
         func unequalDifferentModel() {
-            let rgb = CGColorSpaceCreateDeviceRGB()
-            let gray = CGColorSpaceCreateDeviceGray()
+            let rgb = CGColorSpace.deviceRGB
+            let gray = CGColorSpace.deviceGray
             #expect(rgb != gray)
         }
 
@@ -287,17 +286,17 @@ struct CGColorSpaceTests {
 
         @Test("Equal color spaces have equal hashes")
         func equalColorSpacesEqualHashes() {
-            let rgb1 = CGColorSpaceCreateDeviceRGB()
-            let rgb2 = CGColorSpaceCreateDeviceRGB()
+            let rgb1 = CGColorSpace.deviceRGB
+            let rgb2 = CGColorSpace.deviceRGB
             #expect(rgb1.hashValue == rgb2.hashValue)
         }
 
         @Test("Can be used in Set")
         func setUsage() {
             var set = Set<CGColorSpace>()
-            set.insert(CGColorSpaceCreateDeviceRGB())
-            set.insert(CGColorSpaceCreateDeviceGray())
-            set.insert(CGColorSpaceCreateDeviceRGB())
+            set.insert(CGColorSpace.deviceRGB)
+            set.insert(CGColorSpace.deviceGray)
+            set.insert(CGColorSpace.deviceRGB)
             #expect(set.count == 2)
         }
     }

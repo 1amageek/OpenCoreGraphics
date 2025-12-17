@@ -10,7 +10,7 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 
 @Suite("CGFloat Tests")
 struct CGFloatTests {
@@ -23,69 +23,69 @@ struct CGFloatTests {
         @Test("Default initializer creates zero")
         func defaultInit() {
             let value = CGFloat()
-            #expect(value.native == 0.0)
+            #expect(value == 0.0)
         }
 
         @Test("Init from Double")
         func initFromDouble() {
             let value = CGFloat(3.14159)
-            #expect(value.native == 3.14159)
+            #expect(value == 3.14159)
         }
 
         @Test("Init from Float")
         func initFromFloat() {
             let value = CGFloat(Float(2.5))
-            #expect(abs(value.native - 2.5) < 0.0001)
+            #expect(abs(value - 2.5) < 0.0001)
         }
 
         @Test("Init from Int")
         func initFromInt() {
             let value = CGFloat(42)
-            #expect(value.native == 42.0)
+            #expect(value == 42.0)
         }
 
         @Test("Init from UInt")
         func initFromUInt() {
             let value = CGFloat(UInt(100))
-            #expect(value.native == 100.0)
+            #expect(value == 100.0)
         }
 
         @Test("Init from Int8")
         func initFromInt8() {
             let value = CGFloat(Int8(127))
-            #expect(value.native == 127.0)
+            #expect(value == 127.0)
         }
 
         @Test("Init from Int16")
         func initFromInt16() {
             let value = CGFloat(Int16(1000))
-            #expect(value.native == 1000.0)
+            #expect(value == 1000.0)
         }
 
         @Test("Init from Int32")
         func initFromInt32() {
             let value = CGFloat(Int32(100000))
-            #expect(value.native == 100000.0)
+            #expect(value == 100000.0)
         }
 
         @Test("Init from Int64")
         func initFromInt64() {
             let value = CGFloat(Int64(1000000))
-            #expect(value.native == 1000000.0)
+            #expect(value == 1000000.0)
         }
 
         @Test("Init from CGFloat copies value")
         func initFromCGFloat() {
             let original = CGFloat(99.5)
             let copy = CGFloat(original)
-            #expect(copy.native == 99.5)
+            #expect(copy == 99.5)
         }
 
         @Test("Init exactly succeeds for representable values")
         func initExactlySuccess() {
             let value = CGFloat(exactly: 42)
             #expect(value != nil)
-            #expect(value?.native == 42.0)
+            #expect(value == 42.0)
         }
 
         @Test("Init from bit pattern")
@@ -98,13 +98,13 @@ struct CGFloatTests {
         @Test("Float literal initialization")
         func floatLiteral() {
             let value: CGFloat = 3.14
-            #expect(value.native == 3.14)
+            #expect(value == 3.14)
         }
 
         @Test("Integer literal initialization")
         func integerLiteral() {
             let value: CGFloat = 42
-            #expect(value.native == 42.0)
+            #expect(value == 42.0)
         }
     }
 
@@ -115,7 +115,7 @@ struct CGFloatTests {
 
         @Test("Zero value")
         func zeroValue() {
-            #expect(CGFloat.zero.native == 0.0)
+            #expect(CGFloat.zero == 0.0)
             #expect(CGFloat.zero.isZero)
         }
 
@@ -144,7 +144,7 @@ struct CGFloatTests {
 
         @Test("Pi value")
         func piValue() {
-            #expect(abs(CGFloat.pi.native - Double.pi) < 0.0000001)
+            #expect(abs(CGFloat.pi - Double.pi) < 0.0000001)
         }
 
         @Test("Least normal magnitude")
@@ -209,8 +209,8 @@ struct CGFloatTests {
 
         @Test("Magnitude property")
         func magnitudeProperty() {
-            #expect(CGFloat(5.0).magnitude.native == 5.0)
-            #expect(CGFloat(-5.0).magnitude.native == 5.0)
+            #expect(CGFloat(5.0).magnitude == 5.0)
+            #expect(CGFloat(-5.0).magnitude == 5.0)
         }
 
         @Test("Exponent property")
@@ -222,7 +222,7 @@ struct CGFloatTests {
         @Test("Significand property")
         func significandProperty() {
             let value = CGFloat(3.0)
-            #expect(value.significand.native == 1.5)
+            #expect(value.significand == 1.5)
         }
 
         @Test("nextUp property")
@@ -248,70 +248,70 @@ struct CGFloatTests {
         func addition() {
             let a = CGFloat(3.0)
             let b = CGFloat(2.0)
-            #expect((a + b).native == 5.0)
+            #expect((a + b) == 5.0)
         }
 
         @Test("Subtraction")
         func subtraction() {
             let a = CGFloat(5.0)
             let b = CGFloat(2.0)
-            #expect((a - b).native == 3.0)
+            #expect((a - b) == 3.0)
         }
 
         @Test("Multiplication")
         func multiplication() {
             let a = CGFloat(3.0)
             let b = CGFloat(4.0)
-            #expect((a * b).native == 12.0)
+            #expect((a * b) == 12.0)
         }
 
         @Test("Division")
         func division() {
             let a = CGFloat(10.0)
             let b = CGFloat(2.0)
-            #expect((a / b).native == 5.0)
+            #expect((a / b) == 5.0)
         }
 
         @Test("Compound addition")
         func compoundAddition() {
             var a = CGFloat(3.0)
             a += CGFloat(2.0)
-            #expect(a.native == 5.0)
+            #expect(a == 5.0)
         }
 
         @Test("Compound subtraction")
         func compoundSubtraction() {
             var a = CGFloat(5.0)
             a -= CGFloat(2.0)
-            #expect(a.native == 3.0)
+            #expect(a == 3.0)
         }
 
         @Test("Compound multiplication")
         func compoundMultiplication() {
             var a = CGFloat(3.0)
             a *= CGFloat(4.0)
-            #expect(a.native == 12.0)
+            #expect(a == 12.0)
         }
 
         @Test("Compound division")
         func compoundDivision() {
             var a = CGFloat(10.0)
             a /= CGFloat(2.0)
-            #expect(a.native == 5.0)
+            #expect(a == 5.0)
         }
 
         @Test("Unary minus")
         func unaryMinus() {
             let a = CGFloat(5.0)
-            #expect((-a).native == -5.0)
-            #expect((-(-a)).native == 5.0)
+            #expect((-a) == -5.0)
+            #expect((-(-a)) == 5.0)
         }
 
         @Test("Negate mutating method")
         func negateMutating() {
             var a = CGFloat(5.0)
             a.negate()
-            #expect(a.native == -5.0)
+            #expect(a == -5.0)
         }
 
         @Test("Division by zero")
@@ -373,9 +373,12 @@ struct CGFloatTests {
 
         @Test("NaN comparison behavior")
         func nanComparison() {
-            #expect(!(CGFloat.nan == CGFloat.nan))
-            #expect(!(CGFloat.nan < CGFloat(1.0)))
-            #expect(!(CGFloat.nan > CGFloat(1.0)))
+            let nan = CGFloat.nan
+            let one = CGFloat(1.0)
+            #expect(nan.isNaN)
+            #expect(!nan.isEqual(to: nan))
+            #expect(!nan.isLess(than: one))
+            #expect(!one.isLess(than: nan))
         }
     }
 
@@ -388,60 +391,60 @@ struct CGFloatTests {
         func roundToNearest() {
             var value = CGFloat(2.7)
             value.round(.toNearestOrAwayFromZero)
-            #expect(value.native == 3.0)
+            #expect(value == 3.0)
         }
 
         @Test("Round down")
         func roundDown() {
             var value = CGFloat(2.7)
             value.round(.down)
-            #expect(value.native == 2.0)
+            #expect(value == 2.0)
         }
 
         @Test("Round up")
         func roundUp() {
             var value = CGFloat(2.3)
             value.round(.up)
-            #expect(value.native == 3.0)
+            #expect(value == 3.0)
         }
 
         @Test("Round toward zero")
         func roundTowardZero() {
             var positive = CGFloat(2.7)
             positive.round(.towardZero)
-            #expect(positive.native == 2.0)
+            #expect(positive == 2.0)
 
             var negative = CGFloat(-2.7)
             negative.round(.towardZero)
-            #expect(negative.native == -2.0)
+            #expect(negative == -2.0)
         }
 
         @Test("formRemainder")
         func formRemainder() {
             var value = CGFloat(10.0)
             value.formRemainder(dividingBy: CGFloat(3.0))
-            #expect(abs(value.native - 1.0) < 0.0001)
+            #expect(abs(value - 1.0) < 0.0001)
         }
 
         @Test("formTruncatingRemainder")
         func formTruncatingRemainder() {
             var value = CGFloat(10.0)
             value.formTruncatingRemainder(dividingBy: CGFloat(3.0))
-            #expect(abs(value.native - 1.0) < 0.0001)
+            #expect(abs(value - 1.0) < 0.0001)
         }
 
         @Test("formSquareRoot")
         func formSquareRoot() {
             var value = CGFloat(9.0)
             value.formSquareRoot()
-            #expect(abs(value.native - 3.0) < 0.0001)
+            #expect(abs(value - 3.0) < 0.0001)
         }
 
         @Test("addProduct")
         func addProduct() {
             var value = CGFloat(1.0)
             value.addProduct(CGFloat(2.0), CGFloat(3.0))
-            #expect(value.native == 7.0) // 1 + 2*3 = 7
+            #expect(value == 7.0) // 1 + 2*3 = 7
         }
     }
 
@@ -454,13 +457,13 @@ struct CGFloatTests {
         func distanceTo() {
             let a = CGFloat(3.0)
             let b = CGFloat(7.0)
-            #expect(a.distance(to: b).native == 4.0)
+            #expect(a.distance(to: b) == 4.0)
         }
 
         @Test("Advanced by")
         func advancedBy() {
             let a = CGFloat(3.0)
-            #expect(a.advanced(by: CGFloat(4.0)).native == 7.0)
+            #expect(a.advanced(by: CGFloat(4.0)) == 7.0)
         }
     }
 
@@ -553,7 +556,7 @@ struct CGFloatTests {
         @Test("Debug description")
         func debugDescription() {
             let value = CGFloat(3.14)
-            #expect(!value.debugDescription.isEmpty)
+            #expect(!value.description.isEmpty)
         }
     }
 
@@ -602,7 +605,7 @@ struct CGFloatTests {
         @Test("Binade property")
         func binadeProperty() {
             let value = CGFloat(3.0)
-            #expect(value.binade.native == 2.0)
+            #expect(value.binade == 2.0)
         }
     }
 }

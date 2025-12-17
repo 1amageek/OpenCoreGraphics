@@ -11,7 +11,7 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGColorSpace = OpenCoreGraphics.CGColorSpace
 private typealias CGColorConversionInfo = OpenCoreGraphics.CGColorConversionInfo
 private typealias CGColorConversionInfoTransformType = OpenCoreGraphics.CGColorConversionInfoTransformType
@@ -183,8 +183,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Init with source and destination color spaces")
         func initWithSrcDst() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
 
             let info = CGColorConversionInfo(src: src, dst: dst)
 
@@ -196,8 +196,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Init with options")
         func initWithOptions() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceCMYK()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceCMYK
             let options: [String: Any] = ["key": "value"]
 
             let info = CGColorConversionInfo(optionsSrc: src, dst: dst, options: options)
@@ -209,8 +209,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Init with nil options")
         func initWithNilOptions() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
 
             let info = CGColorConversionInfo(optionsSrc: src, dst: dst, options: nil)
 
@@ -223,8 +223,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Source color space property")
         func sourceColorSpace() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info?.sourceColorSpace == src)
@@ -232,8 +232,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Destination color space property")
         func destinationColorSpace() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info?.destinationColorSpace == dst)
@@ -241,8 +241,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Intent property")
         func intentProperty() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info?.intent == .defaultIntent)
@@ -261,8 +261,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Same instance is equal")
         func sameInstanceEqual() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info == info)
@@ -270,8 +270,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Different instances are not equal")
         func differentInstancesNotEqual() {
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
             let info1 = CGColorConversionInfo(src: src, dst: dst)
             let info2 = CGColorConversionInfo(src: src, dst: dst)
 
@@ -285,8 +285,8 @@ struct CGColorConversionInfoTests {
         @Test("Can be used in Set")
         func setUsage() {
             var set = Set<CGColorConversionInfo>()
-            let src = CGColorSpaceCreateDeviceRGB()
-            let dst = CGColorSpaceCreateDeviceGray()
+            let src = CGColorSpace.deviceRGB
+            let dst = CGColorSpace.deviceGray
 
             if let info1 = CGColorConversionInfo(src: src, dst: dst),
                let info2 = CGColorConversionInfo(src: src, dst: dst) {

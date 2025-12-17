@@ -5,7 +5,6 @@
 //  Tests for CGDataProvider
 //
 
-import Foundation
 import Testing
 @testable import OpenCoreGraphics
 

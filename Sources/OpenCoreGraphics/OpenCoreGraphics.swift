@@ -2,24 +2,9 @@
 //  OpenCoreGraphics.swift
 //  OpenCoreGraphics
 //
-//  A Swift library providing CoreGraphics API compatibility for WebAssembly environments.
-//
-//  This library provides implementations of CoreGraphics types that work in WASM
-//  environments where Apple's CoreGraphics framework is not available.
-//
-//  Usage:
-//  ```swift
-//  #if canImport(CoreGraphics)
-//  import CoreGraphics
-//  #else
-//  import OpenCoreGraphics
-//  #endif
-//  ```
+//  Re-export Foundation for geometry types (CGFloat, CGPoint, CGSize, CGRect)
+//  and CGExtensions for protocol conformances on Darwin platforms.
 //
 
-// All types are defined in separate files and exported automatically.
-// - CGFloat.swift
-// - CGPoint.swift
-// - CGSize.swift
-// - CGRect.swift
-// - CGVector.swift
+@_exported import Foundation
+@_exported import CGExtensions

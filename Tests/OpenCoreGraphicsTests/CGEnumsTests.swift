@@ -10,8 +10,8 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
-private typealias CGPoint = OpenCoreGraphics.CGPoint
+private typealias CGFloat = Foundation.CGFloat
+private typealias CGPoint = Foundation.CGPoint
 private typealias CGBlendMode = OpenCoreGraphics.CGBlendMode
 private typealias CGLineCap = OpenCoreGraphics.CGLineCap
 private typealias CGLineJoin = OpenCoreGraphics.CGLineJoin

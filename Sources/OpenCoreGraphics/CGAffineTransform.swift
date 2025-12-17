@@ -29,7 +29,7 @@ public struct CGAffineTransform: Sendable {
     /// The entry at position [3,2] in the matrix.
     public var ty: CGFloat
 
-    /// Creates an affine transformation matrix with all entries set to zero.
+    /// Creates an affine transformation matrix with all values set to zero.
     @inlinable
     public init() {
         self.a = 0
@@ -51,7 +51,7 @@ public struct CGAffineTransform: Sendable {
         self.ty = ty
     }
 
-    /// Creates an affine transformation matrix with the specified values.
+    /// Creates an affine transformation matrix with the specified values (positional).
     @inlinable
     public init(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat, _ tx: CGFloat, _ ty: CGFloat) {
         self.a = a
@@ -65,68 +65,31 @@ public struct CGAffineTransform: Sendable {
     /// Creates an affine transformation matrix from components.
     @inlinable
     public init(_ components: CGAffineTransformComponents) {
-        // Reconstruct the matrix from components:
-        // M = T * R * Sh * S
-        // where T = translation, R = rotation, Sh = shear, S = scale
-        let cosR = cos(components.rotation.native)
-        let sinR = sin(components.rotation.native)
-        let scaleX = components.scale.width.native
-        let scaleY = components.scale.height.native
-        let shear = components.horizontalShear.native
-
-        // Combined matrix calculation
-        self.a = CGFloat(cosR * scaleX)
-        self.b = CGFloat(sinR * scaleX)
-        self.c = CGFloat((cosR * shear - sinR) * scaleY)
-        self.d = CGFloat((sinR * shear + cosR) * scaleY)
-        self.tx = components.translation.dx
-        self.ty = components.translation.dy
+        self = components.transform
     }
 
-    /// Creates an affine transformation matrix with the specified translation values.
+    /// Creates an affine transformation matrix from a translation.
     @inlinable
     public init(translationX tx: CGFloat, y ty: CGFloat) {
-        self.a = 1
-        self.b = 0
-        self.c = 0
-        self.d = 1
-        self.tx = tx
-        self.ty = ty
+        self.init(a: 1, b: 0, c: 0, d: 1, tx: tx, ty: ty)
     }
 
-    /// Creates an affine transformation matrix with the specified scaling values.
+    /// Creates an affine transformation matrix from scaling values.
     @inlinable
     public init(scaleX sx: CGFloat, y sy: CGFloat) {
-        self.a = sx
-        self.b = 0
-        self.c = 0
-        self.d = sy
-        self.tx = 0
-        self.ty = 0
+        self.init(a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0)
     }
 
-    /// Creates an affine transformation matrix with the specified rotation value.
+    /// Creates an affine transformation matrix from a rotation value.
     @inlinable
     public init(rotationAngle angle: CGFloat) {
-        let cosAngle = CGFloat(cos(angle.native))
-        let sinAngle = CGFloat(sin(angle.native))
-        self.a = cosAngle
-        self.b = sinAngle
-        self.c = -sinAngle
-        self.d = cosAngle
-        self.tx = 0
-        self.ty = 0
+        let cosAngle = cos(angle)
+        let sinAngle = sin(angle)
+        self.init(a: cosAngle, b: sinAngle, c: -sinAngle, d: cosAngle, tx: 0, ty: 0)
     }
-
-    // MARK: - Type Properties
 
     /// The identity transform.
-    @inlinable
-    public static var identity: CGAffineTransform {
-        return CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
-    }
-
-    // MARK: - Instance Properties
+    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
 
     /// Returns whether this transform is the identity transform.
     @inlinable
@@ -134,10 +97,7 @@ public struct CGAffineTransform: Sendable {
         return a == 1 && b == 0 && c == 0 && d == 1 && tx == 0 && ty == 0
     }
 
-    // MARK: - Instance Methods
-
-    /// Returns an affine transformation matrix constructed by translating an existing
-    /// affine transform.
+    /// Returns an affine transformation matrix constructed by translating an existing one.
     @inlinable
     public func translatedBy(x tx: CGFloat, y ty: CGFloat) -> CGAffineTransform {
         return CGAffineTransform(
@@ -150,8 +110,7 @@ public struct CGAffineTransform: Sendable {
         )
     }
 
-    /// Returns an affine transformation matrix constructed by scaling an existing
-    /// affine transform.
+    /// Returns an affine transformation matrix constructed by scaling an existing one.
     @inlinable
     public func scaledBy(x sx: CGFloat, y sy: CGFloat) -> CGAffineTransform {
         return CGAffineTransform(
@@ -164,12 +123,11 @@ public struct CGAffineTransform: Sendable {
         )
     }
 
-    /// Returns an affine transformation matrix constructed by rotating an existing
-    /// affine transform.
+    /// Returns an affine transformation matrix constructed by rotating an existing one.
     @inlinable
     public func rotated(by angle: CGFloat) -> CGAffineTransform {
-        let cosAngle = CGFloat(cos(angle.native))
-        let sinAngle = CGFloat(sin(angle.native))
+        let cosAngle = cos(angle)
+        let sinAngle = sin(angle)
         return CGAffineTransform(
             a: a * cosAngle + c * sinAngle,
             b: b * cosAngle + d * sinAngle,
@@ -180,14 +138,11 @@ public struct CGAffineTransform: Sendable {
         )
     }
 
-    /// Returns an affine transformation matrix constructed by inverting an existing
-    /// affine transform.
+    /// Returns an affine transformation matrix constructed by inverting an existing one.
     @inlinable
     public func inverted() -> CGAffineTransform {
         let determinant = a * d - b * c
-        if determinant == 0 {
-            return self
-        }
+        guard determinant != 0 else { return self }
         let invDet = 1.0 / determinant
         return CGAffineTransform(
             a: d * invDet,
@@ -199,8 +154,7 @@ public struct CGAffineTransform: Sendable {
         )
     }
 
-    /// Returns an affine transformation matrix constructed by combining two existing
-    /// affine transforms.
+    /// Returns an affine transformation matrix constructed by combining two existing ones.
     @inlinable
     public func concatenating(_ t2: CGAffineTransform) -> CGAffineTransform {
         return CGAffineTransform(
@@ -212,41 +166,6 @@ public struct CGAffineTransform: Sendable {
             ty: tx * t2.b + ty * t2.d + t2.ty
         )
     }
-
-    /// Decomposes the affine transform into its component parts.
-    @inlinable
-    public func decomposed() -> CGAffineTransformComponents {
-        // Extract translation
-        let translation = CGVector(dx: tx, dy: ty)
-
-        // Calculate scale and rotation
-        let scaleX = sqrt(a.native * a.native + b.native * b.native)
-        let scaleY = sqrt(c.native * c.native + d.native * d.native)
-
-        // Determine sign of scale based on determinant
-        let det = a.native * d.native - b.native * c.native
-        let signY = det < 0 ? -1.0 : 1.0
-
-        let scale = CGSize(width: scaleX, height: scaleY * signY)
-
-        // Calculate rotation
-        let rotation = atan2(b.native, a.native)
-
-        // Calculate shear
-        let cosR = cos(rotation)
-        let sinR = sin(rotation)
-        var shear = 0.0
-        if abs(cosR) > 0.0001 {
-            shear = (c.native / (scaleY * signY) + sinR) / cosR
-        }
-
-        return CGAffineTransformComponents(
-            scale: scale,
-            horizontalShear: CGFloat(shear),
-            rotation: CGFloat(rotation),
-            translation: translation
-        )
-    }
 }
 
 // MARK: - Equatable
@@ -254,12 +173,8 @@ public struct CGAffineTransform: Sendable {
 extension CGAffineTransform: Equatable {
     @inlinable
     public static func == (lhs: CGAffineTransform, rhs: CGAffineTransform) -> Bool {
-        return lhs.a == rhs.a &&
-               lhs.b == rhs.b &&
-               lhs.c == rhs.c &&
-               lhs.d == rhs.d &&
-               lhs.tx == rhs.tx &&
-               lhs.ty == rhs.ty
+        return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c &&
+               lhs.d == rhs.d && lhs.tx == rhs.tx && lhs.ty == rhs.ty
     }
 }
 
@@ -286,12 +201,12 @@ extension CGAffineTransform: Codable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        a = try container.decode(CGFloat.self, forKey: .a)
-        b = try container.decode(CGFloat.self, forKey: .b)
-        c = try container.decode(CGFloat.self, forKey: .c)
-        d = try container.decode(CGFloat.self, forKey: .d)
-        tx = try container.decode(CGFloat.self, forKey: .tx)
-        ty = try container.decode(CGFloat.self, forKey: .ty)
+        self.a = try container.decode(CGFloat.self, forKey: .a)
+        self.b = try container.decode(CGFloat.self, forKey: .b)
+        self.c = try container.decode(CGFloat.self, forKey: .c)
+        self.d = try container.decode(CGFloat.self, forKey: .d)
+        self.tx = try container.decode(CGFloat.self, forKey: .tx)
+        self.ty = try container.decode(CGFloat.self, forKey: .ty)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -309,6 +224,39 @@ extension CGAffineTransform: Codable {
 
 extension CGAffineTransform: CustomDebugStringConvertible {
     public var debugDescription: String {
-        return "CGAffineTransform(a: \(a.native), b: \(b.native), c: \(c.native), d: \(d.native), tx: \(tx.native), ty: \(ty.native))"
+        return "CGAffineTransform(a: \(a), b: \(b), c: \(c), d: \(d), tx: \(tx), ty: \(ty))"
+    }
+}
+
+// MARK: - Decomposition
+
+extension CGAffineTransform {
+    /// Decomposes this transform into its component parts.
+    public func decomposed() -> CGAffineTransformComponents {
+        // Extract translation
+        let translation = CGVector(dx: tx, dy: ty)
+
+        // Extract scale
+        let scaleX = sqrt(a * a + b * b)
+        let scaleY = sqrt(c * c + d * d)
+
+        // Determine sign of scale based on determinant
+        let determinant = a * d - b * c
+        let signY: CGFloat = determinant < 0 ? -1 : 1
+
+        let scale = CGSize(width: scaleX, height: scaleY * signY)
+
+        // Extract rotation
+        let rotation = atan2(b, a)
+
+        // Extract shear
+        let shear = (a * c + b * d) / (scaleX * scaleY)
+
+        return CGAffineTransformComponents(
+            scale: scale,
+            horizontalShear: shear,
+            rotation: rotation,
+            translation: translation
+        )
     }
 }

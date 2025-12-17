@@ -10,7 +10,7 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGFunction = OpenCoreGraphics.CGFunction
 private typealias CGFunctionCallbacks = OpenCoreGraphics.CGFunctionCallbacks
 
@@ -55,8 +55,8 @@ struct CGFunctionTests {
 
         @Test("Init with valid parameters")
         func initWithValidParameters() {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, input, output in
@@ -90,8 +90,8 @@ struct CGFunctionTests {
 
         @Test("Init without evaluate callback returns nil")
         func initWithoutEvaluate() {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: nil,
@@ -118,8 +118,8 @@ struct CGFunctionTests {
 
         @Test("Init with negative domain dimension returns nil")
         func initWithNegativeDomainDimension() {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -175,8 +175,8 @@ struct CGFunctionTests {
     struct PropertiesTests {
 
         fileprivate func createTestFunction() -> CGFunction? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -215,8 +215,8 @@ struct CGFunctionTests {
         func domainArray() {
             let function = createTestFunction()
             #expect(function?.domain.count == 2)
-            #expect(function?.domain[0].native == 0.0)
-            #expect(function?.domain[1].native == 1.0)
+            #expect(function?.domain[0] == 0.0)
+            #expect(function?.domain[1] == 1.0)
         }
 
         @Test("Range array")
@@ -238,13 +238,13 @@ struct CGFunctionTests {
 
         @Test("Evaluate with array input")
         func evaluateWithArrayInput() {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, input, output in
                     guard let input = input, let output = output else { return }
-                    let t = input[0].native
+                    let t = input[0]
                     output[0] = CGFloat(t)
                     output[1] = CGFloat(t * 0.5)
                     output[2] = CGFloat(1.0 - t)
@@ -271,15 +271,15 @@ struct CGFunctionTests {
             let output = function?.evaluate(input: input)
 
             #expect(output?.count == 3)
-            #expect(output?[0].native == 0.5)
-            #expect(output?[1].native == 0.25)
-            #expect(output?[2].native == 0.5)
+            #expect(output?[0] == 0.5)
+            #expect(output?[1] == 0.25)
+            #expect(output?[2] == 0.5)
         }
 
         @Test("Evaluate at boundary values")
         func evaluateAtBoundaryValues() {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, input, output in
@@ -307,8 +307,8 @@ struct CGFunctionTests {
             let output0 = function?.evaluate(input: [0.0])
             let output1 = function?.evaluate(input: [1.0])
 
-            #expect(output0?[0].native == 0.0)
-            #expect(output1?[0].native == 1.0)
+            #expect(output0?[0] == 0.0)
+            #expect(output1?[0] == 1.0)
         }
     }
 
@@ -318,8 +318,8 @@ struct CGFunctionTests {
     struct EquatableTests {
 
         fileprivate func createTestFunction() -> CGFunction? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },
@@ -362,8 +362,8 @@ struct CGFunctionTests {
     struct HashableTests {
 
         fileprivate func createTestFunction() -> CGFunction? {
-            var domain: [CGFloat] = [0.0, 1.0]
-            var range: [CGFloat] = [0.0, 1.0]
+            let domain: [CGFloat] = [0.0, 1.0]
+            let range: [CGFloat] = [0.0, 1.0]
             var callbacks = CGFunctionCallbacks(
                 version: 0,
                 evaluate: { _, _, _ in },

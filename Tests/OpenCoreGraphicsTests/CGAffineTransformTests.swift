@@ -10,9 +10,9 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
-private typealias CGPoint = OpenCoreGraphics.CGPoint
-private typealias CGSize = OpenCoreGraphics.CGSize
+private typealias CGFloat = Foundation.CGFloat
+private typealias CGPoint = Foundation.CGPoint
+private typealias CGSize = Foundation.CGSize
 private typealias CGVector = OpenCoreGraphics.CGVector
 private typealias CGAffineTransform = OpenCoreGraphics.CGAffineTransform
 private typealias CGAffineTransformComponents = OpenCoreGraphics.CGAffineTransformComponents
@@ -28,83 +28,83 @@ struct CGAffineTransformTests {
         @Test("Default initializer creates zero matrix")
         func defaultInit() {
             let transform = CGAffineTransform()
-            #expect(transform.a.native == 0.0)
-            #expect(transform.b.native == 0.0)
-            #expect(transform.c.native == 0.0)
-            #expect(transform.d.native == 0.0)
-            #expect(transform.tx.native == 0.0)
-            #expect(transform.ty.native == 0.0)
+            #expect(transform.a == 0.0)
+            #expect(transform.b == 0.0)
+            #expect(transform.c == 0.0)
+            #expect(transform.d == 0.0)
+            #expect(transform.tx == 0.0)
+            #expect(transform.ty == 0.0)
         }
 
         @Test("Init with named parameters")
         func initWithNamedParameters() {
             let transform = CGAffineTransform(a: 1.0, b: 2.0, c: 3.0, d: 4.0, tx: 5.0, ty: 6.0)
-            #expect(transform.a.native == 1.0)
-            #expect(transform.b.native == 2.0)
-            #expect(transform.c.native == 3.0)
-            #expect(transform.d.native == 4.0)
-            #expect(transform.tx.native == 5.0)
-            #expect(transform.ty.native == 6.0)
+            #expect(transform.a == 1.0)
+            #expect(transform.b == 2.0)
+            #expect(transform.c == 3.0)
+            #expect(transform.d == 4.0)
+            #expect(transform.tx == 5.0)
+            #expect(transform.ty == 6.0)
         }
 
         @Test("Init with positional parameters")
         func initWithPositionalParameters() {
             let transform = CGAffineTransform(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
-            #expect(transform.a.native == 1.0)
-            #expect(transform.b.native == 2.0)
-            #expect(transform.c.native == 3.0)
-            #expect(transform.d.native == 4.0)
-            #expect(transform.tx.native == 5.0)
-            #expect(transform.ty.native == 6.0)
+            #expect(transform.a == 1.0)
+            #expect(transform.b == 2.0)
+            #expect(transform.c == 3.0)
+            #expect(transform.d == 4.0)
+            #expect(transform.tx == 5.0)
+            #expect(transform.ty == 6.0)
         }
 
         @Test("Init translation")
         func initTranslation() {
             let transform = CGAffineTransform(translationX: 10.0, y: 20.0)
-            #expect(transform.a.native == 1.0)
-            #expect(transform.b.native == 0.0)
-            #expect(transform.c.native == 0.0)
-            #expect(transform.d.native == 1.0)
-            #expect(transform.tx.native == 10.0)
-            #expect(transform.ty.native == 20.0)
+            #expect(transform.a == 1.0)
+            #expect(transform.b == 0.0)
+            #expect(transform.c == 0.0)
+            #expect(transform.d == 1.0)
+            #expect(transform.tx == 10.0)
+            #expect(transform.ty == 20.0)
         }
 
         @Test("Init scale")
         func initScale() {
             let transform = CGAffineTransform(scaleX: 2.0, y: 3.0)
-            #expect(transform.a.native == 2.0)
-            #expect(transform.b.native == 0.0)
-            #expect(transform.c.native == 0.0)
-            #expect(transform.d.native == 3.0)
-            #expect(transform.tx.native == 0.0)
-            #expect(transform.ty.native == 0.0)
+            #expect(transform.a == 2.0)
+            #expect(transform.b == 0.0)
+            #expect(transform.c == 0.0)
+            #expect(transform.d == 3.0)
+            #expect(transform.tx == 0.0)
+            #expect(transform.ty == 0.0)
         }
 
         @Test("Init rotation 90 degrees")
         func initRotation90() {
             let transform = CGAffineTransform(rotationAngle: CGFloat.pi / 2)
-            #expect(abs(transform.a.native - 0.0) < 0.0001)
-            #expect(abs(transform.b.native - 1.0) < 0.0001)
-            #expect(abs(transform.c.native - (-1.0)) < 0.0001)
-            #expect(abs(transform.d.native - 0.0) < 0.0001)
+            #expect(abs(transform.a - 0.0) < 0.0001)
+            #expect(abs(transform.b - 1.0) < 0.0001)
+            #expect(abs(transform.c - (-1.0)) < 0.0001)
+            #expect(abs(transform.d - 0.0) < 0.0001)
         }
 
         @Test("Init rotation 180 degrees")
         func initRotation180() {
             let transform = CGAffineTransform(rotationAngle: CGFloat.pi)
-            #expect(abs(transform.a.native - (-1.0)) < 0.0001)
-            #expect(abs(transform.b.native - 0.0) < 0.0001)
-            #expect(abs(transform.c.native - 0.0) < 0.0001)
-            #expect(abs(transform.d.native - (-1.0)) < 0.0001)
+            #expect(abs(transform.a - (-1.0)) < 0.0001)
+            #expect(abs(transform.b - 0.0) < 0.0001)
+            #expect(abs(transform.c - 0.0) < 0.0001)
+            #expect(abs(transform.d - (-1.0)) < 0.0001)
         }
 
         @Test("Init rotation 0 degrees")
         func initRotation0() {
             let transform = CGAffineTransform(rotationAngle: 0.0)
-            #expect(abs(transform.a.native - 1.0) < 0.0001)
-            #expect(abs(transform.b.native - 0.0) < 0.0001)
-            #expect(abs(transform.c.native - 0.0) < 0.0001)
-            #expect(abs(transform.d.native - 1.0) < 0.0001)
+            #expect(abs(transform.a - 1.0) < 0.0001)
+            #expect(abs(transform.b - 0.0) < 0.0001)
+            #expect(abs(transform.c - 0.0) < 0.0001)
+            #expect(abs(transform.d - 1.0) < 0.0001)
         }
     }
 
@@ -116,12 +116,12 @@ struct CGAffineTransformTests {
         @Test("Identity transform values")
         func identityValues() {
             let identity = CGAffineTransform.identity
-            #expect(identity.a.native == 1.0)
-            #expect(identity.b.native == 0.0)
-            #expect(identity.c.native == 0.0)
-            #expect(identity.d.native == 1.0)
-            #expect(identity.tx.native == 0.0)
-            #expect(identity.ty.native == 0.0)
+            #expect(identity.a == 1.0)
+            #expect(identity.b == 0.0)
+            #expect(identity.c == 0.0)
+            #expect(identity.d == 1.0)
+            #expect(identity.tx == 0.0)
+            #expect(identity.ty == 0.0)
         }
 
         @Test("isIdentity property")
@@ -149,8 +149,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.translatedBy(x: 10.0, y: 20.0)
             let point = CGPoint(x: 5.0, y: 5.0)
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == 15.0)
-            #expect(transformed.y.native == 25.0)
+            #expect(transformed.x == 15.0)
+            #expect(transformed.y == 25.0)
         }
 
         @Test("Translate by negative values")
@@ -158,8 +158,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.translatedBy(x: -10.0, y: -20.0)
             let point = CGPoint(x: 15.0, y: 25.0)
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == 5.0)
-            #expect(transformed.y.native == 5.0)
+            #expect(transformed.x == 5.0)
+            #expect(transformed.y == 5.0)
         }
 
         @Test("Chain translations")
@@ -169,8 +169,8 @@ struct CGAffineTransformTests {
                 .translatedBy(x: 0.0, y: 20.0)
             let point = CGPoint.zero
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == 10.0)
-            #expect(transformed.y.native == 20.0)
+            #expect(transformed.x == 10.0)
+            #expect(transformed.y == 20.0)
         }
     }
 
@@ -184,8 +184,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.scaledBy(x: 2.0, y: 2.0)
             let point = CGPoint(x: 10.0, y: 20.0)
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == 20.0)
-            #expect(transformed.y.native == 40.0)
+            #expect(transformed.x == 20.0)
+            #expect(transformed.y == 40.0)
         }
 
         @Test("Scale by non-uniform factor")
@@ -193,8 +193,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.scaledBy(x: 2.0, y: 3.0)
             let point = CGPoint(x: 10.0, y: 10.0)
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == 20.0)
-            #expect(transformed.y.native == 30.0)
+            #expect(transformed.x == 20.0)
+            #expect(transformed.y == 30.0)
         }
 
         @Test("Scale by negative factor flips")
@@ -202,8 +202,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.scaledBy(x: -1.0, y: 1.0)
             let point = CGPoint(x: 10.0, y: 20.0)
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == -10.0)
-            #expect(transformed.y.native == 20.0)
+            #expect(transformed.x == -10.0)
+            #expect(transformed.y == 20.0)
         }
 
         @Test("Scale by zero")
@@ -211,8 +211,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.scaledBy(x: 0.0, y: 0.0)
             let point = CGPoint(x: 10.0, y: 20.0)
             let transformed = point.applying(transform)
-            #expect(transformed.x.native == 0.0)
-            #expect(transformed.y.native == 0.0)
+            #expect(transformed.x == 0.0)
+            #expect(transformed.y == 0.0)
         }
     }
 
@@ -226,8 +226,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.rotated(by: CGFloat.pi / 2)
             let point = CGPoint(x: 1.0, y: 0.0)
             let transformed = point.applying(transform)
-            #expect(abs(transformed.x.native - 0.0) < 0.0001)
-            #expect(abs(transformed.y.native - 1.0) < 0.0001)
+            #expect(abs(transformed.x - 0.0) < 0.0001)
+            #expect(abs(transformed.y - 1.0) < 0.0001)
         }
 
         @Test("Rotate 180 degrees")
@@ -235,8 +235,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.rotated(by: CGFloat.pi)
             let point = CGPoint(x: 1.0, y: 0.0)
             let transformed = point.applying(transform)
-            #expect(abs(transformed.x.native - (-1.0)) < 0.0001)
-            #expect(abs(transformed.y.native - 0.0) < 0.0001)
+            #expect(abs(transformed.x - (-1.0)) < 0.0001)
+            #expect(abs(transformed.y - 0.0) < 0.0001)
         }
 
         @Test("Rotate 360 degrees returns to original")
@@ -244,8 +244,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.rotated(by: CGFloat.pi * 2)
             let point = CGPoint(x: 1.0, y: 0.0)
             let transformed = point.applying(transform)
-            #expect(abs(transformed.x.native - 1.0) < 0.0001)
-            #expect(abs(transformed.y.native - 0.0) < 0.0001)
+            #expect(abs(transformed.x - 1.0) < 0.0001)
+            #expect(abs(transformed.y - 0.0) < 0.0001)
         }
 
         @Test("Rotate negative angle")
@@ -253,8 +253,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform.identity.rotated(by: -CGFloat.pi / 2)
             let point = CGPoint(x: 1.0, y: 0.0)
             let transformed = point.applying(transform)
-            #expect(abs(transformed.x.native - 0.0) < 0.0001)
-            #expect(abs(transformed.y.native - (-1.0)) < 0.0001)
+            #expect(abs(transformed.x - 0.0) < 0.0001)
+            #expect(abs(transformed.y - (-1.0)) < 0.0001)
         }
     }
 
@@ -267,8 +267,8 @@ struct CGAffineTransformTests {
         func concatenateWithIdentity() {
             let transform = CGAffineTransform(translationX: 10.0, y: 20.0)
             let concatenated = transform.concatenating(CGAffineTransform.identity)
-            #expect(concatenated.tx.native == 10.0)
-            #expect(concatenated.ty.native == 20.0)
+            #expect(concatenated.tx == 10.0)
+            #expect(concatenated.ty == 20.0)
         }
 
         @Test("Concatenate scale then translate")
@@ -278,8 +278,8 @@ struct CGAffineTransformTests {
             let combined = scale.concatenating(translate)
             let point = CGPoint(x: 5.0, y: 5.0)
             let transformed = point.applying(combined)
-            #expect(transformed.x.native == 20.0) // 5*2 + 10 = 20
-            #expect(transformed.y.native == 20.0) // 5*2 + 10 = 20
+            #expect(transformed.x == 20.0) // 5*2 + 10 = 20
+            #expect(transformed.y == 20.0) // 5*2 + 10 = 20
         }
 
         @Test("Order matters for concatenation")
@@ -314,8 +314,8 @@ struct CGAffineTransformTests {
             let inverted = transform.inverted()
             let point = CGPoint(x: 15.0, y: 25.0)
             let original = point.applying(inverted)
-            #expect(abs(original.x.native - 5.0) < 0.0001)
-            #expect(abs(original.y.native - 5.0) < 0.0001)
+            #expect(abs(original.x - 5.0) < 0.0001)
+            #expect(abs(original.y - 5.0) < 0.0001)
         }
 
         @Test("Invert scale")
@@ -324,8 +324,8 @@ struct CGAffineTransformTests {
             let inverted = transform.inverted()
             let point = CGPoint(x: 20.0, y: 40.0)
             let original = point.applying(inverted)
-            #expect(abs(original.x.native - 10.0) < 0.0001)
-            #expect(abs(original.y.native - 10.0) < 0.0001)
+            #expect(abs(original.x - 10.0) < 0.0001)
+            #expect(abs(original.y - 10.0) < 0.0001)
         }
 
         @Test("Transform then inverse returns original")
@@ -339,8 +339,8 @@ struct CGAffineTransformTests {
             let transformed = original.applying(transform)
             let restored = transformed.applying(inverted)
 
-            #expect(abs(restored.x.native - original.x.native) < 0.0001)
-            #expect(abs(restored.y.native - original.y.native) < 0.0001)
+            #expect(abs(restored.x - original.x) < 0.0001)
+            #expect(abs(restored.y - original.y) < 0.0001)
         }
 
         @Test("Invert singular matrix returns self")
@@ -359,28 +359,28 @@ struct CGAffineTransformTests {
         @Test("Decompose identity")
         func decomposeIdentity() {
             let components = CGAffineTransform.identity.decomposed()
-            #expect(components.scale.width.native == 1.0)
-            #expect(components.scale.height.native == 1.0)
-            #expect(abs(components.rotation.native - 0.0) < 0.0001)
-            #expect(abs(components.horizontalShear.native - 0.0) < 0.0001)
-            #expect(components.translation.dx.native == 0.0)
-            #expect(components.translation.dy.native == 0.0)
+            #expect(components.scale.width == 1.0)
+            #expect(components.scale.height == 1.0)
+            #expect(abs(components.rotation - 0.0) < 0.0001)
+            #expect(abs(components.horizontalShear - 0.0) < 0.0001)
+            #expect(components.translation.dx == 0.0)
+            #expect(components.translation.dy == 0.0)
         }
 
         @Test("Decompose translation")
         func decomposeTranslation() {
             let transform = CGAffineTransform(translationX: 10.0, y: 20.0)
             let components = transform.decomposed()
-            #expect(components.translation.dx.native == 10.0)
-            #expect(components.translation.dy.native == 20.0)
+            #expect(components.translation.dx == 10.0)
+            #expect(components.translation.dy == 20.0)
         }
 
         @Test("Decompose scale")
         func decomposeScale() {
             let transform = CGAffineTransform(scaleX: 2.0, y: 3.0)
             let components = transform.decomposed()
-            #expect(abs(components.scale.width.native - 2.0) < 0.0001)
-            #expect(abs(components.scale.height.native - 3.0) < 0.0001)
+            #expect(abs(components.scale.width - 2.0) < 0.0001)
+            #expect(abs(components.scale.height - 3.0) < 0.0001)
         }
 
         @Test("Init from components")
@@ -394,8 +394,8 @@ struct CGAffineTransformTests {
             let transform = CGAffineTransform(components)
             let point = CGPoint(x: 5.0, y: 5.0)
             let transformed = point.applying(transform)
-            #expect(abs(transformed.x.native - 20.0) < 0.0001)
-            #expect(abs(transformed.y.native - 30.0) < 0.0001)
+            #expect(abs(transformed.x - 20.0) < 0.0001)
+            #expect(abs(transformed.y - 30.0) < 0.0001)
         }
     }
 
@@ -481,12 +481,12 @@ struct CGAffineTransformComponentsTests {
         @Test("Default initializer creates identity components")
         func defaultInit() {
             let components = CGAffineTransformComponents()
-            #expect(components.scale.width.native == 1.0)
-            #expect(components.scale.height.native == 1.0)
-            #expect(components.horizontalShear.native == 0.0)
-            #expect(components.rotation.native == 0.0)
-            #expect(components.translation.dx.native == 0.0)
-            #expect(components.translation.dy.native == 0.0)
+            #expect(components.scale.width == 1.0)
+            #expect(components.scale.height == 1.0)
+            #expect(components.horizontalShear == 0.0)
+            #expect(components.rotation == 0.0)
+            #expect(components.translation.dx == 0.0)
+            #expect(components.translation.dy == 0.0)
         }
 
         @Test("Init with CGFloat values")
@@ -497,12 +497,12 @@ struct CGAffineTransformComponentsTests {
                 rotation: CGFloat.pi / 4,
                 translation: CGVector(dx: 10.0, dy: 20.0)
             )
-            #expect(components.scale.width.native == 2.0)
-            #expect(components.scale.height.native == 3.0)
-            #expect(components.horizontalShear.native == 0.5)
-            #expect(abs(components.rotation.native - Double.pi / 4) < 0.0001)
-            #expect(components.translation.dx.native == 10.0)
-            #expect(components.translation.dy.native == 20.0)
+            #expect(components.scale.width == 2.0)
+            #expect(components.scale.height == 3.0)
+            #expect(components.horizontalShear == 0.5)
+            #expect(abs(components.rotation - Double.pi / 4) < 0.0001)
+            #expect(components.translation.dx == 10.0)
+            #expect(components.translation.dy == 20.0)
         }
 
         @Test("Init with Double values")
@@ -513,8 +513,8 @@ struct CGAffineTransformComponentsTests {
                 rotation: Double.pi / 4,
                 translation: CGVector(dx: 10.0, dy: 20.0)
             )
-            #expect(components.horizontalShear.native == 0.5)
-            #expect(abs(components.rotation.native - Double.pi / 4) < 0.0001)
+            #expect(components.horizontalShear == 0.5)
+            #expect(abs(components.rotation - Double.pi / 4) < 0.0001)
         }
     }
 

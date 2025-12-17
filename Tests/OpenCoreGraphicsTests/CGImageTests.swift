@@ -10,7 +10,7 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGImage = OpenCoreGraphics.CGImage
 private typealias CGImageAlphaInfo = OpenCoreGraphics.CGImageAlphaInfo
 private typealias CGImageByteOrderInfo = OpenCoreGraphics.CGImageByteOrderInfo
@@ -19,7 +19,7 @@ private typealias CGColorSpace = OpenCoreGraphics.CGColorSpace
 private typealias CGBitmapInfo = OpenCoreGraphics.CGBitmapInfo
 private typealias CGDataProvider = OpenCoreGraphics.CGDataProvider
 private typealias CGColorRenderingIntent = OpenCoreGraphics.CGColorRenderingIntent
-private typealias CGRect = OpenCoreGraphics.CGRect
+private typealias CGRect = Foundation.CGRect
 
 // MARK: - CGImageAlphaInfo Tests
 
@@ -126,7 +126,7 @@ struct CGImageTests {
 
         @Test("Init with valid parameters")
         func initWithValidParameters() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = createTestDataProvider(width: 100, height: 100)
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
 
@@ -153,7 +153,7 @@ struct CGImageTests {
 
         @Test("Init with zero width returns nil")
         func initWithZeroWidth() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = createTestDataProvider(width: 1, height: 100)
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
 
@@ -176,7 +176,7 @@ struct CGImageTests {
 
         @Test("Init with zero height returns nil")
         func initWithZeroHeight() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = createTestDataProvider(width: 100, height: 1)
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
 
@@ -199,7 +199,7 @@ struct CGImageTests {
 
         @Test("Init with HDR headroom")
         func initWithHDRHeadroom() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = createTestDataProvider(width: 100, height: 100)
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
 
@@ -225,7 +225,7 @@ struct CGImageTests {
 
         @Test("Init with invalid headroom returns nil")
         func initWithInvalidHeadroom() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let provider = createTestDataProvider(width: 100, height: 100)
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
 
@@ -274,7 +274,7 @@ struct CGImageTests {
     struct PropertiesTests {
 
         fileprivate func createTestImage() -> CGImage? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let dataSize = 100 * 100 * 4
             let data = Data(repeating: 128, count: dataSize)
             let provider = CGDataProvider(data: data)
@@ -344,7 +344,7 @@ struct CGImageTests {
     struct CopyTests {
 
         fileprivate func createTestImage() -> CGImage? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let dataSize = 100 * 100 * 4
             let data = Data(repeating: 128, count: dataSize)
             let provider = CGDataProvider(data: data)
@@ -378,7 +378,7 @@ struct CGImageTests {
         @Test("Copy with different color space")
         func copyWithColorSpace() {
             let original = createTestImage()
-            let graySpace = CGColorSpaceCreateDeviceGray()
+            let graySpace = CGColorSpace.deviceGray
             let copy = original?.copy(colorSpace: graySpace)
 
             #expect(copy != nil)
@@ -402,7 +402,7 @@ struct CGImageTests {
                 shouldInterpolate: true
             )
 
-            let rgbSpace = CGColorSpaceCreateDeviceRGB()
+            let rgbSpace = CGColorSpace.deviceRGB
             let copy = mask?.copy(colorSpace: rgbSpace)
 
             #expect(copy == nil)
@@ -424,7 +424,7 @@ struct CGImageTests {
     struct CroppingTests {
 
         fileprivate func createTestImage() -> CGImage? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let dataSize = 100 * 100 * 4
             let data = Data(repeating: 128, count: dataSize)
             let provider = CGDataProvider(data: data)
@@ -491,7 +491,7 @@ struct CGImageTests {
 
         @Test("Get data provider from image")
         func getDataProvider() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let dataSize = 100 * 100 * 4
             let data = Data(repeating: 128, count: dataSize)
             let provider = CGDataProvider(data: data)
@@ -521,7 +521,7 @@ struct CGImageTests {
     struct EquatableTests {
 
         fileprivate func createTestImage() -> CGImage? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let dataSize = 100 * 100 * 4
             let data = Data(repeating: 128, count: dataSize)
             let provider = CGDataProvider(data: data)
@@ -562,7 +562,7 @@ struct CGImageTests {
     struct HashableTests {
 
         fileprivate func createTestImage() -> CGImage? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let dataSize = 100 * 100 * 4
             let data = Data(repeating: 128, count: dataSize)
             let provider = CGDataProvider(data: data)

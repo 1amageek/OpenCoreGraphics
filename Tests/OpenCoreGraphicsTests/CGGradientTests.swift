@@ -10,7 +10,7 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGGradient = OpenCoreGraphics.CGGradient
 private typealias CGGradientDrawingOptions = OpenCoreGraphics.CGGradientDrawingOptions
 private typealias CGColor = OpenCoreGraphics.CGColor
@@ -92,7 +92,7 @@ struct CGGradientTests {
 
         @Test("Init with color space and colors")
         func initWithColorSpaceAndColors() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let colors = [
                 CGColor(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0),
                 CGColor(red: 0.0, green: 0.0, blue: 1.0, alpha: 1.0)
@@ -115,7 +115,7 @@ struct CGGradientTests {
 
         @Test("Init with mismatched locations returns nil")
         func initWithMismatchedLocations() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let colors = [
                 CGColor(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0),
                 CGColor(red: 0.0, green: 0.0, blue: 1.0, alpha: 1.0)
@@ -129,12 +129,12 @@ struct CGGradientTests {
 
         @Test("Init with color components")
         func initWithColorComponents() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            var components: [CGFloat] = [
+            let colorSpace = CGColorSpace.deviceRGB
+            let components: [CGFloat] = [
                 1.0, 0.0, 0.0, 1.0,  // Red
                 0.0, 0.0, 1.0, 1.0   // Blue
             ]
-            var locations: [CGFloat] = [0.0, 1.0]
+            let locations: [CGFloat] = [0.0, 1.0]
 
             let gradient = components.withUnsafeBufferPointer { compPtr in
                 locations.withUnsafeBufferPointer { locPtr in
@@ -153,8 +153,8 @@ struct CGGradientTests {
 
         @Test("Init with zero count returns nil")
         func initWithZeroCount() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            var components: [CGFloat] = [1.0, 0.0, 0.0, 1.0]
+            let colorSpace = CGColorSpace.deviceRGB
+            let components: [CGFloat] = [1.0, 0.0, 0.0, 1.0]
 
             let gradient = components.withUnsafeBufferPointer { compPtr in
                 CGGradient(
@@ -217,7 +217,7 @@ struct CGGradientTests {
             let color = gradient?.color(at: 0.0)
 
             #expect(color != nil)
-            #expect(color?.components?[0].native == 1.0)  // Red
+            #expect(color?.components?[0] == 1.0)  // Red
         }
 
         @Test("Color at position 1")
@@ -232,7 +232,7 @@ struct CGGradientTests {
             let color = gradient?.color(at: 1.0)
 
             #expect(color != nil)
-            #expect(color?.components?[2].native == 1.0)  // Blue
+            #expect(color?.components?[2] == 1.0)  // Blue
         }
 
         @Test("Color at midpoint")
@@ -248,8 +248,8 @@ struct CGGradientTests {
 
             #expect(color != nil)
             // At midpoint, red and blue should both be 0.5
-            #expect(color?.components?[0].native == 0.5)  // Red
-            #expect(color?.components?[2].native == 0.5)  // Blue
+            #expect(color?.components?[0] == 0.5)  // Red
+            #expect(color?.components?[2] == 0.5)  // Blue
         }
 
         @Test("Color at position clamped below 0")
@@ -264,7 +264,7 @@ struct CGGradientTests {
             let color = gradient?.color(at: -0.5)
 
             #expect(color != nil)
-            #expect(color?.components?[0].native == 1.0)  // Should be clamped to first color
+            #expect(color?.components?[0] == 1.0)  // Should be clamped to first color
         }
 
         @Test("Color at position clamped above 1")
@@ -279,7 +279,7 @@ struct CGGradientTests {
             let color = gradient?.color(at: 1.5)
 
             #expect(color != nil)
-            #expect(color?.components?[2].native == 1.0)  // Should be clamped to last color
+            #expect(color?.components?[2] == 1.0)  // Should be clamped to last color
         }
 
         @Test("Color with evenly spaced implicit locations")
@@ -295,7 +295,7 @@ struct CGGradientTests {
             // At 0.5, should be at the middle color (green)
             let color = gradient?.color(at: 0.5)
             #expect(color != nil)
-            #expect(color?.components?[1].native == 1.0)  // Green
+            #expect(color?.components?[1] == 1.0)  // Green
         }
     }
 
@@ -322,7 +322,7 @@ struct CGGradientTests {
             let color = gradient?.color(at: 0.5)
 
             #expect(color != nil)
-            #expect(color?.components?[0].native == 1.0)  // Red
+            #expect(color?.components?[0] == 1.0)  // Red
         }
 
         @Test("Many colors gradient")

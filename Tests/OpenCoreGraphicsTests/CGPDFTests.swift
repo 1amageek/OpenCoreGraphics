@@ -11,8 +11,8 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
-private typealias CGRect = OpenCoreGraphics.CGRect
+private typealias CGFloat = Foundation.CGFloat
+private typealias CGRect = Foundation.CGRect
 private typealias CGAffineTransform = OpenCoreGraphics.CGAffineTransform
 private typealias CGPDFDocument = OpenCoreGraphics.CGPDFDocument
 private typealias CGPDFPage = OpenCoreGraphics.CGPDFPage
@@ -425,7 +425,7 @@ struct CGPDFObjectPrimitiveTypesTests {
     @Test("CGPDFReal is CGFloat")
     func pdfRealType() {
         let realValue: CGPDFReal = 3.14
-        #expect(realValue.native == 3.14)
+        #expect(realValue == 3.14)
         #expect(MemoryLayout<CGPDFReal>.size == MemoryLayout<CGFloat>.size)
     }
 }

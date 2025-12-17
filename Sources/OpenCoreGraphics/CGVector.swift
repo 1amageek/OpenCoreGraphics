@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+import Foundation
+
 /// A structure that contains a two-dimensional vector.
 @frozen
 public struct CGVector: Sendable {
@@ -15,13 +17,6 @@ public struct CGVector: Sendable {
     /// The y component of the vector.
     public var dy: CGFloat
 
-    /// Creates a vector whose components are both zero.
-    @inlinable
-    public init() {
-        self.dx = 0.0
-        self.dy = 0.0
-    }
-
     /// Creates a vector with the specified components.
     @inlinable
     public init(dx: CGFloat, dy: CGFloat) {
@@ -31,23 +26,20 @@ public struct CGVector: Sendable {
 
     /// Creates a vector with the specified components.
     @inlinable
-    public init(dx: Double, dy: Double) {
-        self.dx = CGFloat(dx)
-        self.dy = CGFloat(dy)
-    }
-
-    /// Creates a vector with the specified components.
-    @inlinable
     public init(dx: Int, dy: Int) {
         self.dx = CGFloat(dx)
         self.dy = CGFloat(dy)
     }
 
-    /// The vector whose components are both zero.
+    /// Creates a vector whose components are both zero.
     @inlinable
-    public static var zero: CGVector {
-        return CGVector()
+    public init() {
+        self.dx = 0
+        self.dy = 0
     }
+
+    /// The vector whose components are both zero.
+    public static let zero = CGVector()
 }
 
 // MARK: - Equatable
@@ -66,14 +58,6 @@ extension CGVector: Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(dx)
         hasher.combine(dy)
-    }
-}
-
-// MARK: - CustomDebugStringConvertible
-
-extension CGVector: CustomDebugStringConvertible {
-    public var debugDescription: String {
-        return "(\(dx.native), \(dy.native))"
     }
 }
 
@@ -96,5 +80,13 @@ extension CGVector: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(dx, forKey: .dx)
         try container.encode(dy, forKey: .dy)
+    }
+}
+
+// MARK: - CustomDebugStringConvertible
+
+extension CGVector: CustomDebugStringConvertible {
+    public var debugDescription: String {
+        return "(\(dx), \(dy))"
     }
 }

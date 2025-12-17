@@ -10,11 +10,11 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGPattern = OpenCoreGraphics.CGPattern
 private typealias CGPatternTiling = OpenCoreGraphics.CGPatternTiling
 private typealias CGPatternCallbacks = OpenCoreGraphics.CGPatternCallbacks
-private typealias CGRect = OpenCoreGraphics.CGRect
+private typealias CGRect = Foundation.CGRect
 private typealias CGAffineTransform = OpenCoreGraphics.CGAffineTransform
 
 // MARK: - CGPatternTiling Tests
@@ -102,8 +102,8 @@ struct CGPatternTests {
 
             #expect(pattern != nil)
             #expect(pattern?.bounds == CGRect(x: 0, y: 0, width: 10, height: 10))
-            #expect(pattern?.xStep.native == 10)
-            #expect(pattern?.yStep.native == 10)
+            #expect(pattern?.xStep == 10)
+            #expect(pattern?.yStep == 10)
             #expect(pattern?.isColored == true)
         }
 
@@ -234,22 +234,22 @@ struct CGPatternTests {
         @Test("Bounds property")
         func boundsProperty() {
             let pattern = createTestPattern()
-            #expect(pattern?.bounds.width.native == 20)
-            #expect(pattern?.bounds.height.native == 30)
+            #expect(pattern?.bounds.width == 20)
+            #expect(pattern?.bounds.height == 30)
         }
 
         @Test("Matrix property")
         func matrixProperty() {
             let pattern = createTestPattern()
-            #expect(pattern?.matrix.tx.native == 5)
-            #expect(pattern?.matrix.ty.native == 10)
+            #expect(pattern?.matrix.tx == 5)
+            #expect(pattern?.matrix.ty == 10)
         }
 
         @Test("Step properties")
         func stepProperties() {
             let pattern = createTestPattern()
-            #expect(pattern?.xStep.native == 25)
-            #expect(pattern?.yStep.native == 35)
+            #expect(pattern?.xStep == 25)
+            #expect(pattern?.yStep == 35)
         }
 
         @Test("Tiling property")

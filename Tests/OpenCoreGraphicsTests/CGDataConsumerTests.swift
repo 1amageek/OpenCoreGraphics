@@ -5,7 +5,6 @@
 //  Tests for CGDataConsumer
 //
 
-import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
@@ -71,7 +70,7 @@ struct CGDataConsumerTests {
                 return
             }
 
-            var bytes: [UInt8] = [1, 2, 3, 4, 5]
+            let bytes: [UInt8] = [1, 2, 3, 4, 5]
             let written = bytes.withUnsafeBufferPointer { buffer in
                 consumer.putBytes(buffer.baseAddress, count: buffer.count)
             }
@@ -101,8 +100,8 @@ struct CGDataConsumerTests {
                 return
             }
 
-            var bytes1: [UInt8] = [1, 2, 3]
-            var bytes2: [UInt8] = [4, 5]
+            let bytes1: [UInt8] = [1, 2, 3]
+            let bytes2: [UInt8] = [4, 5]
 
             bytes1.withUnsafeBufferPointer { buffer in
                 _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)

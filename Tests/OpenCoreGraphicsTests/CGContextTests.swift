@@ -10,14 +10,14 @@ import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
-private typealias CGFloat = OpenCoreGraphics.CGFloat
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGContext = OpenCoreGraphics.CGContext
 private typealias CGColorSpace = OpenCoreGraphics.CGColorSpace
 private typealias CGBitmapInfo = OpenCoreGraphics.CGBitmapInfo
 private typealias CGImageAlphaInfo = OpenCoreGraphics.CGImageAlphaInfo
-private typealias CGPoint = OpenCoreGraphics.CGPoint
-private typealias CGSize = OpenCoreGraphics.CGSize
-private typealias CGRect = OpenCoreGraphics.CGRect
+private typealias CGPoint = Foundation.CGPoint
+private typealias CGSize = Foundation.CGSize
+private typealias CGRect = Foundation.CGRect
 private typealias CGAffineTransform = OpenCoreGraphics.CGAffineTransform
 private typealias CGColor = OpenCoreGraphics.CGColor
 private typealias CGLineCap = OpenCoreGraphics.CGLineCap
@@ -34,7 +34,7 @@ struct CGContextTests {
     // MARK: - Helper Methods
 
     fileprivate func createTestContext(width: Int = 100, height: Int = 100) -> CGContext? {
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpace.deviceRGB
         let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
         return CGContext(
             data: nil,
@@ -54,7 +54,7 @@ struct CGContextTests {
 
         @Test("Init with valid parameters")
         func initWithValidParameters() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             let context = CGContext(
                 data: nil,
@@ -73,7 +73,7 @@ struct CGContextTests {
 
         @Test("Init with zero width returns nil")
         func initWithZeroWidth() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             let context = CGContext(
                 data: nil,
@@ -90,7 +90,7 @@ struct CGContextTests {
 
         @Test("Init with zero height returns nil")
         func initWithZeroHeight() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             let context = CGContext(
                 data: nil,
@@ -107,7 +107,7 @@ struct CGContextTests {
 
         @Test("Init with zero bits per component returns nil")
         func initWithZeroBitsPerComponent() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             let context = CGContext(
                 data: nil,
@@ -129,7 +129,7 @@ struct CGContextTests {
     struct PropertiesTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -176,7 +176,7 @@ struct CGContextTests {
         @Test("Line width default")
         func lineWidthDefault() {
             let context = createTestContext()
-            #expect(context?.lineWidth.native == 1.0)
+            #expect(context?.lineWidth == 1.0)
         }
 
         @Test("Interpolation quality default")
@@ -192,7 +192,7 @@ struct CGContextTests {
     struct GraphicsStateTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -215,9 +215,9 @@ struct CGContextTests {
             context.setLineWidth(5.0)
             context.saveGState()
             context.setLineWidth(10.0)
-            #expect(context.lineWidth.native == 10.0)
+            #expect(context.lineWidth == 10.0)
             context.restoreGState()
-            #expect(context.lineWidth.native == 5.0)
+            #expect(context.lineWidth == 5.0)
         }
 
         @Test("Multiple save and restore")
@@ -233,11 +233,11 @@ struct CGContextTests {
             context.saveGState()
             context.setLineWidth(3.0)
 
-            #expect(context.lineWidth.native == 3.0)
+            #expect(context.lineWidth == 3.0)
             context.restoreGState()
-            #expect(context.lineWidth.native == 2.0)
+            #expect(context.lineWidth == 2.0)
             context.restoreGState()
-            #expect(context.lineWidth.native == 1.0)
+            #expect(context.lineWidth == 1.0)
         }
     }
 
@@ -247,7 +247,7 @@ struct CGContextTests {
     struct CTMTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -268,8 +268,8 @@ struct CGContextTests {
             }
 
             context.translateBy(x: 10, y: 20)
-            #expect(context.ctm.tx.native == 10)
-            #expect(context.ctm.ty.native == 20)
+            #expect(context.ctm.tx == 10)
+            #expect(context.ctm.ty == 20)
         }
 
         @Test("Scale")
@@ -280,8 +280,8 @@ struct CGContextTests {
             }
 
             context.scaleBy(x: 2, y: 3)
-            #expect(context.ctm.a.native == 2)
-            #expect(context.ctm.d.native == 3)
+            #expect(context.ctm.a == 2)
+            #expect(context.ctm.d == 3)
         }
 
         @Test("Rotate")
@@ -293,8 +293,8 @@ struct CGContextTests {
 
             context.rotate(by: CGFloat.pi / 2)
             // After 90 degree rotation, a ≈ 0, b ≈ 1, c ≈ -1, d ≈ 0
-            #expect(abs(context.ctm.a.native) < 0.0001)
-            #expect(abs(context.ctm.b.native - 1.0) < 0.0001)
+            #expect(abs(context.ctm.a) < 0.0001)
+            #expect(abs(context.ctm.b - 1.0) < 0.0001)
         }
 
         @Test("Concatenate")
@@ -306,8 +306,8 @@ struct CGContextTests {
 
             let transform = CGAffineTransform(translationX: 50, y: 50)
             context.concatenate(transform)
-            #expect(context.ctm.tx.native == 50)
-            #expect(context.ctm.ty.native == 50)
+            #expect(context.ctm.tx == 50)
+            #expect(context.ctm.ty == 50)
         }
     }
 
@@ -317,7 +317,7 @@ struct CGContextTests {
     struct PathOperationsTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -360,8 +360,8 @@ struct CGContextTests {
 
             context.move(to: CGPoint(x: 25, y: 35))
             let point = context.currentPointOfPath
-            #expect(point.x.native == 25)
-            #expect(point.y.native == 35)
+            #expect(point.x == 25)
+            #expect(point.y == 35)
         }
 
         @Test("Add line")
@@ -374,8 +374,8 @@ struct CGContextTests {
             context.move(to: CGPoint(x: 0, y: 0))
             context.addLine(to: CGPoint(x: 50, y: 50))
             let point = context.currentPointOfPath
-            #expect(point.x.native == 50)
-            #expect(point.y.native == 50)
+            #expect(point.x == 50)
+            #expect(point.y == 50)
         }
 
         @Test("Add rect")
@@ -423,10 +423,10 @@ struct CGContextTests {
 
             context.addRect(CGRect(x: 10, y: 20, width: 30, height: 40))
             let bbox = context.boundingBoxOfPath
-            #expect(bbox.origin.x.native == 10)
-            #expect(bbox.origin.y.native == 20)
-            #expect(bbox.width.native == 30)
-            #expect(bbox.height.native == 40)
+            #expect(bbox.origin.x == 10)
+            #expect(bbox.origin.y == 20)
+            #expect(bbox.width == 30)
+            #expect(bbox.height == 40)
         }
     }
 
@@ -436,7 +436,7 @@ struct CGContextTests {
     struct ColorOperationsTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -502,7 +502,7 @@ struct CGContextTests {
     struct StrokePropertiesTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -523,7 +523,7 @@ struct CGContextTests {
             }
 
             context.setLineWidth(5.0)
-            #expect(context.lineWidth.native == 5.0)
+            #expect(context.lineWidth == 5.0)
         }
 
         @Test("Set line cap")
@@ -589,7 +589,7 @@ struct CGContextTests {
     struct TransparencyTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -631,7 +631,7 @@ struct CGContextTests {
     struct ImageQualityTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -673,7 +673,7 @@ struct CGContextTests {
     struct TextOperationsTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -706,8 +706,8 @@ struct CGContextTests {
 
             context.setTextPosition(x: 10, y: 20)
             let pos = context.textPosition
-            #expect(pos.x.native == 10)
-            #expect(pos.y.native == 20)
+            #expect(pos.x == 10)
+            #expect(pos.y == 20)
         }
 
         @Test("Set text matrix")
@@ -719,7 +719,7 @@ struct CGContextTests {
 
             let matrix = CGAffineTransform(scaleX: 2, y: 2)
             context.setTextMatrix(matrix)
-            #expect(context.textMatrix.a.native == 2)
+            #expect(context.textMatrix.a == 2)
         }
 
         @Test("Set character spacing")
@@ -740,7 +740,7 @@ struct CGContextTests {
     struct CoordinateConversionTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -762,7 +762,7 @@ struct CGContextTests {
 
             context.scaleBy(x: 2, y: 2)
             let transform = context.userSpaceToDeviceSpaceTransform
-            #expect(transform.a.native == 2)
+            #expect(transform.a == 2)
         }
 
         @Test("Convert point to device space")
@@ -774,8 +774,8 @@ struct CGContextTests {
 
             context.translateBy(x: 10, y: 20)
             let devicePoint = context.convertToDeviceSpace(CGPoint(x: 5, y: 5))
-            #expect(devicePoint.x.native == 15)
-            #expect(devicePoint.y.native == 25)
+            #expect(devicePoint.x == 15)
+            #expect(devicePoint.y == 25)
         }
 
         @Test("Convert point to user space")
@@ -787,8 +787,8 @@ struct CGContextTests {
 
             context.translateBy(x: 10, y: 20)
             let userPoint = context.convertToUserSpace(CGPoint(x: 15, y: 25))
-            #expect(userPoint.x.native == 5)
-            #expect(userPoint.y.native == 5)
+            #expect(userPoint.x == 5)
+            #expect(userPoint.y == 5)
         }
     }
 
@@ -798,7 +798,7 @@ struct CGContextTests {
     struct ImageCreationTests {
 
         fileprivate func createTestContext() -> CGContext? {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             return CGContext(
                 data: nil,
@@ -832,7 +832,7 @@ struct CGContextTests {
 
         @Test("CGBitmapContextCreate")
         func bitmapContextCreate() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             let context = CGBitmapContextCreate(
                 nil, 100, 100, 8, 400, colorSpace,
                 CGImageAlphaInfo.premultipliedLast.rawValue
@@ -843,7 +843,7 @@ struct CGContextTests {
 
         @Test("CGBitmapContextGetWidth")
         func bitmapContextGetWidth() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             guard let context = CGBitmapContextCreate(
                 nil, 100, 100, 8, 400, colorSpace,
                 CGImageAlphaInfo.premultipliedLast.rawValue
@@ -857,7 +857,7 @@ struct CGContextTests {
 
         @Test("CGBitmapContextGetHeight")
         func bitmapContextGetHeight() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             guard let context = CGBitmapContextCreate(
                 nil, 100, 100, 8, 400, colorSpace,
                 CGImageAlphaInfo.premultipliedLast.rawValue
@@ -871,7 +871,7 @@ struct CGContextTests {
 
         @Test("CGBitmapContextCreateImage")
         func bitmapContextCreateImage() {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colorSpace = CGColorSpace.deviceRGB
             guard let context = CGBitmapContextCreate(
                 nil, 100, 100, 8, 400, colorSpace,
                 CGImageAlphaInfo.premultipliedLast.rawValue
