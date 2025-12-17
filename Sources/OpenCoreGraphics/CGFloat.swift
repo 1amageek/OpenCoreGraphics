@@ -111,14 +111,14 @@ public struct CGFloat: Sendable {
 
     /// The bit pattern of the value's encoding.
     @inlinable
-    public var bitPattern: UInt64 {
-        return native.bitPattern
+    public var bitPattern: UInt {
+        return UInt(native.bitPattern)
     }
 
     /// Creates a new value with the given bit pattern.
     @inlinable
-    public init(bitPattern: UInt64) {
-        self.native = Double(bitPattern: bitPattern)
+    public init(bitPattern: UInt) {
+        self.native = Double(bitPattern: UInt64(bitPattern))
     }
 }
 
