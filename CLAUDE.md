@@ -366,3 +366,51 @@ swift build --swift-sdk swift-6.2.3-RELEASE_wasm
 - **Do NOT implement deprecated APIs** - Only implement current, non-deprecated CoreGraphics APIs
 - Focus on APIs that are meaningful for WASM environments (skip macOS-only display/window services)
 - Always refer to Apple's official CoreGraphics documentation: https://developer.apple.com/documentation/coregraphics
+
+### CoreFoundation (CF) Types Policy
+
+**Do NOT use or emulate CoreFoundation types.** Use Swift native types instead.
+
+#### Rationale
+
+1. **CoreFoundation is unavailable on WASM** - CF types (`CFData`, `CFMutableData`, `CFString`, `CFArray`, etc.) do not exist in the WASM environment
+2. **Modern Swift prefers native types** - Even on Apple platforms, Swift code uses `Data` instead of `CFData`, `String` instead of `CFString`
+3. **Reference semantics are not required** - CF's reference-based patterns (e.g., `CFMutableData` for in-place modification) can be replaced with Swift-idiomatic approaches
+
+#### Type Mapping
+
+| CoreFoundation Type | Use Instead | Notes |
+|---------------------|-------------|-------|
+| `CFData` | `Data` | Value type, use properties to expose results |
+| `CFMutableData` | `Data` (mutable var) | Do not emulate reference semantics |
+| `CFString` | `String` | Swift native string |
+| `CFArray` | `[T]` | Swift native array |
+| `CFDictionary` | `[K: V]` | Swift native dictionary |
+| `CFNumber` | `Int`, `Double`, etc. | Swift native numeric types |
+
+#### Example: CGDataConsumer
+
+Instead of emulating `CFMutableData` reference semantics:
+
+```swift
+// ❌ Don't try to emulate CFMutableData behavior
+let mutableData = NSMutableData()
+let consumer = CGDataConsumer(data: mutableData)  // Won't work as expected
+
+// ✅ Use a property to retrieve the result
+let consumer = CGDataConsumer()
+consumer.putBytes(buffer, count: length)
+let result = consumer.data  // Get the accumulated data via property
+```
+
+#### What Compatibility Means
+
+**API Surface Compatibility:**
+- Same type names (`CGDataConsumer`, `CGDataProvider`, `CGImage`, etc.)
+- Same method signatures
+- Same behavior for the same inputs
+
+**NOT Required:**
+- Internal use of CF types
+- CF-style reference semantics
+- `CFTypeID` or other CF runtime features

@@ -129,6 +129,91 @@ struct CGDataConsumerTests {
         }
     }
 
+    // MARK: - Data Property Tests
+
+    @Suite("Data Property")
+    struct DataPropertyTests {
+
+        @Test("Retrieve written data via data property")
+        func retrieveWrittenData() {
+            guard let consumer = CGDataConsumer(data: Data()) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let bytes: [UInt8] = [0x01, 0x02, 0x03, 0x04]
+            bytes.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            #expect(consumer.data == Data([0x01, 0x02, 0x03, 0x04]))
+        }
+
+        @Test("Data property returns empty data when nothing written")
+        func dataPropertyEmptyWhenNothingWritten() {
+            guard let consumer = CGDataConsumer(data: Data()) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            #expect(consumer.data == Data())
+        }
+
+        @Test("Data property accumulates multiple writes")
+        func dataPropertyAccumulatesMultipleWrites() {
+            guard let consumer = CGDataConsumer(data: Data()) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let bytes1: [UInt8] = [0x01, 0x02]
+            let bytes2: [UInt8] = [0x03, 0x04, 0x05]
+
+            bytes1.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            bytes2.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            #expect(consumer.data == Data([0x01, 0x02, 0x03, 0x04, 0x05]))
+        }
+
+        @Test("Data property returns nil for callback consumer")
+        func dataPropertyNilForCallbackConsumer() {
+            var callbacks = CGDataConsumerCallbacks(
+                putBytes: { _, _, count in return count },
+                releaseConsumer: nil
+            )
+
+            guard let consumer = withUnsafePointer(to: &callbacks, { ptr in
+                CGDataConsumer(info: nil, cbks: ptr)
+            }) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            #expect(consumer.data == nil)
+        }
+
+        @Test("Data property preserves initial data")
+        func dataPropertyPreservesInitialData() {
+            let initialData = Data([0xAA, 0xBB])
+            guard let consumer = CGDataConsumer(data: initialData) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let bytes: [UInt8] = [0xCC, 0xDD]
+            bytes.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            #expect(consumer.data == Data([0xAA, 0xBB, 0xCC, 0xDD]))
+        }
+    }
+
     // MARK: - Equatable Tests
 
     @Suite("Equatable Conformance")

@@ -53,6 +53,15 @@ public class CGContext: @unchecked Sendable {
     /// The current path being constructed.
     private var currentPath: CGMutablePath = CGMutablePath()
 
+    // MARK: - Renderer Delegate
+
+    /// The rendering delegate that receives drawing commands.
+    ///
+    /// When set, drawing operations like `fillPath()`, `strokePath()`, etc.
+    /// will call the corresponding delegate methods to perform actual rendering.
+    /// This enables pluggable rendering backends such as WebGPU, Metal, or Canvas2D.
+    public weak var rendererDelegate: CGContextRendererDelegate?
+
     // MARK: - Graphics State Structure
 
     private struct GraphicsState {
@@ -315,13 +324,66 @@ public class CGContext: @unchecked Sendable {
 
     /// Paints the area within the current path, using the specified fill rule.
     public func fillPath(using rule: CGPathFillRule = .winding) {
-        // In a real implementation, this would rasterize the path
+        guard !currentPath.isEmpty, let pathCopy = currentPath.copy() else {
+            currentPath = CGMutablePath()
+            return
+        }
+
+        // Apply CTM to path
+        let transformedPath: CGPath
+        if currentState.ctm.isIdentity {
+            transformedPath = pathCopy
+        } else {
+            var ctm = currentState.ctm
+            transformedPath = withUnsafePointer(to: &ctm) { ptr in
+                pathCopy.copy(using: ptr) ?? pathCopy
+            }
+        }
+
+        // Call renderer delegate with individual parameters
+        rendererDelegate?.fill(
+            path: transformedPath,
+            color: currentState.fillColor,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode,
+            rule: rule
+        )
+
         currentPath = CGMutablePath()
     }
 
     /// Paints a line along the current path.
     public func strokePath() {
-        // In a real implementation, this would rasterize the path stroke
+        guard !currentPath.isEmpty, let pathCopy = currentPath.copy() else {
+            currentPath = CGMutablePath()
+            return
+        }
+
+        // Apply CTM to path
+        let transformedPath: CGPath
+        if currentState.ctm.isIdentity {
+            transformedPath = pathCopy
+        } else {
+            var ctm = currentState.ctm
+            transformedPath = withUnsafePointer(to: &ctm) { ptr in
+                pathCopy.copy(using: ptr) ?? pathCopy
+            }
+        }
+
+        // Call renderer delegate with individual parameters
+        rendererDelegate?.stroke(
+            path: transformedPath,
+            color: currentState.strokeColor,
+            lineWidth: currentState.lineWidth,
+            lineCap: currentState.lineCap,
+            lineJoin: currentState.lineJoin,
+            miterLimit: currentState.miterLimit,
+            dashPhase: currentState.lineDash?.phase ?? 0,
+            dashLengths: currentState.lineDash?.lengths ?? [],
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode
+        )
+
         currentPath = CGMutablePath()
     }
 
@@ -399,7 +461,7 @@ public class CGContext: @unchecked Sendable {
 
     /// Clears the specified rectangle.
     public func clear(_ rect: CGRect) {
-        // In a real implementation, this would clear the rectangle to transparent
+        rendererDelegate?.clear(rect: rect)
     }
 
     // MARK: - Clipping
@@ -732,7 +794,13 @@ public class CGContext: @unchecked Sendable {
 
     /// Draws an image in the specified rectangle.
     public func draw(_ image: CGImage, in rect: CGRect) {
-        // In a real implementation, this would composite the image into the context
+        rendererDelegate?.draw(
+            image: image,
+            in: rect,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode,
+            interpolationQuality: currentState.interpolationQuality
+        )
     }
 
     /// Draws an image in the specified rectangle, creating a tiled pattern.
@@ -759,14 +827,21 @@ public class CGContext: @unchecked Sendable {
     /// Draws a linear gradient.
     public func drawLinearGradient(_ gradient: CGGradient, start: CGPoint, end: CGPoint,
                                    options: CGGradientDrawingOptions) {
-        // In a real implementation, this would rasterize the gradient
+        rendererDelegate?.drawLinearGradient(gradient, start: start, end: end, options: options)
     }
 
     /// Draws a radial gradient.
     public func drawRadialGradient(_ gradient: CGGradient, startCenter: CGPoint, startRadius: CGFloat,
                                    endCenter: CGPoint, endRadius: CGFloat,
                                    options: CGGradientDrawingOptions) {
-        // In a real implementation, this would rasterize the radial gradient
+        rendererDelegate?.drawRadialGradient(
+            gradient,
+            startCenter: startCenter,
+            startRadius: startRadius,
+            endCenter: endCenter,
+            endRadius: endRadius,
+            options: options
+        )
     }
 
     // MARK: - Drawing PDF Content

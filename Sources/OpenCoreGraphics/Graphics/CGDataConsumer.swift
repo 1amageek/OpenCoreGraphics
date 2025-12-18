@@ -137,6 +137,23 @@ public class CGDataConsumer: @unchecked Sendable {
         }
     }
 
+    // MARK: - Accessing Data
+
+    /// Returns the accumulated data written to this consumer.
+    ///
+    /// This property is only available for data-backed and URL-backed consumers.
+    /// For callback-based consumers, this returns `nil`.
+    ///
+    /// - Returns: The data written to the consumer, or `nil` for callback consumers.
+    public var data: Data? {
+        switch consumerType {
+        case .data, .url:
+            return accumulatedData
+        case .callback:
+            return nil
+        }
+    }
+
     // MARK: - Type ID
 
     /// Returns the Core Foundation type identifier for Core Graphics data consumers.

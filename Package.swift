@@ -5,11 +5,21 @@ import PackageDescription
 
 let package = Package(
     name: "OpenCoreGraphics",
+    platforms: [
+        .macOS(.v10_15)
+    ],
     products: [
         .library(
             name: "OpenCoreGraphics",
             targets: ["OpenCoreGraphics"]
         ),
+        .library(
+            name: "CGWebGPU",
+            targets: ["CGWebGPU"]
+        ),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/1amageek/swift-webgpu.git", branch: "main"),
     ],
     targets: [
         // Protocol conformances and extensions for geometry types
@@ -20,6 +30,14 @@ let package = Package(
         .target(
             name: "OpenCoreGraphics",
             dependencies: ["CGExtensions"]
+        ),
+        // WebGPU rendering bridge (WASM only)
+        .target(
+            name: "CGWebGPU",
+            dependencies: [
+                "OpenCoreGraphics",
+                .product(name: "SwiftWebGPU", package: "swift-webgpu"),
+            ]
         ),
         .testTarget(
             name: "OpenCoreGraphicsTests",
