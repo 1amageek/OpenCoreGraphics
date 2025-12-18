@@ -161,3 +161,128 @@ extension CGPattern: Hashable {
     }
 }
 
+// MARK: - Pattern Cell Rendering
+
+extension CGPattern {
+    /// Renders the pattern cell to an image.
+    ///
+    /// This method creates an offscreen context, calls the pattern's draw callback,
+    /// and returns the resulting image. The image can be used as a texture for
+    /// GPU-based pattern rendering.
+    ///
+    /// - Important: This method creates a CGContext without a `rendererDelegate`.
+    ///   Since OpenCoreGraphics relies on the delegate pattern for rendering,
+    ///   the pattern's `drawPattern` callback will not produce visible output
+    ///   unless the pattern draws directly to the context's pixel buffer using
+    ///   low-level operations. For GPU-based rendering, consider implementing
+    ///   pattern rendering directly in your renderer using the pattern's
+    ///   properties (`bounds`, `xStep`, `yStep`, `matrix`) instead of relying
+    ///   on this method.
+    ///
+    /// - Returns: A CGImage containing the rendered pattern cell, or nil if rendering fails.
+    public func renderCell() -> CGImage? {
+        // Calculate cell dimensions
+        let cellWidth = Int(ceil(abs(bounds.width)))
+        let cellHeight = Int(ceil(abs(bounds.height)))
+
+        guard cellWidth > 0, cellHeight > 0 else { return nil }
+
+        // Create an offscreen context for the pattern cell
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        let bytesPerRow = cellWidth * 4
+
+        guard let context = CGContext(
+            data: nil,
+            width: cellWidth,
+            height: cellHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return nil }
+
+        // Apply the pattern's transformation matrix
+        if !matrix.isIdentity {
+            context.concatenate(matrix)
+        }
+
+        // Translate to account for bounds origin
+        if bounds.origin.x != 0 || bounds.origin.y != 0 {
+            context.translateBy(x: -bounds.origin.x, y: -bounds.origin.y)
+        }
+
+        // Call the pattern draw callback
+        callbacks.drawPattern?(info, context)
+
+        // Create and return the image
+        return context.makeImage()
+    }
+
+    /// Renders the pattern cell to raw RGBA pixel data.
+    ///
+    /// This method is useful when direct pixel access is needed for GPU uploads.
+    ///
+    /// - Important: This method has the same limitation as `renderCell()`.
+    ///   See `renderCell()` documentation for details.
+    ///
+    /// - Returns: A tuple containing the pixel data, width, and height, or nil if rendering fails.
+    public func renderCellData() -> (data: Data, width: Int, height: Int)? {
+        let cellWidth = Int(ceil(abs(bounds.width)))
+        let cellHeight = Int(ceil(abs(bounds.height)))
+
+        guard cellWidth > 0, cellHeight > 0 else { return nil }
+
+        let bytesPerRow = cellWidth * 4
+        let totalBytes = bytesPerRow * cellHeight
+
+        // Allocate buffer
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: totalBytes, alignment: 4)
+        buffer.initializeMemory(as: UInt8.self, repeating: 0, count: totalBytes)
+
+        defer {
+            buffer.deallocate()
+        }
+
+        // Create context with our buffer
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+
+        guard let context = CGContext(
+            data: buffer,
+            width: cellWidth,
+            height: cellHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return nil }
+
+        // Apply transformations
+        if !matrix.isIdentity {
+            context.concatenate(matrix)
+        }
+
+        if bounds.origin.x != 0 || bounds.origin.y != 0 {
+            context.translateBy(x: -bounds.origin.x, y: -bounds.origin.y)
+        }
+
+        // Call the pattern draw callback
+        callbacks.drawPattern?(info, context)
+
+        // Copy the data
+        let data = Data(bytes: buffer, count: totalBytes)
+
+        return (data, cellWidth, cellHeight)
+    }
+
+    /// The effective cell size after applying the pattern's transformation matrix.
+    public var effectiveCellSize: CGSize {
+        let transformedBounds = bounds.applying(matrix)
+        return CGSize(
+            width: abs(transformedBounds.width),
+            height: abs(transformedBounds.height)
+        )
+    }
+}
+

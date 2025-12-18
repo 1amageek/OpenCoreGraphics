@@ -140,6 +140,79 @@ public protocol CGContextRendererDelegate: AnyObject, Sendable {
         endRadius: CGFloat,
         options: CGGradientDrawingOptions
     )
+
+    // MARK: - Shading Drawing
+
+    /// Called when drawing a shading.
+    ///
+    /// CGShading provides more control than CGGradient by using a CGFunction
+    /// to compute colors at arbitrary positions.
+    ///
+    /// - Parameters:
+    ///   - shading: The shading to draw.
+    ///   - alpha: The global alpha value.
+    ///   - blendMode: The blend mode for compositing.
+    func drawShading(
+        _ shading: CGShading,
+        alpha: CGFloat,
+        blendMode: CGBlendMode
+    )
+
+    // MARK: - Pattern Drawing
+
+    /// Called when filling a path with a pattern.
+    ///
+    /// - Parameters:
+    ///   - path: The path to fill (already transformed by CTM).
+    ///   - pattern: The pattern to use for filling.
+    ///   - patternSpace: The color space for the pattern.
+    ///   - colorComponents: Color components for uncolored patterns (nil for colored patterns).
+    ///   - patternPhase: The pattern phase offset for positioning the pattern.
+    ///   - alpha: The global alpha value.
+    ///   - blendMode: The blend mode for compositing.
+    ///   - rule: The fill rule (winding or even-odd).
+    func fillWithPattern(
+        path: CGPath,
+        pattern: CGPattern,
+        patternSpace: CGColorSpace,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        rule: CGPathFillRule
+    )
+
+    /// Called when stroking a path with a pattern.
+    ///
+    /// - Parameters:
+    ///   - path: The path to stroke (already transformed by CTM).
+    ///   - pattern: The pattern to use for stroking.
+    ///   - patternSpace: The color space for the pattern.
+    ///   - colorComponents: Color components for uncolored patterns (nil for colored patterns).
+    ///   - patternPhase: The pattern phase offset for positioning the pattern.
+    ///   - lineWidth: The width of the stroke.
+    ///   - lineCap: The line cap style.
+    ///   - lineJoin: The line join style.
+    ///   - miterLimit: The miter limit for joins.
+    ///   - dashPhase: The dash pattern phase.
+    ///   - dashLengths: The dash pattern lengths (empty for solid line).
+    ///   - alpha: The global alpha value.
+    ///   - blendMode: The blend mode for compositing.
+    func strokeWithPattern(
+        path: CGPath,
+        pattern: CGPattern,
+        patternSpace: CGColorSpace,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        lineWidth: CGFloat,
+        lineCap: CGLineCap,
+        lineJoin: CGLineJoin,
+        miterLimit: CGFloat,
+        dashPhase: CGFloat,
+        dashLengths: [CGFloat],
+        alpha: CGFloat,
+        blendMode: CGBlendMode
+    )
 }
 
 // MARK: - Default Implementations
@@ -173,5 +246,41 @@ extension CGContextRendererDelegate {
         endCenter: CGPoint,
         endRadius: CGFloat,
         options: CGGradientDrawingOptions
+    ) {}
+
+    /// Default implementation does nothing.
+    public func drawShading(
+        _ shading: CGShading,
+        alpha: CGFloat,
+        blendMode: CGBlendMode
+    ) {}
+
+    /// Default implementation does nothing.
+    public func fillWithPattern(
+        path: CGPath,
+        pattern: CGPattern,
+        patternSpace: CGColorSpace,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        rule: CGPathFillRule
+    ) {}
+
+    /// Default implementation does nothing.
+    public func strokeWithPattern(
+        path: CGPath,
+        pattern: CGPattern,
+        patternSpace: CGColorSpace,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        lineWidth: CGFloat,
+        lineCap: CGLineCap,
+        lineJoin: CGLineJoin,
+        miterLimit: CGFloat,
+        dashPhase: CGFloat,
+        dashLengths: [CGFloat],
+        alpha: CGFloat,
+        blendMode: CGBlendMode
     ) {}
 }

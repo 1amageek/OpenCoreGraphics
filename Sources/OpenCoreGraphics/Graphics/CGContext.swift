@@ -92,6 +92,13 @@ public class CGContext: @unchecked Sendable {
         var strokeColorSpace: CGColorSpace?
         var edrTargetHeadroom: Float = 1.0
         var contentToneMappingInfo: CGContentToneMappingInfo? = nil
+
+        // Pattern support
+        var fillPattern: CGPattern?
+        var fillPatternColorComponents: [CGFloat]?
+        var strokePattern: CGPattern?
+        var strokePatternColorComponents: [CGFloat]?
+        var patternPhase: CGSize = .zero
     }
 
     // MARK: - Initializers
@@ -340,14 +347,28 @@ public class CGContext: @unchecked Sendable {
             }
         }
 
-        // Call renderer delegate with individual parameters
-        rendererDelegate?.fill(
-            path: transformedPath,
-            color: currentState.fillColor,
-            alpha: currentState.alpha,
-            blendMode: currentState.blendMode,
-            rule: rule
-        )
+        // Check if pattern is set
+        if let pattern = currentState.fillPattern {
+            rendererDelegate?.fillWithPattern(
+                path: transformedPath,
+                pattern: pattern,
+                patternSpace: currentState.fillColorSpace ?? .deviceRGB,
+                colorComponents: currentState.fillPatternColorComponents,
+                patternPhase: currentState.patternPhase,
+                alpha: currentState.alpha,
+                blendMode: currentState.blendMode,
+                rule: rule
+            )
+        } else {
+            // Call renderer delegate with individual parameters
+            rendererDelegate?.fill(
+                path: transformedPath,
+                color: currentState.fillColor,
+                alpha: currentState.alpha,
+                blendMode: currentState.blendMode,
+                rule: rule
+            )
+        }
 
         currentPath = CGMutablePath()
     }
@@ -370,19 +391,38 @@ public class CGContext: @unchecked Sendable {
             }
         }
 
-        // Call renderer delegate with individual parameters
-        rendererDelegate?.stroke(
-            path: transformedPath,
-            color: currentState.strokeColor,
-            lineWidth: currentState.lineWidth,
-            lineCap: currentState.lineCap,
-            lineJoin: currentState.lineJoin,
-            miterLimit: currentState.miterLimit,
-            dashPhase: currentState.lineDash?.phase ?? 0,
-            dashLengths: currentState.lineDash?.lengths ?? [],
-            alpha: currentState.alpha,
-            blendMode: currentState.blendMode
-        )
+        // Check if pattern is set
+        if let pattern = currentState.strokePattern {
+            rendererDelegate?.strokeWithPattern(
+                path: transformedPath,
+                pattern: pattern,
+                patternSpace: currentState.strokeColorSpace ?? .deviceRGB,
+                colorComponents: currentState.strokePatternColorComponents,
+                patternPhase: currentState.patternPhase,
+                lineWidth: currentState.lineWidth,
+                lineCap: currentState.lineCap,
+                lineJoin: currentState.lineJoin,
+                miterLimit: currentState.miterLimit,
+                dashPhase: currentState.lineDash?.phase ?? 0,
+                dashLengths: currentState.lineDash?.lengths ?? [],
+                alpha: currentState.alpha,
+                blendMode: currentState.blendMode
+            )
+        } else {
+            // Call renderer delegate with individual parameters
+            rendererDelegate?.stroke(
+                path: transformedPath,
+                color: currentState.strokeColor,
+                lineWidth: currentState.lineWidth,
+                lineCap: currentState.lineCap,
+                lineJoin: currentState.lineJoin,
+                miterLimit: currentState.miterLimit,
+                dashPhase: currentState.lineDash?.phase ?? 0,
+                dashLengths: currentState.lineDash?.lengths ?? [],
+                alpha: currentState.alpha,
+                blendMode: currentState.blendMode
+            )
+        }
 
         currentPath = CGMutablePath()
     }
@@ -540,57 +580,97 @@ public class CGContext: @unchecked Sendable {
     }
 
     /// Sets the current fill color.
+    ///
+    /// Setting a solid fill color clears any previously set fill pattern.
     public func setFillColor(_ color: CGColor) {
         currentState.fillColor = color
+        currentState.fillPattern = nil
+        currentState.fillPatternColorComponents = nil
     }
 
     /// Sets the current stroke color.
+    ///
+    /// Setting a solid stroke color clears any previously set stroke pattern.
     public func setStrokeColor(_ color: CGColor) {
         currentState.strokeColor = color
+        currentState.strokePattern = nil
+        currentState.strokePatternColorComponents = nil
     }
 
     /// Sets the current fill color using components.
+    ///
+    /// Setting a solid fill color clears any previously set fill pattern.
     public func setFillColor(_ components: [CGFloat]) {
         if let space = currentState.fillColorSpace {
             currentState.fillColor = CGColor(space: space, componentArray: components)
+            currentState.fillPattern = nil
+            currentState.fillPatternColorComponents = nil
         }
     }
 
     /// Sets the current stroke color using components.
+    ///
+    /// Setting a solid stroke color clears any previously set stroke pattern.
     public func setStrokeColor(_ components: [CGFloat]) {
         if let space = currentState.strokeColorSpace {
             currentState.strokeColor = CGColor(space: space, componentArray: components)
+            currentState.strokePattern = nil
+            currentState.strokePatternColorComponents = nil
         }
     }
 
     /// Sets the current fill color to a grayscale value.
+    ///
+    /// Setting a solid fill color clears any previously set fill pattern.
     public func setFillColor(gray: CGFloat, alpha: CGFloat) {
         currentState.fillColor = CGColor(gray: gray, alpha: alpha)
+        currentState.fillPattern = nil
+        currentState.fillPatternColorComponents = nil
     }
 
     /// Sets the current stroke color to a grayscale value.
+    ///
+    /// Setting a solid stroke color clears any previously set stroke pattern.
     public func setStrokeColor(gray: CGFloat, alpha: CGFloat) {
         currentState.strokeColor = CGColor(gray: gray, alpha: alpha)
+        currentState.strokePattern = nil
+        currentState.strokePatternColorComponents = nil
     }
 
     /// Sets the current fill color to an RGB value.
+    ///
+    /// Setting a solid fill color clears any previously set fill pattern.
     public func setFillColor(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
         currentState.fillColor = CGColor(red: red, green: green, blue: blue, alpha: alpha)
+        currentState.fillPattern = nil
+        currentState.fillPatternColorComponents = nil
     }
 
     /// Sets the current stroke color to an RGB value.
+    ///
+    /// Setting a solid stroke color clears any previously set stroke pattern.
     public func setStrokeColor(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
         currentState.strokeColor = CGColor(red: red, green: green, blue: blue, alpha: alpha)
+        currentState.strokePattern = nil
+        currentState.strokePatternColorComponents = nil
     }
 
     /// Sets the current fill color to a CMYK value.
+    ///
+    /// Setting a solid fill color clears any previously set fill pattern.
     public func setFillColor(cyan: CGFloat, magenta: CGFloat, yellow: CGFloat, black: CGFloat, alpha: CGFloat) {
         currentState.fillColor = CGColor(genericCMYKCyan: cyan, magenta: magenta, yellow: yellow, black: black, alpha: alpha)
+        currentState.fillPattern = nil
+        currentState.fillPatternColorComponents = nil
     }
 
     /// Sets the current stroke color to a CMYK value.
+    ///
+    /// Setting a solid stroke color clears any previously set stroke pattern.
     public func setStrokeColor(cyan: CGFloat, magenta: CGFloat, yellow: CGFloat, black: CGFloat, alpha: CGFloat) {
         currentState.strokeColor = CGColor(genericCMYKCyan: cyan, magenta: magenta, yellow: yellow, black: black, alpha: alpha)
+        currentState.strokePattern = nil
+        currentState.strokePatternColorComponents = nil
     }
 
     // MARK: - Stroke and Fill Properties
@@ -658,7 +738,7 @@ public class CGContext: @unchecked Sendable {
     ///
     /// - Parameter phase: The pattern phase, which specifies how to position the pattern relative to the origin.
     public func setPatternPhase(_ phase: CGSize) {
-        // In a real implementation, this would affect pattern rendering
+        currentState.patternPhase = phase
     }
 
     /// Sets the fill pattern in the specified graphics context.
@@ -667,7 +747,20 @@ public class CGContext: @unchecked Sendable {
     ///   - pattern: The pattern to use for filling.
     ///   - colorComponents: The color components to use with the pattern.
     public func setFillPattern(_ pattern: CGPattern, colorComponents: UnsafePointer<CGFloat>) {
-        // In a real implementation, this would set the fill pattern
+        currentState.fillPattern = pattern
+        currentState.fillColor = .clear  // Clear solid color when using pattern
+
+        if !pattern.isColored {
+            // Uncolored pattern: store color components
+            let count = (currentState.fillColorSpace?.numberOfComponents ?? 3) + 1
+            var components: [CGFloat] = []
+            for i in 0..<count {
+                components.append(colorComponents[i])
+            }
+            currentState.fillPatternColorComponents = components
+        } else {
+            currentState.fillPatternColorComponents = nil
+        }
     }
 
     /// Sets the stroke pattern in the specified graphics context.
@@ -676,7 +769,32 @@ public class CGContext: @unchecked Sendable {
     ///   - pattern: The pattern to use for stroking.
     ///   - colorComponents: The color components to use with the pattern.
     public func setStrokePattern(_ pattern: CGPattern, colorComponents: UnsafePointer<CGFloat>) {
-        // In a real implementation, this would set the stroke pattern
+        currentState.strokePattern = pattern
+        currentState.strokeColor = .clear  // Clear solid color when using pattern
+
+        if !pattern.isColored {
+            // Uncolored pattern: store color components
+            let count = (currentState.strokeColorSpace?.numberOfComponents ?? 3) + 1
+            var components: [CGFloat] = []
+            for i in 0..<count {
+                components.append(colorComponents[i])
+            }
+            currentState.strokePatternColorComponents = components
+        } else {
+            currentState.strokePatternColorComponents = nil
+        }
+    }
+
+    /// Clears the fill pattern and reverts to solid color fill.
+    public func clearFillPattern() {
+        currentState.fillPattern = nil
+        currentState.fillPatternColorComponents = nil
+    }
+
+    /// Clears the stroke pattern and reverts to solid color stroke.
+    public func clearStrokePattern() {
+        currentState.strokePattern = nil
+        currentState.strokePatternColorComponents = nil
     }
 
     // MARK: - Transparency and Compositing
@@ -841,6 +959,22 @@ public class CGContext: @unchecked Sendable {
             endCenter: endCenter,
             endRadius: endRadius,
             options: options
+        )
+    }
+
+    // MARK: - Drawing Shading
+
+    /// Fills the clipping area with a shading.
+    ///
+    /// CGShading provides more control than CGGradient by using a CGFunction
+    /// to define the color transition.
+    ///
+    /// - Parameter shading: The shading to draw.
+    public func drawShading(_ shading: CGShading) {
+        rendererDelegate?.drawShading(
+            shading,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode
         )
     }
 
