@@ -51,12 +51,16 @@ extension CGSize: @retroactive CustomDebugStringConvertible {
 }
 #endif
 
-// MARK: - Extension Methods (available on all platforms)
+// MARK: - Extension Methods
 
+#if canImport(Darwin)
 extension CGSize {
     /// The size whose width and height are both zero.
     public static var zero: CGSize { CGSize(width: 0, height: 0) }
+}
+#endif
 
+extension CGSize {
     /// Returns whether two sizes are equal.
     @inlinable
     public func equalTo(_ size2: CGSize) -> Bool {

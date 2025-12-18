@@ -113,22 +113,29 @@ public enum CGRectEdge: UInt32, Sendable {
 }
 #endif
 
-// MARK: - Extension Methods (available on all platforms)
+// MARK: - Static Properties (Darwin only - swift-corelibs-foundation provides these on non-Darwin)
 
+#if canImport(Darwin)
 extension CGRect {
     /// The rectangle whose origin and size are both zero.
     public static var zero: CGRect { CGRect(origin: .zero, size: .zero) }
 
     /// A rectangle that has infinite extent.
     public static var infinite: CGRect {
-        CGRect(origin: CGPoint(x: -.infinity, y: -.infinity), size: CGSize(width: .infinity, height: .infinity))
+        CGRect(origin: CGPoint(x: -CGFloat.infinity, y: -CGFloat.infinity), size: CGSize(width: CGFloat.infinity, height: CGFloat.infinity))
     }
 
     /// The null rectangle, representing an invalid value.
     public static var null: CGRect {
-        CGRect(origin: CGPoint(x: .infinity, y: .infinity), size: CGSize(width: 0, height: 0))
+        CGRect(origin: CGPoint(x: CGFloat.infinity, y: CGFloat.infinity), size: CGSize(width: 0, height: 0))
     }
+}
+#endif
 
+// MARK: - Extension Methods (Darwin only - swift-corelibs-foundation provides these on non-Darwin)
+
+#if canImport(Darwin)
+extension CGRect {
     /// Returns whether two rectangles are equal.
     @inlinable
     public func equalTo(_ rect2: CGRect) -> Bool {
@@ -145,8 +152,8 @@ extension CGRect {
     /// Returns whether the rectangle is infinite.
     @inlinable
     public var isInfinite: Bool {
-        return origin.x == -.infinity && origin.y == -.infinity &&
-               size.width == .infinity && size.height == .infinity
+        return origin.x == -CGFloat.infinity && origin.y == -CGFloat.infinity &&
+               size.width == CGFloat.infinity && size.height == CGFloat.infinity
     }
 
     /// Returns whether the rectangle is equal to the null rectangle.
@@ -154,7 +161,7 @@ extension CGRect {
     public var isNull: Bool {
         return origin.x.isNaN || origin.y.isNaN ||
                size.width.isNaN || size.height.isNaN ||
-               (origin.x == .infinity && origin.y == .infinity)
+               (origin.x == CGFloat.infinity && origin.y == CGFloat.infinity)
     }
 
     /// Returns a rectangle with a positive width and height.
@@ -298,3 +305,4 @@ extension CGRect {
         }
     }
 }
+#endif

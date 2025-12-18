@@ -51,12 +51,16 @@ extension CGPoint: @retroactive CustomDebugStringConvertible {
 }
 #endif
 
-// MARK: - Extension Methods (available on all platforms)
+// MARK: - Extension Methods
 
+#if canImport(Darwin)
 extension CGPoint {
     /// The point with location (0,0).
     public static var zero: CGPoint { CGPoint(x: 0, y: 0) }
+}
+#endif
 
+extension CGPoint {
     /// Returns whether two points are equal.
     @inlinable
     public func equalTo(_ point2: CGPoint) -> Bool {

@@ -240,8 +240,10 @@ public class CGPath: @unchecked Sendable {
     public func contains(_ point: CGPoint, using rule: CGPathFillRule = .winding,
                          transform: CGAffineTransform = .identity) -> Bool {
         // Simple bounding box check first
-        let bbox = boundingBoxOfPath
-        if bbox.isNull || !bbox.contains(point) {
+        let bbox: CGRect = boundingBoxOfPath
+        let bboxIsNull: Bool = bbox.isNull
+        let bboxContainsPoint: Bool = bbox.contains(point)
+        if bboxIsNull || !bboxContainsPoint {
             return false
         }
 
