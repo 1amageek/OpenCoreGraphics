@@ -381,6 +381,22 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         renderBatch(batch, to: target, pipeline: pipeline)
     }
 
+    /// Draws an image in the specified rectangle.
+    ///
+    /// - Important: Full texture-based image rendering requires additional infrastructure:
+    ///   - Texture pipeline with bind groups
+    ///   - Texture upload from CGImage pixel data
+    ///   - Sampler configuration based on interpolationQuality
+    ///
+    ///   Current implementation draws a placeholder rectangle representing the image bounds.
+    ///   The placeholder uses a checkerboard pattern to indicate image placement.
+    ///
+    /// - Parameters:
+    ///   - image: The image to draw.
+    ///   - rect: The destination rectangle.
+    ///   - alpha: The global alpha value.
+    ///   - blendMode: The blend mode for compositing.
+    ///   - interpolationQuality: The interpolation quality for scaling.
     public func draw(
         image: CGImage,
         in rect: CGRect,
@@ -388,7 +404,18 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         blendMode: CGBlendMode,
         interpolationQuality: CGInterpolationQuality
     ) {
-        // TODO: Implement image rendering with texture sampling
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
+
+        // Create a checkerboard pattern as placeholder for image
+        let vertices = createImagePlaceholderVertices(
+            rect: rect,
+            alpha: alpha
+        )
+        guard !vertices.isEmpty else { return }
+
+        let batch = CGWebGPUVertexBatch(vertices: vertices)
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     public func drawLinearGradient(
@@ -397,7 +424,20 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         end: CGPoint,
         options: CGGradientDrawingOptions
     ) {
-        // TODO: Implement gradient rendering with specialized shader
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: .normal) else { return }
+
+        let vertices = createLinearGradientVertices(
+            gradient: gradient,
+            start: start,
+            end: end,
+            options: options,
+            alpha: 1.0
+        )
+        guard !vertices.isEmpty else { return }
+
+        let batch = CGWebGPUVertexBatch(vertices: vertices)
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     public func drawRadialGradient(
@@ -408,7 +448,22 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         endRadius: CGFloat,
         options: CGGradientDrawingOptions
     ) {
-        // TODO: Implement radial gradient rendering with specialized shader
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: .normal) else { return }
+
+        let vertices = createRadialGradientVertices(
+            gradient: gradient,
+            startCenter: startCenter,
+            startRadius: startRadius,
+            endCenter: endCenter,
+            endRadius: endRadius,
+            options: options,
+            alpha: 1.0
+        )
+        guard !vertices.isEmpty else { return }
+
+        let batch = CGWebGPUVertexBatch(vertices: vertices)
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     // MARK: - CGContextStatefulRendererDelegate
@@ -496,6 +551,9 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         renderBatch(batch, to: target, pipeline: pipeline)
     }
 
+    /// Draws an image in the specified rectangle with full drawing state.
+    ///
+    /// See the non-state version for implementation notes about texture support.
     public func draw(
         image: CGImage,
         in rect: CGRect,
@@ -504,9 +562,21 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         interpolationQuality: CGInterpolationQuality,
         state: CGDrawingState
     ) {
-        // TODO: Implement image rendering with texture sampling
-        // TODO: Apply clipping from state.clipPath
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
+
+        // TODO: Apply clipping from state.clipPaths using stencil buffer
         // TODO: Draw shadow if state.hasShadow
+
+        // Create a checkerboard pattern as placeholder for image
+        let vertices = createImagePlaceholderVertices(
+            rect: rect,
+            alpha: alpha
+        )
+        guard !vertices.isEmpty else { return }
+
+        let batch = CGWebGPUVertexBatch(vertices: vertices)
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     public func drawLinearGradient(
@@ -516,8 +586,22 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         options: CGGradientDrawingOptions,
         state: CGDrawingState
     ) {
-        // TODO: Implement gradient rendering with specialized shader
-        // TODO: Apply clipping from state.clipPath
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: .normal) else { return }
+
+        // TODO: Apply clipping from state.clipPaths using stencil buffer
+
+        let vertices = createLinearGradientVertices(
+            gradient: gradient,
+            start: start,
+            end: end,
+            options: options,
+            alpha: 1.0
+        )
+        guard !vertices.isEmpty else { return }
+
+        let batch = CGWebGPUVertexBatch(vertices: vertices)
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     public func drawRadialGradient(
@@ -529,8 +613,24 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         options: CGGradientDrawingOptions,
         state: CGDrawingState
     ) {
-        // TODO: Implement radial gradient rendering with specialized shader
-        // TODO: Apply clipping from state.clipPath
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: .normal) else { return }
+
+        // TODO: Apply clipping from state.clipPaths using stencil buffer
+
+        let vertices = createRadialGradientVertices(
+            gradient: gradient,
+            startCenter: startCenter,
+            startRadius: startRadius,
+            endCenter: endCenter,
+            endRadius: endRadius,
+            options: options,
+            alpha: 1.0
+        )
+        guard !vertices.isEmpty else { return }
+
+        let batch = CGWebGPUVertexBatch(vertices: vertices)
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     // MARK: - Shading Drawing
@@ -589,6 +689,25 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         let perpX = -dy / length * viewportWidth
         let perpY = dx / length * viewportWidth
 
+        // Handle extendStart: extend shading before start point
+        if shading.extendStart, let firstStop = colorStops.first {
+            let firstColor = applyAlpha(firstStop.color, alpha: alpha)
+            // Extend from a point far before start to start
+            let extendStart = CGPoint(x: start.x - dx, y: start.y - dy)
+
+            let v0 = CGPoint(x: extendStart.x - perpX, y: extendStart.y - perpY)
+            let v1 = CGPoint(x: extendStart.x + perpX, y: extendStart.y + perpY)
+            let v2 = CGPoint(x: start.x + perpX, y: start.y + perpY)
+            let v3 = CGPoint(x: start.x - perpX, y: start.y - perpY)
+
+            vertices.append(createVertex(v0, color: firstColor))
+            vertices.append(createVertex(v1, color: firstColor))
+            vertices.append(createVertex(v2, color: firstColor))
+            vertices.append(createVertex(v0, color: firstColor))
+            vertices.append(createVertex(v2, color: firstColor))
+            vertices.append(createVertex(v3, color: firstColor))
+        }
+
         // Create quad strips for each color segment
         for i in 0..<(colorStops.count - 1) {
             let t0 = colorStops[i].location
@@ -616,6 +735,25 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             vertices.append(createVertex(v3, color: color1))
         }
 
+        // Handle extendEnd: extend shading after end point
+        if shading.extendEnd, let lastStop = colorStops.last {
+            let lastColor = applyAlpha(lastStop.color, alpha: alpha)
+            // Extend from end to a point far after end
+            let extendEnd = CGPoint(x: end.x + dx, y: end.y + dy)
+
+            let v0 = CGPoint(x: end.x - perpX, y: end.y - perpY)
+            let v1 = CGPoint(x: end.x + perpX, y: end.y + perpY)
+            let v2 = CGPoint(x: extendEnd.x + perpX, y: extendEnd.y + perpY)
+            let v3 = CGPoint(x: extendEnd.x - perpX, y: extendEnd.y - perpY)
+
+            vertices.append(createVertex(v0, color: lastColor))
+            vertices.append(createVertex(v1, color: lastColor))
+            vertices.append(createVertex(v2, color: lastColor))
+            vertices.append(createVertex(v0, color: lastColor))
+            vertices.append(createVertex(v2, color: lastColor))
+            vertices.append(createVertex(v3, color: lastColor))
+        }
+
         return vertices
     }
 
@@ -627,7 +765,33 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         var vertices: [CGWebGPUVertex] = []
 
         let segments = 32  // Number of segments around the circle
+        let startCenter = shading.startPoint
+        let endCenter = shading.endPoint
+        let startRadius = shading.startRadius
+        let endRadius = shading.endRadius
 
+        // Handle extendStart: fill the center circle with the first color
+        if shading.extendStart, let firstStop = colorStops.first, startRadius > 0 {
+            let firstColor = applyAlpha(firstStop.color, alpha: alpha)
+
+            // Fill center circle with first color
+            for j in 0..<segments {
+                let angle0 = CGFloat(j) * 2 * .pi / CGFloat(segments)
+                let angle1 = CGFloat(j + 1) * 2 * .pi / CGFloat(segments)
+
+                let p0 = startCenter
+                let p1 = CGPoint(x: startCenter.x + startRadius * cos(angle0),
+                                y: startCenter.y + startRadius * sin(angle0))
+                let p2 = CGPoint(x: startCenter.x + startRadius * cos(angle1),
+                                y: startCenter.y + startRadius * sin(angle1))
+
+                vertices.append(createVertex(p0, color: firstColor))
+                vertices.append(createVertex(p1, color: firstColor))
+                vertices.append(createVertex(p2, color: firstColor))
+            }
+        }
+
+        // Create ring segments for each color stop pair
         for i in 0..<(colorStops.count - 1) {
             let t0 = colorStops[i].location
             let t1 = colorStops[i + 1].location
@@ -636,15 +800,15 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
             // Interpolate centers and radii
             let center0 = CGPoint(
-                x: shading.startPoint.x + (shading.endPoint.x - shading.startPoint.x) * t0,
-                y: shading.startPoint.y + (shading.endPoint.y - shading.startPoint.y) * t0
+                x: startCenter.x + (endCenter.x - startCenter.x) * t0,
+                y: startCenter.y + (endCenter.y - startCenter.y) * t0
             )
             let center1 = CGPoint(
-                x: shading.startPoint.x + (shading.endPoint.x - shading.startPoint.x) * t1,
-                y: shading.startPoint.y + (shading.endPoint.y - shading.startPoint.y) * t1
+                x: startCenter.x + (endCenter.x - startCenter.x) * t1,
+                y: startCenter.y + (endCenter.y - startCenter.y) * t1
             )
-            let radius0 = shading.startRadius + (shading.endRadius - shading.startRadius) * t0
-            let radius1 = shading.startRadius + (shading.endRadius - shading.startRadius) * t1
+            let radius0 = startRadius + (endRadius - startRadius) * t0
+            let radius1 = startRadius + (endRadius - startRadius) * t1
 
             // Create ring segments
             for j in 0..<segments {
@@ -675,6 +839,36 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             }
         }
 
+        // Handle extendEnd: extend beyond the end radius
+        if shading.extendEnd, let lastStop = colorStops.last {
+            let lastColor = applyAlpha(lastStop.color, alpha: alpha)
+            let extendRadius = endRadius + max(viewportWidth, viewportHeight)
+
+            // Extend from end radius to a much larger radius
+            for j in 0..<segments {
+                let angle0 = CGFloat(j) * 2 * .pi / CGFloat(segments)
+                let angle1 = CGFloat(j + 1) * 2 * .pi / CGFloat(segments)
+
+                let cos0 = cos(angle0)
+                let sin0 = sin(angle0)
+                let cos1 = cos(angle1)
+                let sin1 = sin(angle1)
+
+                let inner0 = CGPoint(x: endCenter.x + endRadius * cos0, y: endCenter.y + endRadius * sin0)
+                let inner1 = CGPoint(x: endCenter.x + endRadius * cos1, y: endCenter.y + endRadius * sin1)
+                let outer0 = CGPoint(x: endCenter.x + extendRadius * cos0, y: endCenter.y + extendRadius * sin0)
+                let outer1 = CGPoint(x: endCenter.x + extendRadius * cos1, y: endCenter.y + extendRadius * sin1)
+
+                vertices.append(createVertex(inner0, color: lastColor))
+                vertices.append(createVertex(inner1, color: lastColor))
+                vertices.append(createVertex(outer1, color: lastColor))
+
+                vertices.append(createVertex(inner0, color: lastColor))
+                vertices.append(createVertex(outer1, color: lastColor))
+                vertices.append(createVertex(outer0, color: lastColor))
+            }
+        }
+
         return vertices
     }
 
@@ -690,6 +884,220 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         let ndcY = Float(point.y / viewportHeight) * 2 - 1
 
         return CGWebGPUVertex(x: ndcX, y: ndcY, r: r, g: g, b: b, a: a)
+    }
+
+    // MARK: - Gradient Vertex Creation
+
+    private func createLinearGradientVertices(
+        gradient: CGGradient,
+        start: CGPoint,
+        end: CGPoint,
+        options: CGGradientDrawingOptions,
+        alpha: CGFloat
+    ) -> [CGWebGPUVertex] {
+        var vertices: [CGWebGPUVertex] = []
+
+        // Get color stops from gradient
+        guard let colors = gradient.colors,
+              let locations = gradient.locations,
+              colors.count > 0 else { return [] }
+
+        // Calculate gradient direction
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = sqrt(dx * dx + dy * dy)
+        guard length > 0 else { return [] }
+
+        // Perpendicular vector (normalized) * large width to cover viewport
+        let perpX = -dy / length * viewportWidth
+        let perpY = dx / length * viewportWidth
+
+        // Handle drawsBeforeStartLocation option
+        if options.contains(.drawsBeforeStartLocation), colors.count > 0 {
+            let firstColor = applyAlpha(colors[0], alpha: alpha)
+            // Extend from a point far before start to start
+            let extendStart = CGPoint(x: start.x - dx, y: start.y - dy)
+
+            let v0 = CGPoint(x: extendStart.x - perpX, y: extendStart.y - perpY)
+            let v1 = CGPoint(x: extendStart.x + perpX, y: extendStart.y + perpY)
+            let v2 = CGPoint(x: start.x + perpX, y: start.y + perpY)
+            let v3 = CGPoint(x: start.x - perpX, y: start.y - perpY)
+
+            vertices.append(createVertex(v0, color: firstColor))
+            vertices.append(createVertex(v1, color: firstColor))
+            vertices.append(createVertex(v2, color: firstColor))
+            vertices.append(createVertex(v0, color: firstColor))
+            vertices.append(createVertex(v2, color: firstColor))
+            vertices.append(createVertex(v3, color: firstColor))
+        }
+
+        // Create segments for each color stop pair
+        for i in 0..<(colors.count - 1) {
+            let t0 = locations[i]
+            let t1 = locations[i + 1]
+            let color0 = applyAlpha(colors[i], alpha: alpha)
+            let color1 = applyAlpha(colors[i + 1], alpha: alpha)
+
+            // Points along the gradient axis
+            let p0 = CGPoint(x: start.x + dx * t0, y: start.y + dy * t0)
+            let p1 = CGPoint(x: start.x + dx * t1, y: start.y + dy * t1)
+
+            // Four corners of the quad
+            let v0 = CGPoint(x: p0.x - perpX, y: p0.y - perpY)
+            let v1 = CGPoint(x: p0.x + perpX, y: p0.y + perpY)
+            let v2 = CGPoint(x: p1.x + perpX, y: p1.y + perpY)
+            let v3 = CGPoint(x: p1.x - perpX, y: p1.y - perpY)
+
+            // Two triangles for the quad
+            vertices.append(createVertex(v0, color: color0))
+            vertices.append(createVertex(v1, color: color0))
+            vertices.append(createVertex(v2, color: color1))
+
+            vertices.append(createVertex(v0, color: color0))
+            vertices.append(createVertex(v2, color: color1))
+            vertices.append(createVertex(v3, color: color1))
+        }
+
+        // Handle drawsAfterEndLocation option
+        if options.contains(.drawsAfterEndLocation), colors.count > 0 {
+            let lastColor = applyAlpha(colors[colors.count - 1], alpha: alpha)
+            // Extend from end to a point far after end
+            let extendEnd = CGPoint(x: end.x + dx, y: end.y + dy)
+
+            let v0 = CGPoint(x: end.x - perpX, y: end.y - perpY)
+            let v1 = CGPoint(x: end.x + perpX, y: end.y + perpY)
+            let v2 = CGPoint(x: extendEnd.x + perpX, y: extendEnd.y + perpY)
+            let v3 = CGPoint(x: extendEnd.x - perpX, y: extendEnd.y - perpY)
+
+            vertices.append(createVertex(v0, color: lastColor))
+            vertices.append(createVertex(v1, color: lastColor))
+            vertices.append(createVertex(v2, color: lastColor))
+            vertices.append(createVertex(v0, color: lastColor))
+            vertices.append(createVertex(v2, color: lastColor))
+            vertices.append(createVertex(v3, color: lastColor))
+        }
+
+        return vertices
+    }
+
+    private func createRadialGradientVertices(
+        gradient: CGGradient,
+        startCenter: CGPoint,
+        startRadius: CGFloat,
+        endCenter: CGPoint,
+        endRadius: CGFloat,
+        options: CGGradientDrawingOptions,
+        alpha: CGFloat
+    ) -> [CGWebGPUVertex] {
+        var vertices: [CGWebGPUVertex] = []
+
+        // Get color stops from gradient
+        guard let colors = gradient.colors,
+              let locations = gradient.locations,
+              colors.count > 0 else { return [] }
+
+        let segments = 32  // Number of segments around the circle
+
+        // Handle drawsBeforeStartLocation option
+        if options.contains(.drawsBeforeStartLocation), startRadius > 0 {
+            let firstColor = applyAlpha(colors[0], alpha: alpha)
+
+            // Fill center circle with first color
+            for j in 0..<segments {
+                let angle0 = CGFloat(j) * 2 * .pi / CGFloat(segments)
+                let angle1 = CGFloat(j + 1) * 2 * .pi / CGFloat(segments)
+
+                let p0 = startCenter
+                let p1 = CGPoint(x: startCenter.x + startRadius * cos(angle0),
+                                y: startCenter.y + startRadius * sin(angle0))
+                let p2 = CGPoint(x: startCenter.x + startRadius * cos(angle1),
+                                y: startCenter.y + startRadius * sin(angle1))
+
+                vertices.append(createVertex(p0, color: firstColor))
+                vertices.append(createVertex(p1, color: firstColor))
+                vertices.append(createVertex(p2, color: firstColor))
+            }
+        }
+
+        // Create ring segments for each color stop pair
+        for i in 0..<(colors.count - 1) {
+            let t0 = locations[i]
+            let t1 = locations[i + 1]
+            let color0 = applyAlpha(colors[i], alpha: alpha)
+            let color1 = applyAlpha(colors[i + 1], alpha: alpha)
+
+            // Interpolate centers and radii
+            let center0 = CGPoint(
+                x: startCenter.x + (endCenter.x - startCenter.x) * t0,
+                y: startCenter.y + (endCenter.y - startCenter.y) * t0
+            )
+            let center1 = CGPoint(
+                x: startCenter.x + (endCenter.x - startCenter.x) * t1,
+                y: startCenter.y + (endCenter.y - startCenter.y) * t1
+            )
+            let radius0 = startRadius + (endRadius - startRadius) * t0
+            let radius1 = startRadius + (endRadius - startRadius) * t1
+
+            // Create ring segments
+            for j in 0..<segments {
+                let angle0 = CGFloat(j) * 2 * .pi / CGFloat(segments)
+                let angle1 = CGFloat(j + 1) * 2 * .pi / CGFloat(segments)
+
+                let cos0 = cos(angle0)
+                let sin0 = sin(angle0)
+                let cos1 = cos(angle1)
+                let sin1 = sin(angle1)
+
+                // Inner ring points
+                let inner0 = CGPoint(x: center0.x + radius0 * cos0, y: center0.y + radius0 * sin0)
+                let inner1 = CGPoint(x: center0.x + radius0 * cos1, y: center0.y + radius0 * sin1)
+
+                // Outer ring points
+                let outer0 = CGPoint(x: center1.x + radius1 * cos0, y: center1.y + radius1 * sin0)
+                let outer1 = CGPoint(x: center1.x + radius1 * cos1, y: center1.y + radius1 * sin1)
+
+                // Two triangles for the quad
+                vertices.append(createVertex(inner0, color: color0))
+                vertices.append(createVertex(inner1, color: color0))
+                vertices.append(createVertex(outer1, color: color1))
+
+                vertices.append(createVertex(inner0, color: color0))
+                vertices.append(createVertex(outer1, color: color1))
+                vertices.append(createVertex(outer0, color: color1))
+            }
+        }
+
+        // Handle drawsAfterEndLocation option
+        if options.contains(.drawsAfterEndLocation) {
+            let lastColor = applyAlpha(colors[colors.count - 1], alpha: alpha)
+            let extendRadius = endRadius + max(viewportWidth, viewportHeight)
+
+            // Extend from end radius to a much larger radius
+            for j in 0..<segments {
+                let angle0 = CGFloat(j) * 2 * .pi / CGFloat(segments)
+                let angle1 = CGFloat(j + 1) * 2 * .pi / CGFloat(segments)
+
+                let cos0 = cos(angle0)
+                let sin0 = sin(angle0)
+                let cos1 = cos(angle1)
+                let sin1 = sin(angle1)
+
+                let inner0 = CGPoint(x: endCenter.x + endRadius * cos0, y: endCenter.y + endRadius * sin0)
+                let inner1 = CGPoint(x: endCenter.x + endRadius * cos1, y: endCenter.y + endRadius * sin1)
+                let outer0 = CGPoint(x: endCenter.x + extendRadius * cos0, y: endCenter.y + extendRadius * sin0)
+                let outer1 = CGPoint(x: endCenter.x + extendRadius * cos1, y: endCenter.y + extendRadius * sin1)
+
+                vertices.append(createVertex(inner0, color: lastColor))
+                vertices.append(createVertex(inner1, color: lastColor))
+                vertices.append(createVertex(outer1, color: lastColor))
+
+                vertices.append(createVertex(inner0, color: lastColor))
+                vertices.append(createVertex(outer1, color: lastColor))
+                vertices.append(createVertex(outer0, color: lastColor))
+            }
+        }
+
+        return vertices
     }
 
     // MARK: - Pattern Drawing
@@ -882,6 +1290,54 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         case .round: return .round
         case .bevel: return .bevel
         }
+    }
+
+    // MARK: - Image Placeholder
+
+    /// Creates a checkerboard pattern as a placeholder for image rendering.
+    ///
+    /// This provides visual feedback that an image would be drawn at this location.
+    /// Full texture-based rendering requires additional infrastructure.
+    private func createImagePlaceholderVertices(
+        rect: CGRect,
+        alpha: CGFloat
+    ) -> [CGWebGPUVertex] {
+        var vertices: [CGWebGPUVertex] = []
+
+        // Checkerboard colors
+        let lightColor = applyAlpha(CGColor(gray: 0.8, alpha: 1.0), alpha: alpha)
+        let darkColor = applyAlpha(CGColor(gray: 0.6, alpha: 1.0), alpha: alpha)
+
+        // Create a checkerboard pattern with 4x4 cells
+        let cellWidth = rect.width / 4
+        let cellHeight = rect.height / 4
+
+        for row in 0..<4 {
+            for col in 0..<4 {
+                let isLight = (row + col) % 2 == 0
+                let color = isLight ? lightColor : darkColor
+
+                let x = rect.minX + CGFloat(col) * cellWidth
+                let y = rect.minY + CGFloat(row) * cellHeight
+
+                // Four corners of the cell
+                let v0 = CGPoint(x: x, y: y)
+                let v1 = CGPoint(x: x + cellWidth, y: y)
+                let v2 = CGPoint(x: x + cellWidth, y: y + cellHeight)
+                let v3 = CGPoint(x: x, y: y + cellHeight)
+
+                // Two triangles for the cell
+                vertices.append(createVertex(v0, color: color))
+                vertices.append(createVertex(v1, color: color))
+                vertices.append(createVertex(v2, color: color))
+
+                vertices.append(createVertex(v0, color: color))
+                vertices.append(createVertex(v2, color: color))
+                vertices.append(createVertex(v3, color: color))
+            }
+        }
+
+        return vertices
     }
 }
 
