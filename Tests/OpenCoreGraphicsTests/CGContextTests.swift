@@ -1458,4 +1458,223 @@ struct CGContextTests {
             #expect(image?.colorSpace?.model == .rgb)
         }
     }
+
+    // MARK: - Replace Path With Stroked Path Tests
+
+    @Suite("Replace Path With Stroked Path")
+    struct ReplacePathWithStrokedPathTests {
+
+        fileprivate func createTestContext() -> CGContext? {
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            return CGContext(
+                data: nil,
+                width: 100,
+                height: 100,
+                bitsPerComponent: 8,
+                bytesPerRow: 400,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            )
+        }
+
+        @Test("Replace simple line path with stroked path")
+        func replaceSimpleLine() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(10)
+            context.move(to: CGPoint(x: 10, y: 50))
+            context.addLine(to: CGPoint(x: 90, y: 50))
+
+            let originalBbox = context.boundingBoxOfPath
+
+            context.replacePathWithStrokedPath()
+
+            let strokedBbox = context.boundingBoxOfPath
+
+            // Stroked path should be taller (extend above and below)
+            #expect(strokedBbox.minY < originalBbox.minY)
+            #expect(strokedBbox.maxY > originalBbox.maxY)
+
+            // Path should not be empty
+            #expect(!context.isPathEmpty)
+        }
+
+        @Test("Replace empty path does nothing")
+        func replaceEmptyPath() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            #expect(context.isPathEmpty)
+
+            context.replacePathWithStrokedPath()
+
+            #expect(context.isPathEmpty)
+        }
+
+        @Test("Stroked path uses current line width")
+        func strokedPathUsesLineWidth() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.move(to: CGPoint(x: 50, y: 50))
+            context.addLine(to: CGPoint(x: 50, y: 90))
+
+            // Small line width
+            context.setLineWidth(5)
+            context.replacePathWithStrokedPath()
+            let smallBbox = context.boundingBoxOfPath
+
+            // Create new path with larger line width
+            context.beginPath()
+            context.move(to: CGPoint(x: 50, y: 50))
+            context.addLine(to: CGPoint(x: 50, y: 90))
+            context.setLineWidth(20)
+            context.replacePathWithStrokedPath()
+            let largeBbox = context.boundingBoxOfPath
+
+            // Larger line width should produce wider path
+            #expect(largeBbox.width > smallBbox.width)
+        }
+
+        @Test("Stroked path uses current line cap")
+        func strokedPathUsesLineCap() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            // Test with butt cap
+            context.setLineWidth(10)
+            context.setLineCap(.butt)
+            context.move(to: CGPoint(x: 50, y: 10))
+            context.addLine(to: CGPoint(x: 50, y: 90))
+            context.replacePathWithStrokedPath()
+            let buttBbox = context.boundingBoxOfPath
+
+            // Test with square cap
+            context.beginPath()
+            context.setLineCap(.square)
+            context.move(to: CGPoint(x: 50, y: 10))
+            context.addLine(to: CGPoint(x: 50, y: 90))
+            context.replacePathWithStrokedPath()
+            let squareBbox = context.boundingBoxOfPath
+
+            // Square cap extends beyond endpoints, so bounding box should be taller
+            #expect(squareBbox.height > buttBbox.height)
+        }
+
+        @Test("Stroked path uses current line join")
+        func strokedPathUsesLineJoin() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(10)
+
+            // Test with miter join
+            context.setLineJoin(.miter)
+            context.setMiterLimit(10)
+            context.move(to: CGPoint(x: 10, y: 50))
+            context.addLine(to: CGPoint(x: 50, y: 50))
+            context.addLine(to: CGPoint(x: 50, y: 10))
+            context.replacePathWithStrokedPath()
+
+            #expect(!context.isPathEmpty)
+        }
+
+        @Test("Stroked closed path forms outline")
+        func strokedClosedPath() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(10)
+            context.addRect(CGRect(x: 20, y: 20, width: 60, height: 60))
+
+            let originalBbox = context.boundingBoxOfPath
+
+            context.replacePathWithStrokedPath()
+
+            let strokedBbox = context.boundingBoxOfPath
+
+            // Stroked rectangle should be larger
+            #expect(strokedBbox.width > originalBbox.width)
+            #expect(strokedBbox.height > originalBbox.height)
+        }
+
+        @Test("Stroked path can be filled")
+        func strokedPathCanBeFilled() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(10)
+            context.move(to: CGPoint(x: 10, y: 50))
+            context.addLine(to: CGPoint(x: 90, y: 50))
+
+            context.replacePathWithStrokedPath()
+
+            // The stroked path should be fillable (this shouldn't crash)
+            context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+            context.fillPath()
+
+            // After fill, path should be consumed
+            #expect(context.isPathEmpty)
+        }
+
+        @Test("Stroked curve path")
+        func strokedCurvePath() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(5)
+            context.move(to: CGPoint(x: 10, y: 50))
+            context.addQuadCurve(to: CGPoint(x: 90, y: 50), control: CGPoint(x: 50, y: 10))
+
+            context.replacePathWithStrokedPath()
+
+            #expect(!context.isPathEmpty)
+        }
+
+        @Test("Multiple subpaths are all stroked")
+        func multipleSubpathsStroked() {
+            guard let context = createTestContext() else {
+                #expect(Bool(false), "Failed to create context")
+                return
+            }
+
+            context.setLineWidth(5)
+
+            // First subpath
+            context.move(to: CGPoint(x: 10, y: 20))
+            context.addLine(to: CGPoint(x: 40, y: 20))
+
+            // Second subpath
+            context.move(to: CGPoint(x: 60, y: 80))
+            context.addLine(to: CGPoint(x: 90, y: 80))
+
+            context.replacePathWithStrokedPath()
+
+            let bbox = context.boundingBoxOfPath
+
+            // Bounding box should span both subpaths
+            #expect(bbox.minX <= 10)
+            #expect(bbox.maxX >= 90)
+            #expect(bbox.minY <= 20)
+            #expect(bbox.maxY >= 80)
+        }
+    }
 }

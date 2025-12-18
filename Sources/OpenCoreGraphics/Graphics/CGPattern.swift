@@ -167,19 +167,38 @@ extension CGPattern {
     /// Renders the pattern cell to an image.
     ///
     /// This method creates an offscreen context, calls the pattern's draw callback,
-    /// and returns the resulting image. The image can be used as a texture for
-    /// GPU-based pattern rendering.
+    /// and returns the resulting image.
     ///
-    /// - Important: This method creates a CGContext without a `rendererDelegate`.
-    ///   Since OpenCoreGraphics relies on the delegate pattern for rendering,
-    ///   the pattern's `drawPattern` callback will not produce visible output
-    ///   unless the pattern draws directly to the context's pixel buffer using
-    ///   low-level operations. For GPU-based rendering, consider implementing
-    ///   pattern rendering directly in your renderer using the pattern's
-    ///   properties (`bounds`, `xStep`, `yStep`, `matrix`) instead of relying
-    ///   on this method.
+    /// ## Delegate-Based Rendering Limitation
+    ///
+    /// OpenCoreGraphics uses a delegate pattern where drawing operations are forwarded
+    /// to a `rendererDelegate` (e.g., WebGPU renderer). This method creates a CGContext
+    /// **without** a delegate, so the pattern's `drawPattern` callback will draw to an
+    /// empty bitmap buffer.
+    ///
+    /// **Result**: This method will return a transparent/empty image in most cases.
+    ///
+    /// ## Recommended Approach for GPU Renderers
+    ///
+    /// Instead of using `renderCell()`, GPU-based renderers should implement pattern
+    /// rendering directly using the pattern's properties:
+    ///
+    /// ```swift
+    /// func fillWithPattern(path: CGPath, pattern: CGPattern, ..., state: CGDrawingState) {
+    ///     // Access pattern properties directly
+    ///     let cellBounds = pattern.bounds
+    ///     let xStep = pattern.xStep
+    ///     let yStep = pattern.yStep
+    ///     let transform = pattern.matrix
+    ///
+    ///     // Create pattern geometry procedurally or use a texture atlas
+    ///     // Apply pattern transformation and tiling in shader
+    /// }
+    /// ```
     ///
     /// - Returns: A CGImage containing the rendered pattern cell, or nil if rendering fails.
+    ///   Note: Will return a transparent image when the pattern callback uses CGContext
+    ///   drawing operations (which require a delegate).
     public func renderCell() -> CGImage? {
         // Calculate cell dimensions
         let cellWidth = Int(ceil(abs(bounds.width)))

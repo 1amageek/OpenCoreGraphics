@@ -511,4 +511,320 @@ struct CGColorTests {
             #expect(result == 1.0)
         }
     }
+
+    // MARK: - Extended Color Conversion Tests
+
+    @Suite("Extended Color Conversion")
+    struct ExtendedColorConversionTests {
+
+        private func isApproximatelyEqual(_ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.05) -> Bool {
+            return abs(a - b) < tolerance
+        }
+
+        // MARK: - CMYK Conversion Tests
+
+        @Test("RGB to CMYK conversion - pure red")
+        func rgbToCmykPureRed() {
+            let red = CGColor(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            guard let cmykSpace = CGColorSpace(name: CGColorSpace.genericCMYK) else {
+                #expect(Bool(false), "Failed to create CMYK color space")
+                return
+            }
+            let converted = red.converted(to: cmykSpace, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            #expect(converted?.numberOfComponents == 5) // C, M, Y, K, Alpha
+
+            // Pure red in CMYK should be 0% cyan, 100% magenta, 100% yellow, 0% black
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 0.0), "Cyan should be ~0")
+                #expect(isApproximatelyEqual(c[1], 1.0), "Magenta should be ~1")
+                #expect(isApproximatelyEqual(c[2], 1.0), "Yellow should be ~1")
+                #expect(isApproximatelyEqual(c[3], 0.0), "Black should be ~0")
+            }
+        }
+
+        @Test("RGB to CMYK conversion - pure black")
+        func rgbToCmykPureBlack() {
+            let black = CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            guard let cmykSpace = CGColorSpace(name: CGColorSpace.genericCMYK) else {
+                #expect(Bool(false), "Failed to create CMYK color space")
+                return
+            }
+            let converted = black.converted(to: cmykSpace, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            // Pure black should be 0, 0, 0, 1 in CMYK (all in K channel)
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 0.0), "Cyan should be 0")
+                #expect(isApproximatelyEqual(c[1], 0.0), "Magenta should be 0")
+                #expect(isApproximatelyEqual(c[2], 0.0), "Yellow should be 0")
+                #expect(isApproximatelyEqual(c[3], 1.0), "Black should be 1")
+            }
+        }
+
+        @Test("CMYK to RGB conversion - pure cyan")
+        func cmykToRgbPureCyan() {
+            let cyan = CGColor(genericCMYKCyan: 1.0, magenta: 0.0, yellow: 0.0, black: 0.0, alpha: 1.0)
+            let converted = cyan.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            // Pure cyan should be R=0, G=1, B=1
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 0.0), "Red should be ~0")
+                #expect(isApproximatelyEqual(c[1], 1.0), "Green should be ~1")
+                #expect(isApproximatelyEqual(c[2], 1.0), "Blue should be ~1")
+            }
+        }
+
+        @Test("CMYK to RGB round trip preserves color")
+        func cmykToRgbRoundTrip() {
+            guard let cmykSpace = CGColorSpace(name: CGColorSpace.genericCMYK) else {
+                #expect(Bool(false), "Failed to create CMYK color space")
+                return
+            }
+
+            let original = CGColor(red: 0.5, green: 0.3, blue: 0.8, alpha: 0.9)
+            let cmyk = original.converted(to: cmykSpace, intent: .defaultIntent, options: nil)
+            let backToRgb = cmyk?.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+
+            #expect(backToRgb != nil)
+            if let orig = original.components, let back = backToRgb?.components {
+                #expect(isApproximatelyEqual(orig[0], back[0]), "Red should be preserved")
+                #expect(isApproximatelyEqual(orig[1], back[1]), "Green should be preserved")
+                #expect(isApproximatelyEqual(orig[2], back[2]), "Blue should be preserved")
+            }
+            #expect(backToRgb?.alpha == 0.9, "Alpha should be preserved")
+        }
+
+        @Test("Gray to CMYK conversion")
+        func grayToCmyk() {
+            let gray = CGColor(gray: 0.5, alpha: 1.0)
+            guard let cmykSpace = CGColorSpace(name: CGColorSpace.genericCMYK) else {
+                #expect(Bool(false), "Failed to create CMYK color space")
+                return
+            }
+            let converted = gray.converted(to: cmykSpace, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            // 50% gray should have 50% K channel, no CMY
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 0.0), "Cyan should be 0")
+                #expect(isApproximatelyEqual(c[1], 0.0), "Magenta should be 0")
+                #expect(isApproximatelyEqual(c[2], 0.0), "Yellow should be 0")
+                #expect(isApproximatelyEqual(c[3], 0.5), "Black should be ~0.5")
+            }
+        }
+
+        @Test("CMYK to Gray conversion")
+        func cmykToGray() {
+            let cmyk = CGColor(genericCMYKCyan: 0.0, magenta: 0.0, yellow: 0.0, black: 0.5, alpha: 1.0)
+            let converted = cmyk.converted(to: .deviceGray, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            if let g = converted?.components?[0] {
+                #expect(isApproximatelyEqual(g, 0.5), "Gray should be ~0.5 for 50% black")
+            }
+        }
+
+        // MARK: - Lab Conversion Tests
+
+        @Test("RGB to Lab conversion - white")
+        func rgbToLabWhite() {
+            let white = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            guard let labSpace = CGColorSpace(name: CGColorSpace.genericLab) else {
+                #expect(Bool(false), "Failed to create Lab color space")
+                return
+            }
+            let converted = white.converted(to: labSpace, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            // White in Lab should be L=100, a≈0, b≈0
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 100.0, tolerance: 1.0), "L should be ~100 for white")
+                #expect(isApproximatelyEqual(c[1], 0.0, tolerance: 1.0), "a should be ~0 for white")
+                #expect(isApproximatelyEqual(c[2], 0.0, tolerance: 1.0), "b should be ~0 for white")
+            }
+        }
+
+        @Test("RGB to Lab conversion - black")
+        func rgbToLabBlack() {
+            let black = CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+            guard let labSpace = CGColorSpace(name: CGColorSpace.genericLab) else {
+                #expect(Bool(false), "Failed to create Lab color space")
+                return
+            }
+            let converted = black.converted(to: labSpace, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            // Black in Lab should be L≈0, a≈0, b≈0
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 0.0, tolerance: 1.0), "L should be ~0 for black")
+            }
+        }
+
+        @Test("Lab to RGB round trip preserves color")
+        func labToRgbRoundTrip() {
+            guard let labSpace = CGColorSpace(name: CGColorSpace.genericLab) else {
+                #expect(Bool(false), "Failed to create Lab color space")
+                return
+            }
+
+            let original = CGColor(red: 0.6, green: 0.4, blue: 0.2, alpha: 0.8)
+            let lab = original.converted(to: labSpace, intent: .defaultIntent, options: nil)
+            let backToRgb = lab?.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+
+            #expect(backToRgb != nil)
+            if let orig = original.components, let back = backToRgb?.components {
+                #expect(isApproximatelyEqual(orig[0], back[0], tolerance: 0.1), "Red should be preserved")
+                #expect(isApproximatelyEqual(orig[1], back[1], tolerance: 0.1), "Green should be preserved")
+                #expect(isApproximatelyEqual(orig[2], back[2], tolerance: 0.1), "Blue should be preserved")
+            }
+        }
+
+        // MARK: - XYZ Conversion Tests
+
+        @Test("RGB to XYZ conversion - white D65")
+        func rgbToXyzWhite() {
+            let white = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            guard let xyzSpace = CGColorSpace(name: CGColorSpace.genericXYZ) else {
+                #expect(Bool(false), "Failed to create XYZ color space")
+                return
+            }
+            let converted = white.converted(to: xyzSpace, intent: .defaultIntent, options: nil)
+
+            #expect(converted != nil)
+            // sRGB white (1,1,1) in XYZ D65 should be approximately (0.95047, 1.0, 1.08883)
+            if let c = converted?.components {
+                #expect(isApproximatelyEqual(c[0], 0.95047, tolerance: 0.01), "X should be ~0.95047")
+                #expect(isApproximatelyEqual(c[1], 1.0, tolerance: 0.01), "Y should be ~1.0")
+                #expect(isApproximatelyEqual(c[2], 1.08883, tolerance: 0.01), "Z should be ~1.08883")
+            }
+        }
+
+        @Test("XYZ to RGB round trip preserves color")
+        func xyzToRgbRoundTrip() {
+            guard let xyzSpace = CGColorSpace(name: CGColorSpace.genericXYZ) else {
+                #expect(Bool(false), "Failed to create XYZ color space")
+                return
+            }
+
+            let original = CGColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 0.9)
+            let xyz = original.converted(to: xyzSpace, intent: .defaultIntent, options: nil)
+            let backToRgb = xyz?.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+
+            #expect(backToRgb != nil)
+            if let orig = original.components, let back = backToRgb?.components {
+                #expect(isApproximatelyEqual(orig[0], back[0]), "Red should be preserved")
+                #expect(isApproximatelyEqual(orig[1], back[1]), "Green should be preserved")
+                #expect(isApproximatelyEqual(orig[2], back[2]), "Blue should be preserved")
+            }
+        }
+
+        // MARK: - Lab <-> XYZ Direct Conversion Tests
+
+        @Test("Lab to XYZ direct conversion")
+        func labToXyzDirect() {
+            guard let labSpace = CGColorSpace(name: CGColorSpace.genericLab),
+                  let xyzSpace = CGColorSpace(name: CGColorSpace.genericXYZ) else {
+                #expect(Bool(false), "Failed to create color spaces")
+                return
+            }
+
+            // White in Lab (L=100, a=0, b=0)
+            let white = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            let labWhite = white.converted(to: labSpace, intent: .defaultIntent, options: nil)
+            let xyzFromLab = labWhite?.converted(to: xyzSpace, intent: .defaultIntent, options: nil)
+
+            #expect(xyzFromLab != nil)
+            if let c = xyzFromLab?.components {
+                // D65 white point
+                #expect(isApproximatelyEqual(c[0], 0.95047, tolerance: 0.02), "X should be ~0.95047")
+                #expect(isApproximatelyEqual(c[1], 1.0, tolerance: 0.02), "Y should be ~1.0")
+            }
+        }
+
+        // MARK: - Chained Conversion Tests
+
+        @Test("CMYK to Lab via RGB")
+        func cmykToLabViaRgb() {
+            guard let labSpace = CGColorSpace(name: CGColorSpace.genericLab) else {
+                #expect(Bool(false), "Failed to create Lab color space")
+                return
+            }
+
+            let cmyk = CGColor(genericCMYKCyan: 0.0, magenta: 0.0, yellow: 0.0, black: 0.0, alpha: 1.0)
+            let lab = cmyk.converted(to: labSpace, intent: .defaultIntent, options: nil)
+
+            #expect(lab != nil)
+            // White CMYK should convert to white Lab (L≈100)
+            if let l = lab?.components?[0] {
+                #expect(isApproximatelyEqual(l, 100.0, tolerance: 2.0), "L should be ~100 for white")
+            }
+        }
+
+        @Test("XYZ to CMYK via RGB")
+        func xyzToCmykViaRgb() {
+            guard let xyzSpace = CGColorSpace(name: CGColorSpace.genericXYZ),
+                  let cmykSpace = CGColorSpace(name: CGColorSpace.genericCMYK) else {
+                #expect(Bool(false), "Failed to create color spaces")
+                return
+            }
+
+            // Create XYZ white and convert to CMYK
+            let rgbWhite = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            let xyzWhite = rgbWhite.converted(to: xyzSpace, intent: .defaultIntent, options: nil)
+            let cmykFromXyz = xyzWhite?.converted(to: cmykSpace, intent: .defaultIntent, options: nil)
+
+            #expect(cmykFromXyz != nil)
+            // White should have all CMYK channels near 0
+            if let c = cmykFromXyz?.components {
+                #expect(isApproximatelyEqual(c[0], 0.0, tolerance: 0.1), "C should be ~0")
+                #expect(isApproximatelyEqual(c[1], 0.0, tolerance: 0.1), "M should be ~0")
+                #expect(isApproximatelyEqual(c[2], 0.0, tolerance: 0.1), "Y should be ~0")
+                #expect(isApproximatelyEqual(c[3], 0.0, tolerance: 0.1), "K should be ~0")
+            }
+        }
+
+        // MARK: - Alpha Preservation Tests
+
+        @Test("Alpha preserved through CMYK conversion")
+        func alphaPreservedCmyk() {
+            guard let cmykSpace = CGColorSpace(name: CGColorSpace.genericCMYK) else {
+                #expect(Bool(false), "Failed to create CMYK color space")
+                return
+            }
+
+            let alphaValues: [CGFloat] = [0.0, 0.25, 0.5, 0.75, 1.0]
+            for alpha in alphaValues {
+                let color = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: alpha)
+                let converted = color.converted(to: cmykSpace, intent: .defaultIntent, options: nil)
+                #expect(converted?.alpha == alpha, "Alpha \(alpha) should be preserved through CMYK")
+            }
+        }
+
+        @Test("Alpha preserved through Lab conversion")
+        func alphaPreservedLab() {
+            guard let labSpace = CGColorSpace(name: CGColorSpace.genericLab) else {
+                #expect(Bool(false), "Failed to create Lab color space")
+                return
+            }
+
+            let color = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 0.7)
+            let converted = color.converted(to: labSpace, intent: .defaultIntent, options: nil)
+            #expect(converted?.alpha == 0.7, "Alpha should be preserved through Lab")
+        }
+
+        @Test("Alpha preserved through XYZ conversion")
+        func alphaPreservedXyz() {
+            guard let xyzSpace = CGColorSpace(name: CGColorSpace.genericXYZ) else {
+                #expect(Bool(false), "Failed to create XYZ color space")
+                return
+            }
+
+            let color = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 0.3)
+            let converted = color.converted(to: xyzSpace, intent: .defaultIntent, options: nil)
+            #expect(converted?.alpha == 0.3, "Alpha should be preserved through XYZ")
+        }
+    }
 }

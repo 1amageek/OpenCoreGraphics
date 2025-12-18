@@ -108,27 +108,288 @@ public class CGColor: @unchecked Sendable {
     public func converted(to space: CGColorSpace, intent: CGColorRenderingIntent, options: [String: Any]?) -> CGColor? {
         guard let components = self.components else { return nil }
 
-        // Simple conversion - just copy components if same model
+        // Same model - just copy components
         if colorSpace?.model == space.model {
             return CGColor(space: space, componentArray: components)
         }
 
-        // For different models, we would need actual color conversion
-        // This is a simplified implementation
+        // Color conversion between different models
         switch (colorSpace?.model, space.model) {
+
+        // MARK: Monochrome conversions
         case (.monochrome, .rgb):
             // Gray to RGB
             let gray = components[0]
             let alpha = components.count > 1 ? components[1] : CGFloat(1.0)
             return CGColor(space: space, componentArray: [gray, gray, gray, alpha])
+
+        case (.monochrome, .cmyk):
+            // Gray to CMYK (K channel only)
+            let gray = components[0]
+            let alpha = components.count > 1 ? components[1] : CGFloat(1.0)
+            let k = 1.0 - gray
+            return CGColor(space: space, componentArray: [0.0, 0.0, 0.0, k, alpha])
+
+        // MARK: RGB conversions
         case (.rgb, .monochrome):
-            // RGB to Gray (using luminance)
+            // RGB to Gray (using ITU-R BT.601 luminance coefficients)
             let r = components[0]
             let g = components[1]
             let b = components[2]
             let gray = 0.299 * r + 0.587 * g + 0.114 * b
             let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
             return CGColor(space: space, componentArray: [gray, alpha])
+
+        case (.rgb, .cmyk):
+            // RGB to CMYK
+            let r = components[0]
+            let g = components[1]
+            let b = components[2]
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            let k = 1.0 - max(r, max(g, b))
+
+            // Avoid division by zero when K = 1 (pure black)
+            if k >= 1.0 {
+                return CGColor(space: space, componentArray: [0.0, 0.0, 0.0, 1.0, alpha])
+            }
+
+            let c = (1.0 - r - k) / (1.0 - k)
+            let m = (1.0 - g - k) / (1.0 - k)
+            let y = (1.0 - b - k) / (1.0 - k)
+            return CGColor(space: space, componentArray: [c, m, y, k, alpha])
+
+        // MARK: CMYK conversions
+        case (.cmyk, .rgb):
+            // CMYK to RGB
+            let c = components[0]
+            let m = components[1]
+            let y = components[2]
+            let k = components[3]
+            let alpha = components.count > 4 ? components[4] : CGFloat(1.0)
+
+            let r = (1.0 - c) * (1.0 - k)
+            let g = (1.0 - m) * (1.0 - k)
+            let b = (1.0 - y) * (1.0 - k)
+            return CGColor(space: space, componentArray: [r, g, b, alpha])
+
+        case (.cmyk, .monochrome):
+            // CMYK to Gray (convert to RGB first, then to gray)
+            let c = components[0]
+            let m = components[1]
+            let y = components[2]
+            let k = components[3]
+            let alpha = components.count > 4 ? components[4] : CGFloat(1.0)
+
+            let r = (1.0 - c) * (1.0 - k)
+            let g = (1.0 - m) * (1.0 - k)
+            let b = (1.0 - y) * (1.0 - k)
+            let gray = 0.299 * r + 0.587 * g + 0.114 * b
+            return CGColor(space: space, componentArray: [gray, alpha])
+
+        // MARK: Lab conversions
+        case (.lab, .rgb):
+            // Lab to RGB (through XYZ, using D65 illuminant)
+            let l = components[0]
+            let a = components[1]
+            let bLab = components[2]
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            // Lab to XYZ (D65 reference white)
+            let fy = (l + 16.0) / 116.0
+            let fx = a / 500.0 + fy
+            let fz = fy - bLab / 200.0
+
+            let xr: CGFloat = fx > 0.206893 ? fx * fx * fx : (fx - 16.0 / 116.0) / 7.787
+            let yr: CGFloat = l > 8.0 ? fy * fy * fy : l / 903.3
+            let zr: CGFloat = fz > 0.206893 ? fz * fz * fz : (fz - 16.0 / 116.0) / 7.787
+
+            // D65 reference white
+            let x = xr * 0.95047
+            let yVal = yr * 1.0
+            let z = zr * 1.08883
+
+            // XYZ to sRGB
+            var r = x *  3.2404542 + yVal * -1.5371385 + z * -0.4985314
+            var g = x * -0.9692660 + yVal *  1.8760108 + z *  0.0415560
+            var bOut = x *  0.0556434 + yVal * -0.2040259 + z *  1.0572252
+
+            // Apply sRGB gamma
+            r = r > 0.0031308 ? 1.055 * pow(r, 1.0 / 2.4) - 0.055 : 12.92 * r
+            g = g > 0.0031308 ? 1.055 * pow(g, 1.0 / 2.4) - 0.055 : 12.92 * g
+            bOut = bOut > 0.0031308 ? 1.055 * pow(bOut, 1.0 / 2.4) - 0.055 : 12.92 * bOut
+
+            // Clamp to valid range
+            r = max(0.0, min(1.0, r))
+            g = max(0.0, min(1.0, g))
+            bOut = max(0.0, min(1.0, bOut))
+
+            return CGColor(space: space, componentArray: [r, g, bOut, alpha])
+
+        case (.rgb, .lab):
+            // RGB to Lab (through XYZ, using D65 illuminant)
+            var r = components[0]
+            var g = components[1]
+            var bVal = components[2]
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            // Remove sRGB gamma
+            r = r > 0.04045 ? pow((r + 0.055) / 1.055, 2.4) : r / 12.92
+            g = g > 0.04045 ? pow((g + 0.055) / 1.055, 2.4) : g / 12.92
+            bVal = bVal > 0.04045 ? pow((bVal + 0.055) / 1.055, 2.4) : bVal / 12.92
+
+            // RGB to XYZ
+            let x = (r * 0.4124564 + g * 0.3575761 + bVal * 0.1804375) / 0.95047
+            let y = (r * 0.2126729 + g * 0.7151522 + bVal * 0.0721750) / 1.0
+            let z = (r * 0.0193339 + g * 0.1191920 + bVal * 0.9503041) / 1.08883
+
+            // XYZ to Lab
+            let fx = x > 0.008856 ? pow(x, 1.0 / 3.0) : (7.787 * x) + 16.0 / 116.0
+            let fy = y > 0.008856 ? pow(y, 1.0 / 3.0) : (7.787 * y) + 16.0 / 116.0
+            let fz = z > 0.008856 ? pow(z, 1.0 / 3.0) : (7.787 * z) + 16.0 / 116.0
+
+            let l = (116.0 * fy) - 16.0
+            let aOut = 500.0 * (fx - fy)
+            let bOut = 200.0 * (fy - fz)
+
+            return CGColor(space: space, componentArray: [l, aOut, bOut, alpha])
+
+        // MARK: XYZ conversions
+        case (.XYZ, .rgb):
+            // XYZ to sRGB (D65)
+            let x = components[0]
+            let y = components[1]
+            let z = components[2]
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            // XYZ to linear sRGB
+            var r = x *  3.2404542 + y * -1.5371385 + z * -0.4985314
+            var g = x * -0.9692660 + y *  1.8760108 + z *  0.0415560
+            var bOut = x *  0.0556434 + y * -0.2040259 + z *  1.0572252
+
+            // Apply sRGB gamma
+            r = r > 0.0031308 ? 1.055 * pow(r, 1.0 / 2.4) - 0.055 : 12.92 * r
+            g = g > 0.0031308 ? 1.055 * pow(g, 1.0 / 2.4) - 0.055 : 12.92 * g
+            bOut = bOut > 0.0031308 ? 1.055 * pow(bOut, 1.0 / 2.4) - 0.055 : 12.92 * bOut
+
+            // Clamp to valid range
+            r = max(0.0, min(1.0, r))
+            g = max(0.0, min(1.0, g))
+            bOut = max(0.0, min(1.0, bOut))
+
+            return CGColor(space: space, componentArray: [r, g, bOut, alpha])
+
+        case (.rgb, .XYZ):
+            // sRGB to XYZ (D65)
+            var r = components[0]
+            var g = components[1]
+            var bVal = components[2]
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            // Remove sRGB gamma
+            r = r > 0.04045 ? pow((r + 0.055) / 1.055, 2.4) : r / 12.92
+            g = g > 0.04045 ? pow((g + 0.055) / 1.055, 2.4) : g / 12.92
+            bVal = bVal > 0.04045 ? pow((bVal + 0.055) / 1.055, 2.4) : bVal / 12.92
+
+            // Linear RGB to XYZ
+            let x = r * 0.4124564 + g * 0.3575761 + bVal * 0.1804375
+            let y = r * 0.2126729 + g * 0.7151522 + bVal * 0.0721750
+            let z = r * 0.0193339 + g * 0.1191920 + bVal * 0.9503041
+
+            return CGColor(space: space, componentArray: [x, y, z, alpha])
+
+        // MARK: Lab <-> CMYK (via RGB)
+        case (.lab, .cmyk):
+            // Lab to CMYK (Lab -> RGB -> CMYK)
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        case (.cmyk, .lab):
+            // CMYK to Lab (CMYK -> RGB -> Lab)
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        // MARK: XYZ <-> CMYK (via RGB)
+        case (.XYZ, .cmyk):
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        case (.cmyk, .XYZ):
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        // MARK: Lab <-> Monochrome (via RGB)
+        case (.lab, .monochrome):
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        case (.monochrome, .lab):
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        // MARK: XYZ <-> Monochrome (via RGB)
+        case (.XYZ, .monochrome):
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        case (.monochrome, .XYZ):
+            guard let rgbColor = self.converted(to: .deviceRGB, intent: intent, options: options) else {
+                return nil
+            }
+            return rgbColor.converted(to: space, intent: intent, options: options)
+
+        // MARK: Lab <-> XYZ direct conversion
+        case (.lab, .XYZ):
+            let l = components[0]
+            let a = components[1]
+            let bLab = components[2]
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            let fy = (l + 16.0) / 116.0
+            let fx = a / 500.0 + fy
+            let fz = fy - bLab / 200.0
+
+            let xr: CGFloat = fx > 0.206893 ? fx * fx * fx : (fx - 16.0 / 116.0) / 7.787
+            let yr: CGFloat = l > 8.0 ? fy * fy * fy : l / 903.3
+            let zr: CGFloat = fz > 0.206893 ? fz * fz * fz : (fz - 16.0 / 116.0) / 7.787
+
+            // D65 reference white
+            let x = xr * 0.95047
+            let y = yr * 1.0
+            let z = zr * 1.08883
+
+            return CGColor(space: space, componentArray: [x, y, z, alpha])
+
+        case (.XYZ, .lab):
+            let xVal = components[0] / 0.95047
+            let yVal = components[1] / 1.0
+            let zVal = components[2] / 1.08883
+            let alpha = components.count > 3 ? components[3] : CGFloat(1.0)
+
+            let fx = xVal > 0.008856 ? pow(xVal, 1.0 / 3.0) : (7.787 * xVal) + 16.0 / 116.0
+            let fy = yVal > 0.008856 ? pow(yVal, 1.0 / 3.0) : (7.787 * yVal) + 16.0 / 116.0
+            let fz = zVal > 0.008856 ? pow(zVal, 1.0 / 3.0) : (7.787 * zVal) + 16.0 / 116.0
+
+            let l = (116.0 * fy) - 16.0
+            let a = 500.0 * (fx - fy)
+            let bOut = 200.0 * (fy - fz)
+
+            return CGColor(space: space, componentArray: [l, a, bOut, alpha])
+
         default:
             return nil
         }

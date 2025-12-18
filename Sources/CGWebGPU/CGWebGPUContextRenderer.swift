@@ -11,10 +11,13 @@ import OpenCoreGraphics
 import SwiftWebGPU
 import JavaScriptKit
 
-/// WebGPU-based implementation of `CGContextRendererDelegate`.
+/// WebGPU-based implementation of `CGContextStatefulRendererDelegate`.
 ///
 /// This class receives drawing commands from `CGContext` and renders them using WebGPU.
 /// It reads colors, line properties, and other parameters passed directly from the context.
+///
+/// As a stateful renderer delegate, this class receives the full drawing state including
+/// clipping paths and shadow parameters for proper rendering.
 ///
 /// ## Usage
 ///
@@ -35,7 +38,7 @@ import JavaScriptKit
 /// context.addRect(CGRect(x: 100, y: 100, width: 200, height: 150))
 /// context.fillPath()
 /// ```
-public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecked Sendable {
+public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -45,8 +48,11 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
     /// The GPU queue for submitting commands
     private let queue: GPUQueue
 
-    /// Render pipeline for basic 2D shapes
-    private var basicPipeline: GPURenderPipeline?
+    /// Render pipelines for different blend modes
+    private var pipelines: [CGBlendMode: GPURenderPipeline] = [:]
+
+    /// Shader module (shared by all pipelines)
+    private var shaderModule: GPUShaderModule?
 
     /// Path tessellator for converting paths to triangles
     private var tessellator: PathTessellator
@@ -97,15 +103,32 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
     /// Initialize rendering pipelines. Must be called before rendering.
     public func setup() {
         // Create shader module
-        let shaderModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
+        shaderModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
             code: CGWebGPUShaders.simple2D,
             label: "CGWebGPUContextRenderer Shader"
         ))
 
-        // Create render pipeline
-        basicPipeline = device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
+        // Create pipelines for commonly used blend modes
+        let supportedModes: [CGBlendMode] = [
+            .normal, .copy, .sourceIn, .sourceOut, .sourceAtop,
+            .destinationOver, .destinationIn, .destinationOut, .destinationAtop,
+            .xor, .plusLighter, .darken, .lighten
+        ]
+
+        for mode in supportedModes {
+            pipelines[mode] = createPipeline(for: mode)
+        }
+    }
+
+    /// Creates a render pipeline for the specified blend mode.
+    private func createPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
+        guard let module = shaderModule else { return nil }
+
+        let blendState = createBlendState(for: blendMode)
+
+        return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
             vertex: GPUVertexState(
-                module: shaderModule,
+                module: module,
                 entryPoint: "vs_main",
                 buffers: [
                     GPUVertexBufferLayout(
@@ -130,28 +153,148 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
                 cullMode: .none
             ),
             fragment: GPUFragmentState(
-                module: shaderModule,
+                module: module,
                 entryPoint: "fs_main",
                 targets: [
                     GPUColorTargetState(
                         format: textureFormat,
-                        blend: GPUBlendState(
-                            color: GPUBlendComponent(
-                                srcFactor: .srcAlpha,
-                                dstFactor: .oneMinusSrcAlpha,
-                                operation: .add
-                            ),
-                            alpha: GPUBlendComponent(
-                                srcFactor: .one,
-                                dstFactor: .oneMinusSrcAlpha,
-                                operation: .add
-                            )
-                        )
+                        blend: blendState
                     )
                 ]
             ),
-            label: "CGWebGPUContextRenderer Pipeline"
+            label: "CGWebGPU Pipeline (\(blendMode))"
         ))
+    }
+
+    /// Creates the WebGPU blend state for a CGBlendMode.
+    ///
+    /// Some blend modes (multiply, screen, overlay, etc.) require custom fragment shaders
+    /// and are not directly supported by WebGPU blend state alone. For these modes,
+    /// we fall back to normal alpha blending.
+    private func createBlendState(for mode: CGBlendMode) -> GPUBlendState {
+        switch mode {
+        case .normal:
+            // Standard alpha blending: src * srcAlpha + dst * (1 - srcAlpha)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
+            )
+
+        case .copy:
+            // Just copy source: src
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .one, dstFactor: .zero, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .zero, operation: .add)
+            )
+
+        case .sourceIn:
+            // src * dstAlpha
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .zero, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .zero, operation: .add)
+            )
+
+        case .sourceOut:
+            // src * (1 - dstAlpha)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .zero, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .zero, operation: .add)
+            )
+
+        case .sourceAtop:
+            // src * dstAlpha + dst * (1 - srcAlpha)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add)
+            )
+
+        case .destinationOver:
+            // src * (1 - dstAlpha) + dst
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .one, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .one, operation: .add)
+            )
+
+        case .destinationIn:
+            // dst * srcAlpha
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .zero, dstFactor: .srcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .zero, dstFactor: .srcAlpha, operation: .add)
+            )
+
+        case .destinationOut:
+            // dst * (1 - srcAlpha)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .zero, dstFactor: .oneMinusSrcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .zero, dstFactor: .oneMinusSrcAlpha, operation: .add)
+            )
+
+        case .destinationAtop:
+            // src * (1 - dstAlpha) + dst * srcAlpha
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .srcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .srcAlpha, operation: .add)
+            )
+
+        case .xor:
+            // src * (1 - dstAlpha) + dst * (1 - srcAlpha)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add)
+            )
+
+        case .plusLighter:
+            // src + dst (additive)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .add)
+            )
+
+        case .darken:
+            // min(src, dst)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .min),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .min)
+            )
+
+        case .lighten:
+            // max(src, dst)
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .max),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .max)
+            )
+
+        // Modes that require custom shaders - fall back to normal blending
+        case .multiply, .screen, .overlay, .colorDodge, .colorBurn,
+             .softLight, .hardLight, .difference, .exclusion,
+             .hue, .saturation, .color, .luminosity, .plusDarker, .clear:
+            // These modes cannot be implemented with WebGPU blend state alone.
+            // A full implementation would require custom fragment shaders.
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
+            )
+
+        @unknown default:
+            return GPUBlendState(
+                color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
+                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
+            )
+        }
+    }
+
+    /// Gets or creates the pipeline for a specific blend mode.
+    private func getPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
+        if let existing = pipelines[blendMode] {
+            return existing
+        }
+
+        // Create on demand for modes not pre-created
+        let pipeline = createPipeline(for: blendMode)
+        if let pipeline = pipeline {
+            pipelines[blendMode] = pipeline
+        }
+        return pipeline
     }
 
     // MARK: - Render Target
@@ -172,7 +315,8 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         blendMode: CGBlendMode,
         rule: CGPathFillRule
     ) {
-        guard let target = renderTarget, let pipeline = basicPipeline else { return }
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
 
         // Apply alpha to color
         let effectiveColor = applyAlpha(color, alpha: alpha)
@@ -197,7 +341,8 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         alpha: CGFloat,
         blendMode: CGBlendMode
     ) {
-        guard let target = renderTarget, let pipeline = basicPipeline else { return }
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
 
         // Apply alpha to color
         let effectiveColor = applyAlpha(color, alpha: alpha)
@@ -222,7 +367,18 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
     }
 
     public func clear(rect: CGRect) {
-        // TODO: Implement clear with transparent color
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: .copy) else { return }
+
+        // Create a rectangle path for the clear area
+        let clearPath = CGPath(rect: rect)
+
+        // Use transparent color with copy blend mode to clear the area
+        let transparentColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0)
+        let batch = tessellator.tessellateFill(clearPath, color: transparentColor)
+        guard !batch.vertices.isEmpty else { return }
+
+        renderBatch(batch, to: target, pipeline: pipeline)
     }
 
     public func draw(
@@ -255,6 +411,128 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         // TODO: Implement radial gradient rendering with specialized shader
     }
 
+    // MARK: - CGContextStatefulRendererDelegate
+
+    public func fill(
+        path: CGPath,
+        color: CGColor,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        rule: CGPathFillRule,
+        state: CGDrawingState
+    ) {
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
+
+        // TODO: Apply clipping from state.clipPaths
+        // TODO: Draw shadow if state.hasShadow
+
+        // Apply alpha to color
+        let effectiveColor = applyAlpha(color, alpha: alpha)
+
+        // Tessellate the path
+        let batch = tessellator.tessellateFill(path, color: effectiveColor)
+        guard !batch.vertices.isEmpty else { return }
+
+        // Render
+        renderBatch(batch, to: target, pipeline: pipeline)
+    }
+
+    public func stroke(
+        path: CGPath,
+        color: CGColor,
+        lineWidth: CGFloat,
+        lineCap: CGLineCap,
+        lineJoin: CGLineJoin,
+        miterLimit: CGFloat,
+        dashPhase: CGFloat,
+        dashLengths: [CGFloat],
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
+
+        // TODO: Apply clipping from state.clipPaths
+        // TODO: Draw shadow if state.hasShadow
+
+        // Apply alpha to color
+        let effectiveColor = applyAlpha(color, alpha: alpha)
+
+        // Convert line cap/join types
+        let cap = convertLineCap(lineCap)
+        let join = convertLineJoin(lineJoin)
+
+        // Tessellate the stroke
+        let batch = tessellator.tessellateStroke(
+            path,
+            color: effectiveColor,
+            lineWidth: lineWidth,
+            lineCap: cap,
+            lineJoin: join,
+            miterLimit: miterLimit
+        )
+        guard !batch.vertices.isEmpty else { return }
+
+        // Render
+        renderBatch(batch, to: target, pipeline: pipeline)
+    }
+
+    public func clear(rect: CGRect, state: CGDrawingState) {
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: .copy) else { return }
+
+        // TODO: Apply clipping from state.clipPaths
+
+        // Create a rectangle path for the clear area
+        let clearPath = CGPath(rect: rect)
+
+        // Use transparent color with copy blend mode to clear the area
+        let transparentColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0)
+        let batch = tessellator.tessellateFill(clearPath, color: transparentColor)
+        guard !batch.vertices.isEmpty else { return }
+
+        renderBatch(batch, to: target, pipeline: pipeline)
+    }
+
+    public func draw(
+        image: CGImage,
+        in rect: CGRect,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        interpolationQuality: CGInterpolationQuality,
+        state: CGDrawingState
+    ) {
+        // TODO: Implement image rendering with texture sampling
+        // TODO: Apply clipping from state.clipPath
+        // TODO: Draw shadow if state.hasShadow
+    }
+
+    public func drawLinearGradient(
+        _ gradient: CGGradient,
+        start: CGPoint,
+        end: CGPoint,
+        options: CGGradientDrawingOptions,
+        state: CGDrawingState
+    ) {
+        // TODO: Implement gradient rendering with specialized shader
+        // TODO: Apply clipping from state.clipPath
+    }
+
+    public func drawRadialGradient(
+        _ gradient: CGGradient,
+        startCenter: CGPoint,
+        startRadius: CGFloat,
+        endCenter: CGPoint,
+        endRadius: CGFloat,
+        options: CGGradientDrawingOptions,
+        state: CGDrawingState
+    ) {
+        // TODO: Implement radial gradient rendering with specialized shader
+        // TODO: Apply clipping from state.clipPath
+    }
+
     // MARK: - Shading Drawing
 
     public func drawShading(
@@ -262,7 +540,8 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         alpha: CGFloat,
         blendMode: CGBlendMode
     ) {
-        guard let target = renderTarget, let pipeline = basicPipeline else { return }
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
 
         // Generate color stops from the shading function
         let colorStops = shading.generateColorStops(steps: 64)
@@ -415,6 +694,18 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
 
     // MARK: - Pattern Drawing
 
+    /// Fills a path with a pattern.
+    ///
+    /// - Important: This is a simplified implementation. Currently, pattern rendering
+    ///   is limited because `CGPattern.renderCell()` creates a CGContext without a
+    ///   rendererDelegate, so drawing operations in the pattern callback don't produce
+    ///   output. As a result:
+    ///   - For uncolored patterns: Uses the provided colorComponents as a solid fill
+    ///   - For colored patterns: Falls back to a default gray color
+    ///
+    ///   A full implementation would require either:
+    ///   1. A software rasterizer in CGContext
+    ///   2. GPU-based pattern tiling using the pattern's bounds, xStep, yStep properties
     public func fillWithPattern(
         path: CGPath,
         pattern: CGPattern,
@@ -425,38 +716,41 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         blendMode: CGBlendMode,
         rule: CGPathFillRule
     ) {
-        guard let target = renderTarget, let pipeline = basicPipeline else { return }
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
 
-        // For a simplified implementation, we'll use the pattern's base color
-        // if it's an uncolored pattern, or render the pattern cell and tile it.
+        // Determine the fill color based on pattern type
+        let patternColor: CGColor
 
-        // Render the pattern cell to get color information
-        guard let cellImage = pattern.renderCell() else {
-            // Fallback: use a default color
-            let fallbackColor: CGColor
+        if !pattern.isColored {
+            // Uncolored pattern: use provided color components
             if let components = colorComponents, !components.isEmpty {
-                fallbackColor = CGColor(colorSpace: patternSpace, components: components) ?? .black
+                patternColor = CGColor(
+                    red: components.count > 0 ? components[0] : 0,
+                    green: components.count > 1 ? components[1] : 0,
+                    blue: components.count > 2 ? components[2] : 0,
+                    alpha: components.count > 3 ? components[3] : 1
+                )
             } else {
-                fallbackColor = .black
+                patternColor = .black
             }
-
-            let effectiveColor = applyAlpha(fallbackColor, alpha: alpha)
-            let batch = tessellator.tessellateFill(path, color: effectiveColor)
-            guard !batch.vertices.isEmpty else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
-            return
+        } else {
+            // Colored pattern: since renderCell() doesn't work properly,
+            // we fall back to a placeholder color
+            // TODO: Implement proper GPU-based pattern tiling
+            patternColor = CGColor(gray: 0.5, alpha: 1.0)
         }
 
-        // For now, we'll extract the average color from the pattern cell
-        // A full implementation would use texture-based pattern rendering
-        let patternColor = extractAverageColor(from: cellImage, pattern: pattern, colorComponents: colorComponents)
         let effectiveColor = applyAlpha(patternColor, alpha: alpha)
-
         let batch = tessellator.tessellateFill(path, color: effectiveColor)
         guard !batch.vertices.isEmpty else { return }
         renderBatch(batch, to: target, pipeline: pipeline)
     }
 
+    /// Strokes a path with a pattern.
+    ///
+    /// - Important: This has the same limitations as `fillWithPattern`.
+    ///   See that method's documentation for details.
     public func strokeWithPattern(
         path: CGPath,
         pattern: CGPattern,
@@ -472,37 +766,31 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         alpha: CGFloat,
         blendMode: CGBlendMode
     ) {
-        guard let target = renderTarget, let pipeline = basicPipeline else { return }
+        guard let target = renderTarget,
+              let pipeline = getPipeline(for: blendMode) else { return }
 
-        // Similar to fillWithPattern, simplified implementation
-        guard let cellImage = pattern.renderCell() else {
-            let fallbackColor: CGColor
+        // Determine the stroke color based on pattern type
+        let patternColor: CGColor
+
+        if !pattern.isColored {
+            // Uncolored pattern: use provided color components
             if let components = colorComponents, !components.isEmpty {
-                fallbackColor = CGColor(colorSpace: patternSpace, components: components) ?? .black
+                patternColor = CGColor(
+                    red: components.count > 0 ? components[0] : 0,
+                    green: components.count > 1 ? components[1] : 0,
+                    blue: components.count > 2 ? components[2] : 0,
+                    alpha: components.count > 3 ? components[3] : 1
+                )
             } else {
-                fallbackColor = .black
+                patternColor = .black
             }
-
-            let effectiveColor = applyAlpha(fallbackColor, alpha: alpha)
-            let cap = convertLineCap(lineCap)
-            let join = convertLineJoin(lineJoin)
-
-            let batch = tessellator.tessellateStroke(
-                path,
-                color: effectiveColor,
-                lineWidth: lineWidth,
-                lineCap: cap,
-                lineJoin: join,
-                miterLimit: miterLimit
-            )
-            guard !batch.vertices.isEmpty else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
-            return
+        } else {
+            // Colored pattern: placeholder color
+            // TODO: Implement proper GPU-based pattern tiling
+            patternColor = CGColor(gray: 0.5, alpha: 1.0)
         }
 
-        let patternColor = extractAverageColor(from: cellImage, pattern: pattern, colorComponents: colorComponents)
         let effectiveColor = applyAlpha(patternColor, alpha: alpha)
-
         let cap = convertLineCap(lineCap)
         let join = convertLineJoin(lineJoin)
 
@@ -516,79 +804,6 @@ public final class CGWebGPUContextRenderer: CGContextRendererDelegate, @unchecke
         )
         guard !batch.vertices.isEmpty else { return }
         renderBatch(batch, to: target, pipeline: pipeline)
-    }
-
-    private func extractAverageColor(
-        from image: CGImage,
-        pattern: CGPattern,
-        colorComponents: [CGFloat]?
-    ) -> CGColor {
-        // For uncolored patterns, use the provided color components
-        if !pattern.isColored, let components = colorComponents, !components.isEmpty {
-            // Use alpha from pattern if available, otherwise use provided alpha
-            return CGColor(
-                red: components.count > 0 ? components[0] : 0,
-                green: components.count > 1 ? components[1] : 0,
-                blue: components.count > 2 ? components[2] : 0,
-                alpha: components.count > 3 ? components[3] : 1
-            )
-        }
-
-        // For colored patterns, extract average color from image
-        // This is a simplified implementation - a proper one would sample the image
-        guard let provider = image.dataProvider,
-              let data = provider.data else {
-            return .black
-        }
-
-        let width = image.width
-        let height = image.height
-        let bytesPerPixel = image.bitsPerPixel / 8
-
-        guard width > 0, height > 0, bytesPerPixel >= 3 else {
-            return .black
-        }
-
-        var totalR: CGFloat = 0
-        var totalG: CGFloat = 0
-        var totalB: CGFloat = 0
-        var totalA: CGFloat = 0
-        var count: CGFloat = 0
-
-        // Sample a few pixels to get average color
-        let stepX = max(1, width / 4)
-        let stepY = max(1, height / 4)
-
-        for y in stride(from: 0, to: height, by: stepY) {
-            for x in stride(from: 0, to: width, by: stepX) {
-                let offset = (y * image.bytesPerRow) + (x * bytesPerPixel)
-                if offset + bytesPerPixel <= data.count {
-                    let bytes = data.withUnsafeBytes { ptr -> [UInt8] in
-                        let start = ptr.baseAddress!.advanced(by: offset)
-                        return Array(UnsafeBufferPointer(start: start.assumingMemoryBound(to: UInt8.self), count: bytesPerPixel))
-                    }
-
-                    totalR += CGFloat(bytes[0]) / 255.0
-                    totalG += CGFloat(bytes[1]) / 255.0
-                    totalB += CGFloat(bytes[2]) / 255.0
-                    if bytesPerPixel >= 4 {
-                        totalA += CGFloat(bytes[3]) / 255.0
-                    } else {
-                        totalA += 1.0
-                    }
-                    count += 1
-                }
-            }
-        }
-
-        guard count > 0 else { return .black }
-
-        return CGColor(
-            red: totalR / count,
-            green: totalG / count,
-            blue: totalB / count,
-            alpha: totalA / count
-        )
     }
 
     // MARK: - Private Helpers

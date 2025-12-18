@@ -197,6 +197,8 @@ extension CGRect {
     }
 
     /// Returns the intersection of two rectangles.
+    ///
+    /// Returns `.null` if the rectangles do not intersect or only touch at edges (zero area).
     @inlinable
     public func intersection(_ rect: CGRect) -> CGRect {
         if isNull || rect.isNull { return .null }
@@ -209,7 +211,8 @@ extension CGRect {
         let x2 = Swift.min(r1.origin.x + r1.size.width, r2.origin.x + r2.size.width)
         let y2 = Swift.min(r1.origin.y + r1.size.height, r2.origin.y + r2.size.height)
 
-        if x1 > x2 || y1 > y2 {
+        // Use >= to return null for zero-area intersections (touching edges only)
+        if x1 >= x2 || y1 >= y2 {
             return .null
         }
 

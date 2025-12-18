@@ -293,33 +293,18 @@ public final class CGImage: @unchecked Sendable {
     ///   - decode: The decode array for the image.
     ///   - shouldInterpolate: Whether the image should be interpolated.
     ///   - intent: The rendering intent.
+    ///
+    /// - Note: This initializer currently returns `nil` because JPEG decoding is not implemented.
+    ///   A full implementation would require a JPEG decoder to parse the image dimensions and pixel data.
     public convenience init?(
         jpegDataProviderSource: CGDataProvider,
         decode: UnsafePointer<CGFloat>?,
         shouldInterpolate: Bool,
         intent: CGColorRenderingIntent
     ) {
-        // Note: Full JPEG decoding would require a JPEG decoder implementation
-        // This is a placeholder that stores the raw data
-        guard let data = jpegDataProviderSource.data else { return nil }
-
-        // Default values for JPEG (would be parsed from actual JPEG data)
-        self.init(
-            width: 0,
-            height: 0,
-            bitsPerComponent: 8,
-            bitsPerPixel: 24,
-            bytesPerRow: 0,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB),
-            bitmapInfo: CGBitmapInfo(rawValue: 0),
-            decodeStorage: nil,
-            shouldInterpolate: shouldInterpolate,
-            renderingIntent: intent,
-            isMask: false,
-            data: data,
-            contentHeadroom: nil,
-            contentAverageLightLevel: nil
-        )
+        // JPEG decoding is not implemented - return nil to avoid creating invalid 0-dimension images
+        // A full implementation would parse JPEG headers to extract width, height, and decode pixel data
+        return nil
     }
 
     /// Creates a bitmap image using PNG-encoded data supplied by a data provider.
@@ -329,33 +314,18 @@ public final class CGImage: @unchecked Sendable {
     ///   - decode: The decode array for the image.
     ///   - shouldInterpolate: Whether the image should be interpolated.
     ///   - intent: The rendering intent.
+    ///
+    /// - Note: This initializer currently returns `nil` because PNG decoding is not implemented.
+    ///   A full implementation would require a PNG decoder to parse the image dimensions and pixel data.
     public convenience init?(
         pngDataProviderSource: CGDataProvider,
         decode: UnsafePointer<CGFloat>?,
         shouldInterpolate: Bool,
         intent: CGColorRenderingIntent
     ) {
-        // Note: Full PNG decoding would require a PNG decoder implementation
-        // This is a placeholder that stores the raw data
-        guard let data = pngDataProviderSource.data else { return nil }
-
-        // Default values for PNG (would be parsed from actual PNG data)
-        self.init(
-            width: 0,
-            height: 0,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: 0,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            decodeStorage: nil,
-            shouldInterpolate: shouldInterpolate,
-            renderingIntent: intent,
-            isMask: false,
-            data: data,
-            contentHeadroom: nil,
-            contentAverageLightLevel: nil
-        )
+        // PNG decoding is not implemented - return nil to avoid creating invalid 0-dimension images
+        // A full implementation would parse PNG headers to extract width, height, and decode pixel data
+        return nil
     }
 
     /// Creates a bitmap image mask from data supplied by a data provider.

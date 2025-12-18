@@ -414,3 +414,135 @@ let result = consumer.data  // Get the accumulated data via property
 - Internal use of CF types
 - CF-style reference semantics
 - `CFTypeID` or other CF runtime features
+
+### Rendering Architecture: Delegate Pattern
+
+**OpenCoreGraphics uses a delegate pattern for rendering.** All drawing operations in `CGContext` are forwarded to a `rendererDelegate` that implements the actual rendering.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Delegate-Based Rendering                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  User Code                                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  context.setFillColor(.red)                                     │   │
+│  │  context.addRect(CGRect(x: 0, y: 0, width: 100, height: 100))   │   │
+│  │  context.fillPath()                                             │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                              │                                          │
+│                              ▼                                          │
+│  CGContext                                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  • Manages graphics state (CTM, colors, line properties, etc.)  │   │
+│  │  • Builds paths                                                  │   │
+│  │  • Applies CTM to paths/coordinates                              │   │
+│  │  • Forwards drawing commands to rendererDelegate                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                              │                                          │
+│                              ▼                                          │
+│  CGContextRendererDelegate (Protocol)                                   │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  func fill(path:color:alpha:blendMode:rule:)                    │   │
+│  │  func stroke(path:color:lineWidth:...)                          │   │
+│  │  func draw(image:in:alpha:blendMode:...)                        │   │
+│  │  func drawLinearGradient(...)                                    │   │
+│  │  func beginTransparencyLayer(...)                                │   │
+│  │  ...                                                             │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                              │                                          │
+│                              ▼                                          │
+│  Renderer Implementation (e.g., CGWebGPUContextRenderer)                │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  • Tessellates paths into triangles                              │   │
+│  │  • Uploads vertices to GPU                                       │   │
+│  │  • Executes WebGPU render passes                                 │   │
+│  │  • Handles clipping via stencil buffer                           │   │
+│  │  • Implements blend modes via pipeline states                    │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Key Design Decisions
+
+1. **CGContext does NOT render directly to pixels**
+   - The internal `data` buffer is NOT updated by drawing operations
+   - All rendering is delegated to `rendererDelegate`
+   - `makeImage()` returns empty/transparent images when using a delegate
+
+2. **Two delegate protocols**
+   - `CGContextRendererDelegate`: Basic protocol with essential drawing methods
+   - `CGContextStatefulRendererDelegate`: Extended protocol with full state (clip paths, shadows)
+
+3. **State is passed to delegates**
+   - CTM is applied to paths/coordinates before delegation
+   - Clip paths are passed as an array (for intersection)
+   - Shadow parameters are included in `CGDrawingState`
+
+#### CGContextStatefulRendererDelegate
+
+For full feature support (clipping, shadows, transparency layers), renderers should adopt `CGContextStatefulRendererDelegate`:
+
+```swift
+public protocol CGContextStatefulRendererDelegate: CGContextRendererDelegate {
+    func fill(path: CGPath, color: CGColor, alpha: CGFloat,
+              blendMode: CGBlendMode, rule: CGPathFillRule,
+              state: CGDrawingState)
+
+    func stroke(path: CGPath, color: CGColor, lineWidth: CGFloat, ...,
+                state: CGDrawingState)
+
+    func beginTransparencyLayer(in rect: CGRect?, auxiliaryInfo: [String: Any]?,
+                                 state: CGDrawingState)
+
+    func endTransparencyLayer(alpha: CGFloat, blendMode: CGBlendMode,
+                               state: CGDrawingState)
+    // ... other methods
+}
+```
+
+#### CGDrawingState Structure
+
+```swift
+public struct CGDrawingState: Sendable {
+    /// Multiple clip paths (intersection of all)
+    public var clipPaths: [CGPath]
+
+    /// Current transformation matrix
+    public var ctm: CGAffineTransform
+
+    /// Shadow parameters
+    public var shadowOffset: CGSize
+    public var shadowBlur: CGFloat
+    public var shadowColor: CGColor?
+
+    /// Convenience properties
+    public var hasClipping: Bool { !clipPaths.isEmpty }
+    public var hasShadow: Bool { shadowColor != nil && ... }
+}
+```
+
+#### Implications for Implementation
+
+**When adding new drawing features:**
+1. Add the method to `CGContextRendererDelegate` protocol
+2. Add a stateful version to `CGContextStatefulRendererDelegate`
+3. Add default implementation that forwards to non-stateful version
+4. Update `CGContext` to call the delegate method
+5. Implement in `CGWebGPUContextRenderer`
+
+**When modifying existing features:**
+- Ensure CTM is applied consistently to coordinates/paths
+- Pass full state via `CGDrawingState` for stateful delegates
+- Update documentation to reflect delegate-based behavior
+
+#### Known Limitations
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `CGContext.makeImage()` | ⚠️ Limited | Returns empty image when using delegate |
+| `CGPattern.renderCell()` | ⚠️ Limited | Returns empty image (no delegate) |
+| Software rasterization | ❌ Not supported | Delegate pattern only |
+| Blend modes in WebGPU | 🔨 TODO | Requires pipeline configuration |
+| Image rendering in WebGPU | 🔨 TODO | Requires texture sampling |

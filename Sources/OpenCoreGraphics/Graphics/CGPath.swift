@@ -234,22 +234,329 @@ public class CGPath: @unchecked Sendable {
         return CGMutablePath(commands: commands.map { $0.applying(t) })
     }
 
+    /// Creates a stroked copy of the path.
+    ///
+    /// This method creates a new path that represents the outline of the stroked
+    /// version of the original path.
+    ///
+    /// - Parameters:
+    ///   - lineWidth: The width of the stroke.
+    ///   - lineCap: The line cap style.
+    ///   - lineJoin: The line join style.
+    ///   - miterLimit: The miter limit for sharp corners.
+    ///   - transform: An optional transform to apply.
+    /// - Returns: A new path representing the stroke outline.
+    public func copy(strokingWithWidth lineWidth: CGFloat,
+                     lineCap: CGLineCap,
+                     lineJoin: CGLineJoin,
+                     miterLimit: CGFloat,
+                     transform: CGAffineTransform = .identity) -> CGPath {
+        // Return empty path for zero or negative line width
+        guard lineWidth > 0 else {
+            return CGMutablePath()
+        }
+
+        let halfWidth = lineWidth / 2
+
+        // Apply transform to commands if needed
+        let transformedCommands: [PathCommand]
+        if transform.isIdentity {
+            transformedCommands = commands
+        } else {
+            transformedCommands = commands.map { $0.applying(transform) }
+        }
+
+        let strokedPath = CGMutablePath()
+
+        // Process each subpath
+        var subpathStart: CGPoint?
+        var currentPoint: CGPoint = .zero
+        var subpathPoints: [CGPoint] = []
+        var isClosed = false
+
+        func flushSubpath() {
+            guard subpathPoints.count >= 2 else {
+                subpathPoints.removeAll()
+                return
+            }
+
+            // Generate stroke outline for this subpath
+            generateStrokeOutline(
+                points: subpathPoints,
+                isClosed: isClosed,
+                halfWidth: halfWidth,
+                lineCap: lineCap,
+                lineJoin: lineJoin,
+                miterLimit: miterLimit,
+                into: strokedPath
+            )
+
+            subpathPoints.removeAll()
+            isClosed = false
+        }
+
+        for command in transformedCommands {
+            switch command {
+            case .moveTo(let point):
+                flushSubpath()
+                currentPoint = point
+                subpathStart = point
+                subpathPoints.append(point)
+
+            case .lineTo(let point):
+                subpathPoints.append(point)
+                currentPoint = point
+
+            case .quadCurveTo(let control, let end):
+                // Flatten quadratic curve to line segments
+                let segments = flattenQuadCurve(from: currentPoint, control: control, to: end)
+                subpathPoints.append(contentsOf: segments)
+                currentPoint = end
+
+            case .curveTo(let control1, let control2, let end):
+                // Flatten cubic curve to line segments
+                let segments = flattenCubicCurve(from: currentPoint, control1: control1, control2: control2, to: end)
+                subpathPoints.append(contentsOf: segments)
+                currentPoint = end
+
+            case .closeSubpath:
+                if let start = subpathStart, currentPoint != start {
+                    subpathPoints.append(start)
+                }
+                isClosed = true
+                flushSubpath()
+                if let start = subpathStart {
+                    currentPoint = start
+                }
+            }
+        }
+
+        flushSubpath()
+
+        return strokedPath
+    }
+
+    // MARK: - Stroke Outline Generation (Private)
+
+    private func generateStrokeOutline(
+        points: [CGPoint],
+        isClosed: Bool,
+        halfWidth: CGFloat,
+        lineCap: CGLineCap,
+        lineJoin: CGLineJoin,
+        miterLimit: CGFloat,
+        into path: CGMutablePath
+    ) {
+        guard points.count >= 2 else { return }
+
+        var leftSide: [CGPoint] = []
+        var rightSide: [CGPoint] = []
+
+        // Generate offset points for each segment
+        for i in 0..<(points.count - 1) {
+            let p0 = points[i]
+            let p1 = points[i + 1]
+
+            let dx = p1.x - p0.x
+            let dy = p1.y - p0.y
+            let length = sqrt(dx * dx + dy * dy)
+
+            guard length > 0.0001 else { continue }
+
+            // Perpendicular unit vector
+            let nx = -dy / length * halfWidth
+            let ny = dx / length * halfWidth
+
+            if leftSide.isEmpty {
+                leftSide.append(CGPoint(x: p0.x + nx, y: p0.y + ny))
+                rightSide.append(CGPoint(x: p0.x - nx, y: p0.y - ny))
+            }
+
+            // Handle line join with previous segment
+            if i > 0 && !leftSide.isEmpty {
+                let prevP = points[i - 1]
+                let prevDx = p0.x - prevP.x
+                let prevDy = p0.y - prevP.y
+                let prevLength = sqrt(prevDx * prevDx + prevDy * prevDy)
+
+                if prevLength > 0.0001 {
+                    let prevNx = -prevDy / prevLength * halfWidth
+                    let prevNy = prevDx / prevLength * halfWidth
+
+                    // Add join points based on lineJoin style
+                    switch lineJoin {
+                    case .miter:
+                        // For simplicity, just add both points (real miter needs intersection)
+                        leftSide.append(CGPoint(x: p0.x + nx, y: p0.y + ny))
+                        rightSide.append(CGPoint(x: p0.x - nx, y: p0.y - ny))
+                    case .round:
+                        // Add arc points (simplified)
+                        leftSide.append(CGPoint(x: p0.x + (prevNx + nx) / 2, y: p0.y + (prevNy + ny) / 2))
+                        leftSide.append(CGPoint(x: p0.x + nx, y: p0.y + ny))
+                        rightSide.append(CGPoint(x: p0.x - (prevNx + nx) / 2, y: p0.y - (prevNy + ny) / 2))
+                        rightSide.append(CGPoint(x: p0.x - nx, y: p0.y - ny))
+                    case .bevel:
+                        leftSide.append(CGPoint(x: p0.x + nx, y: p0.y + ny))
+                        rightSide.append(CGPoint(x: p0.x - nx, y: p0.y - ny))
+                    @unknown default:
+                        leftSide.append(CGPoint(x: p0.x + nx, y: p0.y + ny))
+                        rightSide.append(CGPoint(x: p0.x - nx, y: p0.y - ny))
+                    }
+                }
+            }
+
+            leftSide.append(CGPoint(x: p1.x + nx, y: p1.y + ny))
+            rightSide.append(CGPoint(x: p1.x - nx, y: p1.y - ny))
+        }
+
+        guard !leftSide.isEmpty else { return }
+
+        // Build the stroke outline path
+        if isClosed {
+            // For closed paths, connect left side to reversed right side
+            path.move(to: leftSide[0])
+            for i in 1..<leftSide.count {
+                path.addLine(to: leftSide[i])
+            }
+            path.closeSubpath()
+
+            path.move(to: rightSide[0])
+            for i in 1..<rightSide.count {
+                path.addLine(to: rightSide[i])
+            }
+            path.closeSubpath()
+        } else {
+            // For open paths, add end caps and create a single closed outline
+            path.move(to: leftSide[0])
+
+            // Left side forward
+            for i in 1..<leftSide.count {
+                path.addLine(to: leftSide[i])
+            }
+
+            // End cap at end
+            addEndCap(at: points.last!,
+                      leftPoint: leftSide.last!,
+                      rightPoint: rightSide.last!,
+                      style: lineCap,
+                      into: path)
+
+            // Right side backward
+            for i in (0..<rightSide.count).reversed() {
+                path.addLine(to: rightSide[i])
+            }
+
+            // End cap at start
+            addEndCap(at: points.first!,
+                      leftPoint: rightSide.first!,
+                      rightPoint: leftSide.first!,
+                      style: lineCap,
+                      into: path)
+
+            path.closeSubpath()
+        }
+    }
+
+    private func addEndCap(at point: CGPoint,
+                           leftPoint: CGPoint,
+                           rightPoint: CGPoint,
+                           style: CGLineCap,
+                           into path: CGMutablePath) {
+        switch style {
+        case .butt:
+            // Just connect directly
+            path.addLine(to: rightPoint)
+
+        case .round:
+            // Add semicircle
+            let centerX = (leftPoint.x + rightPoint.x) / 2
+            let centerY = (leftPoint.y + rightPoint.y) / 2
+            let radius = sqrt(pow(leftPoint.x - centerX, 2) + pow(leftPoint.y - centerY, 2))
+
+            let startAngle = atan2(leftPoint.y - centerY, leftPoint.x - centerX)
+            let endAngle = atan2(rightPoint.y - centerY, rightPoint.x - centerX)
+
+            // Add arc (simplified - just add intermediate points)
+            let steps = 8
+            for i in 1...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                let angle = startAngle + (endAngle - startAngle + .pi) * t
+                let x = centerX + radius * cos(angle)
+                let y = centerY + radius * sin(angle)
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
+
+        case .square:
+            // Extend by half width
+            let dx = leftPoint.x - rightPoint.x
+            let dy = leftPoint.y - rightPoint.y
+            let length = sqrt(dx * dx + dy * dy)
+            guard length > 0 else {
+                path.addLine(to: rightPoint)
+                return
+            }
+            let extend = length / 2
+            let nx = dy / length * extend
+            let ny = -dx / length * extend
+
+            path.addLine(to: CGPoint(x: leftPoint.x + nx, y: leftPoint.y + ny))
+            path.addLine(to: CGPoint(x: rightPoint.x + nx, y: rightPoint.y + ny))
+            path.addLine(to: rightPoint)
+
+        @unknown default:
+            path.addLine(to: rightPoint)
+        }
+    }
+
+    private func flattenQuadCurve(from start: CGPoint, control: CGPoint, to end: CGPoint) -> [CGPoint] {
+        var points: [CGPoint] = []
+        let steps = 8
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let mt = 1 - t
+            let x = mt * mt * start.x + 2 * mt * t * control.x + t * t * end.x
+            let y = mt * mt * start.y + 2 * mt * t * control.y + t * t * end.y
+            points.append(CGPoint(x: x, y: y))
+        }
+        return points
+    }
+
+    private func flattenCubicCurve(from start: CGPoint, control1: CGPoint, control2: CGPoint, to end: CGPoint) -> [CGPoint] {
+        var points: [CGPoint] = []
+        let steps = 12
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let mt = 1 - t
+            let mt2 = mt * mt
+            let mt3 = mt2 * mt
+            let t2 = t * t
+            let t3 = t2 * t
+            let x = mt3 * start.x + 3 * mt2 * t * control1.x + 3 * mt * t2 * control2.x + t3 * end.x
+            let y = mt3 * start.y + 3 * mt2 * t * control1.y + 3 * mt * t2 * control2.y + t3 * end.y
+            points.append(CGPoint(x: x, y: y))
+        }
+        return points
+    }
+
     // MARK: - Examining
 
     /// Returns whether the specified point is interior to the path.
     public func contains(_ point: CGPoint, using rule: CGPathFillRule = .winding,
                          transform: CGAffineTransform = .identity) -> Bool {
-        // Simple bounding box check first
+        // Transform the point first (inverse transform to convert from user space to path space)
+        let testPoint = point.applying(transform.inverted())
+
+        // Simple bounding box check using the transformed point
         let bbox: CGRect = boundingBoxOfPath
         let bboxIsNull: Bool = bbox.isNull
-        let bboxContainsPoint: Bool = bbox.contains(point)
+        let bboxContainsPoint: Bool = bbox.contains(testPoint)
         if bboxIsNull || !bboxContainsPoint {
             return false
         }
 
         // Use ray casting algorithm for point-in-polygon test
-        let testPoint = point.applying(transform.inverted())
-        var inside = false
+        // Count intersections for each subpath
+        var windingNumber = 0
         var currentPoint = CGPoint.zero
         var subpathStart = CGPoint.zero
 
@@ -258,47 +565,179 @@ public class CGPath: @unchecked Sendable {
             case .moveTo(let p):
                 currentPoint = p
                 subpathStart = p
+
             case .lineTo(let p):
-                if rayIntersectsSegment(testPoint, from: currentPoint, to: p) {
-                    inside.toggle()
-                }
+                windingNumber += countRayIntersections(testPoint, from: currentPoint, to: p)
                 currentPoint = p
-            case .quadCurveTo(_, let end):
-                // Simplified: treat as line for containment check
-                if rayIntersectsSegment(testPoint, from: currentPoint, to: end) {
-                    inside.toggle()
+
+            case .quadCurveTo(let control, let end):
+                // Flatten quadratic curve and test each segment
+                let segments = flattenQuadCurveForContainment(from: currentPoint, control: control, to: end)
+                var prev = currentPoint
+                for segmentEnd in segments {
+                    windingNumber += countRayIntersections(testPoint, from: prev, to: segmentEnd)
+                    prev = segmentEnd
                 }
                 currentPoint = end
-            case .curveTo(_, _, let end):
-                // Simplified: treat as line for containment check
-                if rayIntersectsSegment(testPoint, from: currentPoint, to: end) {
-                    inside.toggle()
+
+            case .curveTo(let control1, let control2, let end):
+                // Flatten cubic curve and test each segment
+                let segments = flattenCubicCurveForContainment(from: currentPoint, control1: control1, control2: control2, to: end)
+                var prev = currentPoint
+                for segmentEnd in segments {
+                    windingNumber += countRayIntersections(testPoint, from: prev, to: segmentEnd)
+                    prev = segmentEnd
                 }
                 currentPoint = end
+
             case .closeSubpath:
-                if rayIntersectsSegment(testPoint, from: currentPoint, to: subpathStart) {
-                    inside.toggle()
-                }
+                windingNumber += countRayIntersections(testPoint, from: currentPoint, to: subpathStart)
                 currentPoint = subpathStart
             }
         }
 
-        return inside
+        // Apply fill rule
+        switch rule {
+        case .winding:
+            return windingNumber != 0
+        case .evenOdd:
+            return (windingNumber & 1) != 0
+        @unknown default:
+            return windingNumber != 0
+        }
     }
 
-    private func rayIntersectsSegment(_ point: CGPoint, from p1: CGPoint, to p2: CGPoint) -> Bool {
+    /// Counts ray intersections for winding number calculation.
+    /// Returns +1 for upward crossing, -1 for downward crossing, 0 for no intersection.
+    private func countRayIntersections(_ point: CGPoint, from p1: CGPoint, to p2: CGPoint) -> Int {
         // Ray casting from point going right (positive x direction)
-        let minY = min(p1.y, p2.y)
-        let maxY = max(p1.y, p2.y)
+        // Using winding number algorithm
 
-        if point.y < minY || point.y >= maxY {
-            return false
+        // Check if segment crosses the horizontal line at point.y
+        if p1.y <= point.y {
+            if p2.y > point.y {
+                // Upward crossing
+                let vt = (point.y - p1.y) / (p2.y - p1.y)
+                let xIntersection = p1.x + vt * (p2.x - p1.x)
+                if point.x < xIntersection {
+                    return 1  // Upward crossing to the right
+                }
+            }
+        } else {
+            if p2.y <= point.y {
+                // Downward crossing
+                let vt = (point.y - p1.y) / (p2.y - p1.y)
+                let xIntersection = p1.x + vt * (p2.x - p1.x)
+                if point.x < xIntersection {
+                    return -1  // Downward crossing to the right
+                }
+            }
         }
 
-        let slope = (p2.x - p1.x) / (p2.y - p1.y)
-        let xIntersection = p1.x + (point.y - p1.y) * slope
+        return 0
+    }
 
-        return point.x < xIntersection
+    /// Flattens quadratic curve for containment testing with adaptive subdivision.
+    private func flattenQuadCurveForContainment(from start: CGPoint, control: CGPoint, to end: CGPoint) -> [CGPoint] {
+        var points: [CGPoint] = []
+
+        // Use adaptive subdivision based on curve flatness
+        func subdivide(p0: CGPoint, p1: CGPoint, p2: CGPoint, depth: Int) {
+            // Check if curve is flat enough
+            let flatness = quadraticFlatness(p0: p0, p1: p1, p2: p2)
+            if flatness < 0.5 || depth > 10 {
+                points.append(p2)
+                return
+            }
+
+            // Subdivide using de Casteljau's algorithm
+            let p01 = CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2)
+            let p12 = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+            let p012 = CGPoint(x: (p01.x + p12.x) / 2, y: (p01.y + p12.y) / 2)
+
+            subdivide(p0: p0, p1: p01, p2: p012, depth: depth + 1)
+            subdivide(p0: p012, p1: p12, p2: p2, depth: depth + 1)
+        }
+
+        subdivide(p0: start, p1: control, p2: end, depth: 0)
+        return points
+    }
+
+    /// Flattens cubic curve for containment testing with adaptive subdivision.
+    private func flattenCubicCurveForContainment(from start: CGPoint, control1: CGPoint, control2: CGPoint, to end: CGPoint) -> [CGPoint] {
+        var points: [CGPoint] = []
+
+        // Use adaptive subdivision based on curve flatness
+        func subdivide(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, depth: Int) {
+            // Check if curve is flat enough
+            let flatness = cubicFlatness(p0: p0, p1: p1, p2: p2, p3: p3)
+            if flatness < 0.5 || depth > 10 {
+                points.append(p3)
+                return
+            }
+
+            // Subdivide using de Casteljau's algorithm
+            let p01 = CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2)
+            let p12 = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+            let p23 = CGPoint(x: (p2.x + p3.x) / 2, y: (p2.y + p3.y) / 2)
+            let p012 = CGPoint(x: (p01.x + p12.x) / 2, y: (p01.y + p12.y) / 2)
+            let p123 = CGPoint(x: (p12.x + p23.x) / 2, y: (p12.y + p23.y) / 2)
+            let p0123 = CGPoint(x: (p012.x + p123.x) / 2, y: (p012.y + p123.y) / 2)
+
+            subdivide(p0: p0, p1: p01, p2: p012, p3: p0123, depth: depth + 1)
+            subdivide(p0: p0123, p1: p123, p2: p23, p3: p3, depth: depth + 1)
+        }
+
+        subdivide(p0: start, p1: control1, p2: control2, p3: end, depth: 0)
+        return points
+    }
+
+    /// Calculate flatness of a quadratic bezier curve.
+    /// Returns the maximum distance from control point to the line connecting start and end.
+    private func quadraticFlatness(p0: CGPoint, p1: CGPoint, p2: CGPoint) -> CGFloat {
+        // Distance from control point to line p0-p2
+        let dx = p2.x - p0.x
+        let dy = p2.y - p0.y
+        let d = sqrt(dx * dx + dy * dy)
+
+        if d < 0.0001 {
+            return sqrt(pow(p1.x - p0.x, 2) + pow(p1.y - p0.y, 2))
+        }
+
+        let t = ((p1.x - p0.x) * dx + (p1.y - p0.y) * dy) / (d * d)
+        let projX = p0.x + t * dx
+        let projY = p0.y + t * dy
+
+        return sqrt(pow(p1.x - projX, 2) + pow(p1.y - projY, 2))
+    }
+
+    /// Calculate flatness of a cubic bezier curve.
+    /// Returns the maximum distance from control points to the line connecting start and end.
+    private func cubicFlatness(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint) -> CGFloat {
+        // Maximum distance from control points to line p0-p3
+        let dx = p3.x - p0.x
+        let dy = p3.y - p0.y
+        let d = sqrt(dx * dx + dy * dy)
+
+        if d < 0.0001 {
+            let d1 = sqrt(pow(p1.x - p0.x, 2) + pow(p1.y - p0.y, 2))
+            let d2 = sqrt(pow(p2.x - p0.x, 2) + pow(p2.y - p0.y, 2))
+            return max(d1, d2)
+        }
+
+        // Distance from p1 to line
+        let t1 = ((p1.x - p0.x) * dx + (p1.y - p0.y) * dy) / (d * d)
+        let proj1X = p0.x + t1 * dx
+        let proj1Y = p0.y + t1 * dy
+        let dist1 = sqrt(pow(p1.x - proj1X, 2) + pow(p1.y - proj1Y, 2))
+
+        // Distance from p2 to line
+        let t2 = ((p2.x - p0.x) * dx + (p2.y - p0.y) * dy) / (d * d)
+        let proj2X = p0.x + t2 * dx
+        let proj2Y = p0.y + t2 * dy
+        let dist2 = sqrt(pow(p2.x - proj2X, 2) + pow(p2.y - proj2Y, 2))
+
+        return max(dist1, dist2)
     }
 
     /// Indicates whether or not a graphics path represents a rectangle.

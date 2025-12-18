@@ -343,11 +343,11 @@ struct CGAffineTransformTests {
             #expect(abs(restored.y - original.y) < 0.0001)
         }
 
-        @Test("Invert singular matrix returns self")
+        @Test("Invert singular matrix returns identity")
         func invertSingular() {
             let singular = CGAffineTransform(scaleX: 0.0, y: 0.0)
             let inverted = singular.inverted()
-            #expect(inverted == singular)
+            #expect(inverted == .identity)
         }
     }
 
@@ -587,14 +587,14 @@ struct CGAffineTransformTests {
             #expect(isApproximatelyEqual(transformed.y, 5.0))
         }
 
-        @Test("Singular matrix (zero determinant) inversion returns self")
+        @Test("Singular matrix (zero determinant) inversion returns identity")
         func singularMatrixInversion() {
-            // Singular matrix: det = a*d - b*c = 1*2 - 2*1 = 0
+            // Singular matrix: det = a*d - b*c = 1*4 - 2*2 = 0
             let singular = CGAffineTransform(a: 1, b: 2, c: 2, d: 4, tx: 0, ty: 0)
             let inverted = singular.inverted()
 
-            // When matrix is singular, implementation returns self
-            #expect(inverted == singular)
+            // When matrix is singular, implementation returns identity
+            #expect(inverted == .identity)
         }
 
         @Test("Scaling by zero creates singular matrix")
@@ -602,7 +602,8 @@ struct CGAffineTransformTests {
             let zeroScale = CGAffineTransform(scaleX: 0, y: 0)
             let inverted = zeroScale.inverted()
 
-            #expect(inverted == zeroScale)
+            // Singular matrix inversion returns identity
+            #expect(inverted == .identity)
         }
 
         @Test("Matrix multiplication is associative")

@@ -139,10 +139,14 @@ public struct CGAffineTransform: Sendable {
     }
 
     /// Returns an affine transformation matrix constructed by inverting an existing one.
+    ///
+    /// If the transform is singular (non-invertible, i.e., determinant is zero),
+    /// returns the identity transform. This matches CoreGraphics behavior and
+    /// ensures `convertToUserSpace()` returns predictable results.
     @inlinable
     public func inverted() -> CGAffineTransform {
         let determinant = a * d - b * c
-        guard determinant != 0 else { return self }
+        guard determinant != 0 else { return .identity }
         let invDet = 1.0 / determinant
         return CGAffineTransform(
             a: d * invDet,
