@@ -415,6 +415,71 @@ let result = consumer.data  // Get the accumulated data via property
 - CF-style reference semantics
 - `CFTypeID` or other CF runtime features
 
+### Legacy API Policy
+
+**Do NOT implement legacy/deprecated CoreGraphics APIs.** Follow Apple's modern framework design.
+
+#### Framework Responsibility Separation
+
+Apple's modern design separates concerns across frameworks:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Modern Apple Framework Design                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   [ User Code ]                                                         │
+│        │                                                                │
+│        ├──────────────────┬──────────────────┐                         │
+│        ▼                  ▼                  ▼                          │
+│   ┌─────────┐      ┌─────────────┐    ┌─────────────┐                  │
+│   │ ImageIO │      │ CoreGraphics │    │   PDFKit    │                  │
+│   │         │      │              │    │             │                  │
+│   │ Decode/ │      │ Represent/   │    │ Parse/      │                  │
+│   │ Encode  │      │ Draw         │    │ Render PDF  │                  │
+│   └────┬────┘      └──────────────┘    └─────────────┘                  │
+│        │                  ▲                                             │
+│        │                  │                                             │
+│        └──────────────────┘                                             │
+│              CGImage                                                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+| Framework | Responsibility |
+|-----------|---------------|
+| **CoreGraphics** | Image representation (`CGImage`), drawing (`CGContext`), geometry |
+| **ImageIO** | Image format decoding/encoding (JPEG, PNG, HEIC, etc.) |
+| **PDFKit** | PDF document parsing and rendering |
+
+#### Legacy APIs NOT Implemented
+
+The following CoreGraphics APIs are considered legacy and are **intentionally not implemented**:
+
+| Legacy API | Modern Alternative | Reason |
+|------------|-------------------|--------|
+| `CGImage(jpegDataProviderSource:...)` | ImageIO | Apple docs: "Use Image I/O instead" |
+| `CGImage(pngDataProviderSource:...)` | ImageIO | Apple docs: "Use Image I/O instead" |
+| `CGPDFDocument` / `CGPDFPage` parsing | PDFKit | Complex parsing belongs in dedicated framework |
+
+#### WASM Implementation Strategy
+
+For WASM environments, create separate modules following Apple's design:
+
+```swift
+// ❌ Wrong: Implement decoders in CoreGraphics
+let image = CGImage(pngDataProviderSource: provider, ...)  // Not available
+
+// ✅ Correct: Use dedicated module for decoding
+import OpenImageIO  // Separate module for WASM
+let image = ImageSource(data: pngData).createImage()  // Returns CGImage
+```
+
+This separation provides:
+- **Cleaner architecture** - Each module has single responsibility
+- **Smaller binaries** - Users only import what they need
+- **Future flexibility** - Decoders can be updated independently
+
 ### Rendering Architecture: Delegate Pattern
 
 **OpenCoreGraphics uses a delegate pattern for rendering.** All drawing operations in `CGContext` are forwarded to a `rendererDelegate` that implements the actual rendering.

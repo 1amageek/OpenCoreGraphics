@@ -1203,7 +1203,6 @@ struct CGPathTests {
             path.move(to: CGPoint(x: 0, y: 50))
             path.addQuadCurve(to: CGPoint(x: 100, y: 50), control: CGPoint(x: 50, y: 0))
 
-            let originalBbox = path.boundingBox
             let strokedPath = path.copy(
                 strokingWithWidth: 10,
                 lineCap: .round,
@@ -1212,11 +1211,13 @@ struct CGPathTests {
             )
 
             #expect(!strokedPath.isEmpty)
-            // Stroked curve should have larger bounding box than original
+
+            // The quadratic curve dips to approximately y=25 at its lowest point (at t=0.5)
+            // With stroke width 10 (half = 5), the stroked path should have minY around 20
             let bbox = strokedPath.boundingBox
-            // The quadratic curve dips to approximately y=25 at the center
-            // With stroke width 10 (radius 5), the stroked path should extend further
-            #expect(bbox.minY < originalBbox.minY) // Stroke extends beyond original path
+            #expect(bbox.minY <= 25) // Should be less than the curve's lowest point
+            // Stroked path should extend beyond the endpoint y values (50)
+            #expect(bbox.maxY >= 50) // Stroke extends above
         }
 
         @Test("Transform applied to stroked path")

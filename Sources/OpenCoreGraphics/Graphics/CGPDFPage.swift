@@ -8,6 +8,19 @@
 import Foundation
 
 
+// MARK: - Design Note: CGPDFPage
+//
+// CGPDFPage provides the representation of a PDF page. In Apple's design:
+// - CoreGraphics: Provides CGPDFPage for page representation and box calculations
+// - PDFKit: Provides PDFPage with full content access and rendering
+//
+// This implementation provides:
+// - Page box calculations (mediaBox, cropBox, bleedBox, trimBox, artBox)
+// - Drawing transform calculation for page rendering
+//
+// The `dictionary` property returns nil because accessing the PDF page dictionary
+// requires actual PDF parsing, which should be implemented in OpenPDFKit.
+
 /// A type that represents a page in a PDF document.
 public class CGPDFPage: @unchecked Sendable {
 

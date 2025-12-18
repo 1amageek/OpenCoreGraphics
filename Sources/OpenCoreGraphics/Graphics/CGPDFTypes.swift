@@ -127,6 +127,14 @@ public struct CGPDFAccessPermissions: OptionSet, Sendable {
 }
 
 // MARK: - PDF Object Reference Types
+//
+// Design Note: These OpaquePointer type aliases are provided for API signature
+// compatibility only. In Apple's CoreGraphics, these are used with C-style
+// functions (CGPDFArrayGetCount, CGPDFDictionaryGetBoolean, etc.) that operate
+// on internal PDF parser state.
+//
+// OpenCoreGraphics does not implement PDF parsing. For PDF functionality in
+// WASM environments, use a dedicated OpenPDFKit module.
 
 /// A reference to a PDF array object.
 public typealias CGPDFArrayRef = OpaquePointer

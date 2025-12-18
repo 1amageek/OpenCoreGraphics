@@ -286,47 +286,20 @@ public final class CGImage: @unchecked Sendable {
         )
     }
 
-    /// Creates a bitmap image using JPEG-encoded data supplied by a data provider.
-    ///
-    /// - Parameters:
-    ///   - jpegDataProviderSource: A data provider supplying JPEG-encoded data.
-    ///   - decode: The decode array for the image.
-    ///   - shouldInterpolate: Whether the image should be interpolated.
-    ///   - intent: The rendering intent.
-    ///
-    /// - Note: This initializer currently returns `nil` because JPEG decoding is not implemented.
-    ///   A full implementation would require a JPEG decoder to parse the image dimensions and pixel data.
-    public convenience init?(
-        jpegDataProviderSource: CGDataProvider,
-        decode: UnsafePointer<CGFloat>?,
-        shouldInterpolate: Bool,
-        intent: CGColorRenderingIntent
-    ) {
-        // JPEG decoding is not implemented - return nil to avoid creating invalid 0-dimension images
-        // A full implementation would parse JPEG headers to extract width, height, and decode pixel data
-        return nil
-    }
-
-    /// Creates a bitmap image using PNG-encoded data supplied by a data provider.
-    ///
-    /// - Parameters:
-    ///   - pngDataProviderSource: A data provider supplying PNG-encoded data.
-    ///   - decode: The decode array for the image.
-    ///   - shouldInterpolate: Whether the image should be interpolated.
-    ///   - intent: The rendering intent.
-    ///
-    /// - Note: This initializer currently returns `nil` because PNG decoding is not implemented.
-    ///   A full implementation would require a PNG decoder to parse the image dimensions and pixel data.
-    public convenience init?(
-        pngDataProviderSource: CGDataProvider,
-        decode: UnsafePointer<CGFloat>?,
-        shouldInterpolate: Bool,
-        intent: CGColorRenderingIntent
-    ) {
-        // PNG decoding is not implemented - return nil to avoid creating invalid 0-dimension images
-        // A full implementation would parse PNG headers to extract width, height, and decode pixel data
-        return nil
-    }
+    // MARK: - Legacy Image Decoding APIs (Intentionally Not Provided)
+    //
+    // The following APIs exist in Apple's CoreGraphics but are considered legacy:
+    // - init?(jpegDataProviderSource:decode:shouldInterpolate:intent:)
+    // - init?(pngDataProviderSource:decode:shouldInterpolate:intent:)
+    //
+    // Apple's modern design separates concerns:
+    // - ImageIO: Responsible for image format decoding/encoding
+    // - CoreGraphics: Responsible for image representation and drawing
+    //
+    // OpenCoreGraphics follows this modern design philosophy.
+    // For image decoding in WASM environments, use a dedicated ImageIO-equivalent module.
+    //
+    // Reference: Apple Documentation recommends "Use Image I/O instead" for these APIs.
 
     /// Creates a bitmap image mask from data supplied by a data provider.
     ///

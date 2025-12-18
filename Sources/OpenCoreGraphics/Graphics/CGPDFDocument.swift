@@ -8,6 +8,19 @@
 import Foundation
 
 
+// MARK: - Design Note: CGPDFDocument
+//
+// CGPDFDocument provides the representation of a PDF document. In Apple's design:
+// - CoreGraphics: Provides CGPDFDocument/CGPDFPage for PDF representation
+// - PDFKit: Provides PDFDocument/PDFPage with full parsing and rendering
+//
+// This implementation provides the type structure for API compatibility.
+// Properties like `catalog`, `fileIdentifier`, and `info` return nil because
+// actual PDF parsing requires a dedicated PDF parser implementation.
+//
+// For WASM environments requiring full PDF functionality, implement OpenPDFKit
+// as a separate module.
+
 /// A document that contains PDF (Portable Document Format) drawing information.
 ///
 /// PDF provides an efficient format for cross-platform exchange of documents with rich content.

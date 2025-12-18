@@ -430,37 +430,11 @@ struct CGPDFObjectPrimitiveTypesTests {
     }
 }
 
-// MARK: - CGPDFOperatorTable Tests
-
-@Suite("CGPDFOperatorTable Tests")
-struct CGPDFOperatorTableTests {
-
-    @Test("CGPDFOperatorTableCreate returns nil (not implemented)")
-    func operatorTableCreateReturnsNil() {
-        let table = CGPDFOperatorTableCreate()
-        #expect(table == nil)
-    }
-}
-
-// MARK: - CGPDFOperatorCallback Type Tests
-
-@Suite("CGPDFOperatorCallback Type Tests")
-struct CGPDFOperatorCallbackTypeTests {
-
-    @Test("CGPDFOperatorCallback type alias exists")
-    func operatorCallbackTypeExists() {
-        // Verifies the type alias compiles correctly
-        let _: CGPDFOperatorCallback? = nil
-    }
-
-    @Test("CGPDFDictionaryApplierFunction type alias exists")
-    func dictionaryApplierFunctionTypeExists() {
-        // Verifies the type alias compiles correctly
-        let _: CGPDFDictionaryApplierFunction? = nil
-    }
-}
-
 // MARK: - PDF Reference Types Tests
+//
+// Note: CGPDFOperatorTable, CGPDFContentStream, and CGPDFScanner related
+// types and functions have been intentionally removed. See the design notes
+// in CGPDFObject.swift and CGPDFScanner.swift for details.
 
 @Suite("PDF Reference Types Tests")
 struct PDFReferenceTypesTests {
@@ -493,23 +467,5 @@ struct PDFReferenceTypesTests {
     func stringRefType() {
         // Verifies the type alias exists
         let _: CGPDFStringRef? = nil
-    }
-
-    @Test("CGPDFOperatorTableRef is OpaquePointer")
-    func operatorTableRefType() {
-        // Verifies the type alias exists
-        let _: CGPDFOperatorTableRef? = nil
-    }
-
-    @Test("CGPDFContentStreamRef is OpaquePointer")
-    func contentStreamRefType() {
-        // Verifies the type alias exists
-        let _: CGPDFContentStreamRef? = nil
-    }
-
-    @Test("CGPDFScannerRef is OpaquePointer")
-    func scannerRefType() {
-        // Verifies the type alias exists
-        let _: CGPDFScannerRef? = nil
     }
 }
