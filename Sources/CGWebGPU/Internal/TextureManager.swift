@@ -1,8 +1,8 @@
 //
-//  CGWebGPUTextureCache.swift
+//  TextureManager.swift
 //  CGWebGPU
 //
-//  LRU texture cache for CGImage textures.
+//  Internal LRU texture cache for CGImage textures.
 //
 
 #if arch(wasm32)
@@ -11,37 +11,16 @@ import OpenCoreGraphics
 import SwiftWebGPU
 import JavaScriptKit
 
-/// LRU cache for CGImage textures.
+/// Internal texture manager with LRU eviction.
 ///
-/// Texture creation and upload is expensive. This cache maintains a mapping
-/// from `CGImage` identity to GPU textures, with LRU eviction to manage memory.
-///
-/// ## Features
-///
-/// - **Identity-based lookup**: Uses `ObjectIdentifier` for O(1) cache lookup
-/// - **LRU eviction**: Automatically evicts least recently used textures when
-///   the cache reaches capacity
-/// - **Memory tracking**: Tracks approximate GPU memory usage
-///
-/// ## Usage
-///
-/// ```swift
-/// let cache = CGWebGPUTextureCache(device: device, capacity: 100)
-///
-/// // Get or create texture
-/// if let texture = cache.getOrCreateTexture(for: image) {
-///     // Use texture for rendering
-/// }
-///
-/// // Clear cache when done
-/// cache.clear()
-/// ```
-public final class CGWebGPUTextureCache: @unchecked Sendable {
+/// Manages GPU textures created from CGImage instances with automatic
+/// memory management through LRU eviction.
+internal final class TextureManager: @unchecked Sendable {
 
     // MARK: - Types
 
-    /// Entry in the texture cache.
-    private struct CacheEntry {
+    /// Cached texture entry.
+    struct TextureEntry {
         let texture: GPUTexture
         let textureView: GPUTextureView
         let width: Int
@@ -63,28 +42,28 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
     private let capacity: Int
 
     /// Cached textures by image identity
-    private var cache: [ObjectIdentifier: CacheEntry] = [:]
+    private var cache: [ObjectIdentifier: TextureEntry] = [:]
 
-    /// Access order for LRU eviction
+    /// Access order for LRU eviction (oldest first)
     private var accessOrder: [ObjectIdentifier] = []
 
-    /// Current access counter
+    /// Current access counter for LRU tracking
     private var accessCounter: UInt64 = 0
 
-    /// Approximate total memory usage
-    public private(set) var totalMemoryUsage: Int = 0
+    /// Approximate total GPU memory usage (bytes)
+    private(set) var totalMemoryUsage: Int = 0
 
-    /// Maximum memory usage before forced eviction (bytes)
-    public var maxMemoryUsage: Int = 256 * 1024 * 1024  // 256 MB default
+    /// Maximum memory before forced eviction (bytes)
+    var maxMemoryUsage: Int = 256 * 1024 * 1024  // 256 MB
 
     // MARK: - Initialization
 
-    /// Creates a new texture cache.
+    /// Creates a new texture manager.
     ///
     /// - Parameters:
-    ///   - device: The WebGPU device for creating textures
-    ///   - capacity: Maximum number of textures to cache (default: 100)
-    public init(device: GPUDevice, capacity: Int = 100) {
+    ///   - device: The WebGPU device
+    ///   - capacity: Maximum texture count (default: 100)
+    init(device: GPUDevice, capacity: Int = 100) {
         self.device = device
         self.queue = device.queue
         self.capacity = capacity
@@ -92,11 +71,11 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
 
     // MARK: - Texture Access
 
-    /// Gets an existing texture for an image, or nil if not cached.
+    /// Gets a cached texture view for an image.
     ///
-    /// - Parameter image: The source image
-    /// - Returns: The cached texture view, or nil
-    public func getTexture(for image: CGImage) -> GPUTextureView? {
+    /// - Parameter image: The source CGImage
+    /// - Returns: The texture view, or nil if not cached
+    func getTexture(for image: CGImage) -> GPUTextureView? {
         let key = ObjectIdentifier(image)
 
         guard var entry = cache[key] else {
@@ -108,7 +87,7 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
         entry.lastAccess = accessCounter
         cache[key] = entry
 
-        // Move to end of access order
+        // Move to end of access order (most recently used)
         if let index = accessOrder.firstIndex(of: key) {
             accessOrder.remove(at: index)
         }
@@ -119,9 +98,9 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
 
     /// Gets or creates a texture for the specified image.
     ///
-    /// - Parameter image: The source image
+    /// - Parameter image: The source CGImage
     /// - Returns: The texture view, or nil if creation failed
-    public func getOrCreateTexture(for image: CGImage) -> GPUTextureView? {
+    func getOrCreateTexture(for image: CGImage) -> GPUTextureView? {
         // Check cache first
         if let existing = getTexture(for: image) {
             return existing
@@ -145,14 +124,16 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
         return entry.textureView
     }
 
-    /// Creates a texture entry for an image.
-    private func createTextureEntry(for image: CGImage) -> CacheEntry? {
+    // MARK: - Texture Creation
+
+    /// Creates a texture entry from a CGImage.
+    private func createTextureEntry(for image: CGImage) -> TextureEntry? {
         let width = image.width
         let height = image.height
 
         guard width > 0, height > 0 else { return nil }
 
-        // Create texture
+        // Create GPU texture
         let texture = device.createTexture(descriptor: GPUTextureDescriptor(
             size: GPUExtent3D(width: UInt32(width), height: UInt32(height)),
             format: .rgba8unorm,
@@ -160,7 +141,7 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
             label: "CGImage Texture (\(width)x\(height))"
         ))
 
-        // Upload pixel data
+        // Extract and upload pixel data
         guard let pixelData = extractPixelData(from: image) else {
             return nil
         }
@@ -170,7 +151,7 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
         let textureView = texture.createView()
         accessCounter += 1
 
-        return CacheEntry(
+        return TextureEntry(
             texture: texture,
             textureView: textureView,
             width: width,
@@ -181,30 +162,26 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
 
     /// Extracts RGBA pixel data from a CGImage.
     private func extractPixelData(from image: CGImage) -> Data? {
-        // Try to get data directly from the image's data provider
         guard let provider = image.dataProvider,
               let data = provider.data else {
             return nil
         }
 
-        // Verify the data is the expected size
-        let expectedSize = image.width * image.height * 4  // RGBA
+        // Verify data size matches expected RGBA format
+        let expectedSize = image.width * image.height * 4
         if data.count >= expectedSize {
             return data
         }
 
-        // If data format doesn't match, we might need conversion
-        // For now, return nil if sizes don't match
+        // Format mismatch - would need conversion
         return nil
     }
 
-    /// Uploads pixel data to a texture.
+    /// Uploads pixel data to a GPU texture.
     private func uploadPixelData(_ data: Data, to texture: GPUTexture, width: Int, height: Int) {
-        // Convert Data to [UInt8] then to JSTypedArray
         let bytes = [UInt8](data)
         let uint8Array = JSTypedArray<UInt8>(bytes)
 
-        // Write to texture
         queue.writeTexture(
             destination: GPUImageCopyTexture(texture: texture),
             data: uint8Array.jsObject,
@@ -219,7 +196,7 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
 
     // MARK: - Cache Management
 
-    /// Evicts entries if cache is over capacity.
+    /// Evicts entries if over capacity or memory limit.
     private func evictIfNeeded() {
         // Evict by count
         while cache.count >= capacity && !accessOrder.isEmpty {
@@ -238,23 +215,20 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
 
         if let entry = cache.removeValue(forKey: lruKey) {
             totalMemoryUsage -= entry.memorySize
-            // GPUTexture will be deallocated when entry is removed
         }
 
         accessOrder.removeFirst()
     }
 
     /// Clears all cached textures.
-    public func clear() {
+    func clear() {
         cache.removeAll()
         accessOrder.removeAll()
         totalMemoryUsage = 0
     }
 
     /// Removes a specific image from the cache.
-    ///
-    /// - Parameter image: The image to remove
-    public func remove(image: CGImage) {
+    func remove(image: CGImage) {
         let key = ObjectIdentifier(image)
 
         if let entry = cache.removeValue(forKey: key) {
@@ -268,49 +242,14 @@ public final class CGWebGPUTextureCache: @unchecked Sendable {
 
     // MARK: - Statistics
 
-    /// Returns the number of cached textures.
-    public var count: Int {
-        return cache.count
-    }
+    /// Number of cached textures.
+    var count: Int { cache.count }
 
-    /// Returns whether the cache is empty.
-    public var isEmpty: Bool {
-        return cache.isEmpty
-    }
+    /// Whether the cache is empty.
+    var isEmpty: Bool { cache.isEmpty }
 
-    /// Returns whether the cache is at capacity.
-    public var isFull: Bool {
-        return cache.count >= capacity
-    }
-
-    /// Returns cache statistics.
-    public var statistics: CacheStatistics {
-        return CacheStatistics(
-            entryCount: cache.count,
-            capacity: capacity,
-            memoryUsage: totalMemoryUsage,
-            maxMemoryUsage: maxMemoryUsage
-        )
-    }
-}
-
-// MARK: - Statistics
-
-/// Statistics about the texture cache.
-public struct CacheStatistics: Sendable {
-    public let entryCount: Int
-    public let capacity: Int
-    public let memoryUsage: Int
-    public let maxMemoryUsage: Int
-
-    public var utilizationPercent: Double {
-        return Double(entryCount) / Double(capacity) * 100.0
-    }
-
-    public var memoryUtilizationPercent: Double {
-        guard maxMemoryUsage > 0 else { return 0 }
-        return Double(memoryUsage) / Double(maxMemoryUsage) * 100.0
-    }
+    /// Whether the cache is at capacity.
+    var isFull: Bool { cache.count >= capacity }
 }
 
 #endif

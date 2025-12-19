@@ -1,8 +1,8 @@
 //
-//  CGWebGPUPipelineCache.swift
+//  PipelineRegistry.swift
 //  CGWebGPU
 //
-//  Pipeline caching with pre-warming for optimal GPU performance.
+//  Internal pipeline caching and management.
 //
 
 #if arch(wasm32)
@@ -10,64 +10,23 @@ import Foundation
 import OpenCoreGraphics
 import SwiftWebGPU
 
-/// Caches WebGPU render pipelines for efficient reuse.
+/// Internal pipeline registry for CGWebGPUContextRenderer.
 ///
-/// Pipeline creation is expensive in WebGPU. This cache provides:
-/// - Pre-warming of commonly used pipelines at initialization
-/// - On-demand creation and caching for less common configurations
-/// - Efficient lookup using `PipelineKey`
-///
-/// ## Pre-warming
-///
-/// At initialization, the cache pre-creates pipelines for:
-/// - All Porter-Duff blend modes with normal rendering
-/// - All Porter-Duff blend modes with stencil-based clipping
-/// - Stencil write pipeline for clip path rendering
-/// - Image, gradient, pattern, shadow, and blur pipelines
-///
-/// ## Usage
-///
-/// ```swift
-/// let cache = CGWebGPUPipelineCache(device: device, textureFormat: format)
-/// cache.warmUp()  // Pre-create all pipelines
-///
-/// // Later, during rendering:
-/// if let pipeline = cache.getPipeline(for: .normal) {
-///     renderPass.setPipeline(pipeline)
-/// }
-/// ```
-public final class CGWebGPUPipelineCache: @unchecked Sendable {
+/// Manages WebGPU render pipelines with caching and optional pre-warming.
+internal final class PipelineRegistry: @unchecked Sendable {
 
     // MARK: - Types
 
-    /// Pipeline types supported by the cache.
-    public enum PipelineType: Hashable, Sendable {
-        /// Standard blend mode pipeline
+    /// Pipeline type identifier.
+    enum PipelineType: Hashable {
         case blend(CGBlendMode)
-
-        /// Blend mode pipeline with stencil test for clipping
         case clipped(CGBlendMode)
-
-        /// Pipeline for writing to stencil buffer
         case stencilWrite
-
-        /// Pipeline for image/texture rendering
         case image
-
-        /// Pipeline for pattern rendering
         case pattern
-
-        /// Horizontal blur pass
         case blurHorizontal
-
-        /// Vertical blur pass
         case blurVertical
-
-        /// Shadow composite pass
         case shadowComposite
-
-        /// Blit pipeline for copying textures
-        case blit
     }
 
     // MARK: - Properties
@@ -76,41 +35,25 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
     private let textureFormat: GPUTextureFormat
     private let depthStencilFormat: GPUTextureFormat = .depth24plusStencil8
 
-    /// Cached pipelines
     private var pipelines: [PipelineType: GPURenderPipeline] = [:]
-
-    /// Shader modules (shared across pipelines)
     private var shaderModules: [String: GPUShaderModule] = [:]
-
-    /// Whether warm-up has been performed
     private var isWarmedUp: Bool = false
 
     // MARK: - Initialization
 
-    /// Creates a new pipeline cache.
-    ///
-    /// - Parameters:
-    ///   - device: The WebGPU device for creating pipelines
-    ///   - textureFormat: The render target texture format
-    public init(device: GPUDevice, textureFormat: GPUTextureFormat) {
+    init(device: GPUDevice, textureFormat: GPUTextureFormat) {
         self.device = device
         self.textureFormat = textureFormat
     }
 
     // MARK: - Warm-up
 
-    /// Pre-creates all commonly used pipelines.
-    ///
-    /// Call this method during initialization to avoid pipeline creation
-    /// latency during rendering. This is especially important for the first
-    /// few frames where pipeline compilation could cause stuttering.
-    public func warmUp() {
+    /// Pre-creates commonly used pipelines.
+    func warmUp() {
         guard !isWarmedUp else { return }
 
-        // Create shader modules
         createShaderModules()
 
-        // Pre-warm blend mode pipelines
         let supportedModes: [CGBlendMode] = [
             .normal, .copy, .sourceIn, .sourceOut, .sourceAtop,
             .destinationOver, .destinationIn, .destinationOut, .destinationAtop,
@@ -122,7 +65,6 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
             pipelines[.clipped(mode)] = createClippedPipeline(for: mode)
         }
 
-        // Create utility pipelines
         pipelines[.stencilWrite] = createStencilWritePipeline()
         pipelines[.image] = createImagePipeline()
         pipelines[.pattern] = createPatternPipeline()
@@ -135,20 +77,14 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
 
     // MARK: - Pipeline Access
 
-    /// Gets a pipeline for the specified blend mode.
-    ///
-    /// - Parameter mode: The blend mode
-    /// - Returns: The cached pipeline, or nil if creation failed
-    public func getPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
+    func getPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
         let key = PipelineType.blend(mode)
         if let existing = pipelines[key] {
             return existing
         }
 
-        // Ensure shader modules are created
         ensureShaderModulesCreated()
 
-        // Create on demand
         let pipeline = createBlendPipeline(for: mode)
         if let pipeline = pipeline {
             pipelines[key] = pipeline
@@ -156,20 +92,14 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
         return pipeline
     }
 
-    /// Gets a clipped pipeline for the specified blend mode.
-    ///
-    /// - Parameter mode: The blend mode
-    /// - Returns: The cached pipeline, or nil if creation failed
-    public func getClippedPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
+    func getClippedPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
         let key = PipelineType.clipped(mode)
         if let existing = pipelines[key] {
             return existing
         }
 
-        // Ensure shader modules are created
         ensureShaderModulesCreated()
 
-        // Create on demand
         let pipeline = createClippedPipeline(for: mode)
         if let pipeline = pipeline {
             pipelines[key] = pipeline
@@ -177,43 +107,63 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
         return pipeline
     }
 
-    /// Ensures shader modules are created (called lazily if warmUp was not called).
+    func getPipeline(_ type: PipelineType) -> GPURenderPipeline? {
+        if let existing = pipelines[type] {
+            return existing
+        }
+
+        ensureShaderModulesCreated()
+
+        let pipeline: GPURenderPipeline?
+        switch type {
+        case .blend(let mode):
+            pipeline = createBlendPipeline(for: mode)
+        case .clipped(let mode):
+            pipeline = createClippedPipeline(for: mode)
+        case .stencilWrite:
+            pipeline = createStencilWritePipeline()
+        case .image:
+            pipeline = createImagePipeline()
+        case .pattern:
+            pipeline = createPatternPipeline()
+        case .blurHorizontal:
+            pipeline = createBlurHorizontalPipeline()
+        case .blurVertical:
+            pipeline = createBlurVerticalPipeline()
+        case .shadowComposite:
+            pipeline = createShadowCompositePipeline()
+        }
+
+        if let pipeline = pipeline {
+            pipelines[type] = pipeline
+        }
+        return pipeline
+    }
+
     private func ensureShaderModulesCreated() {
         if shaderModules.isEmpty {
             createShaderModules()
         }
     }
 
-    /// Gets a specialized pipeline.
-    ///
-    /// - Parameter type: The pipeline type
-    /// - Returns: The cached pipeline, or nil if not available
-    public func getPipeline(_ type: PipelineType) -> GPURenderPipeline? {
-        return pipelines[type]
-    }
-
     // MARK: - Shader Modules
 
     private func createShaderModules() {
-        // Basic 2D shader
         shaderModules["basic2D"] = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
             code: CGWebGPUShaders.simple2D,
             label: "Basic 2D Shader"
         ))
 
-        // Image shader
         shaderModules["texture2D"] = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
             code: CGWebGPUShaders.texture2D,
             label: "Texture 2D Shader"
         ))
 
-        // Pattern shader
         shaderModules["pattern"] = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
             code: CGWebGPUShaders.patternTiling,
             label: "Pattern Shader"
         ))
 
-        // Blur shaders
         shaderModules["blurH"] = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
             code: CGWebGPUShaders.blurHorizontal,
             label: "Blur Horizontal Shader"
@@ -224,7 +174,6 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
             label: "Blur Vertical Shader"
         ))
 
-        // Shadow composite shader
         shaderModules["shadow"] = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
             code: CGWebGPUShaders.shadowComposite,
             label: "Shadow Composite Shader"
@@ -236,8 +185,6 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
     private func createBlendPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
         guard let module = shaderModules["basic2D"] else { return nil }
 
-        let blendState = createBlendState(for: blendMode)
-
         return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
             vertex: GPUVertexState(
                 module: module,
@@ -248,7 +195,7 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
-                targets: [GPUColorTargetState(format: textureFormat, blend: blendState)]
+                targets: [GPUColorTargetState(format: textureFormat, blend: createBlendState(for: blendMode))]
             ),
             label: "Blend Pipeline (\(blendMode))"
         ))
@@ -257,7 +204,6 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
     private func createClippedPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
         guard let module = shaderModules["basic2D"] else { return nil }
 
-        let blendState = createBlendState(for: blendMode)
         let stencilState = GPUStencilFaceState(
             compare: .equal,
             failOp: .keep,
@@ -284,7 +230,7 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
-                targets: [GPUColorTargetState(format: textureFormat, blend: blendState)]
+                targets: [GPUColorTargetState(format: textureFormat, blend: createBlendState(for: blendMode))]
             ),
             label: "Clipped Pipeline (\(blendMode))"
         ))
@@ -423,7 +369,7 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
         ))
     }
 
-    // MARK: - Helper Methods
+    // MARK: - Helpers
 
     private func createVertexBufferLayout() -> GPUVertexBufferLayout {
         return GPUVertexBufferLayout(
@@ -437,7 +383,7 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
 
     private func createImageVertexBufferLayout() -> GPUVertexBufferLayout {
         return GPUVertexBufferLayout(
-            arrayStride: UInt64(MemoryLayout<Float>.stride * 4),  // position(2) + texCoord(2)
+            arrayStride: UInt64(MemoryLayout<Float>.stride * 4),
             attributes: [
                 GPUVertexAttribute(format: .float32x2, offset: 0, shaderLocation: 0),
                 GPUVertexAttribute(format: .float32x2, offset: UInt64(MemoryLayout<Float>.stride * 2), shaderLocation: 1)
@@ -513,24 +459,11 @@ public final class CGWebGPUPipelineCache: @unchecked Sendable {
                 alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .max)
             )
         default:
-            // Fall back to normal blending for unsupported modes
             return GPUBlendState(
                 color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
                 alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
             )
         }
-    }
-
-    // MARK: - Statistics
-
-    /// Returns the number of cached pipelines.
-    public var pipelineCount: Int {
-        return pipelines.count
-    }
-
-    /// Returns whether the cache has been warmed up.
-    public var hasWarmedUp: Bool {
-        return isWarmedUp
     }
 }
 

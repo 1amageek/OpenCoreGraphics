@@ -48,21 +48,6 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     /// The GPU queue for submitting commands
     private let queue: GPUQueue
 
-    /// Render pipelines for different blend modes
-    private var pipelines: [CGBlendMode: GPURenderPipeline] = [:]
-
-    /// Render pipelines with stencil test for clipping
-    private var clippedPipelines: [CGBlendMode: GPURenderPipeline] = [:]
-
-    /// Pipeline for writing to stencil buffer (for clip paths)
-    private var stencilWritePipeline: GPURenderPipeline?
-
-    /// Shader module (shared by all pipelines)
-    private var shaderModule: GPUShaderModule?
-
-    /// Path tessellator for converting paths to triangles
-    private var tessellator: PathTessellator
-
     /// The texture format for rendering
     private let textureFormat: GPUTextureFormat
 
@@ -72,11 +57,31 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     /// Current render target
     private weak var renderTarget: GPUTextureView?
 
+    /// Path tessellator for converting paths to triangles
+    private var tessellator: PathTessellator
+
+    // MARK: - Internal Components (per ARCHITECTURE.md)
+
+    /// Pipeline registry for caching and managing render pipelines
+    private var pipelineRegistry: PipelineRegistry!
+
+    /// Texture manager for CGImage texture caching
+    private var textureManager: TextureManager!
+
+    /// Buffer pool for efficient vertex buffer allocation
+    private var bufferPool: BufferPool!
+
+    /// Geometry cache for tessellation result caching
+    private var geometryCache: GeometryCache!
+
+    /// Sampler for texture operations
+    private var linearSampler: GPUSampler?
+
+    // MARK: - Offscreen Textures
+
     /// Stencil texture for clipping
     private var stencilTexture: GPUTexture?
     private var stencilTextureView: GPUTextureView?
-
-    // MARK: - Shadow Rendering Resources
 
     /// Offscreen texture for shadow mask
     private var shadowMaskTexture: GPUTexture?
@@ -85,25 +90,6 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     /// Intermediate texture for blur passes
     private var blurIntermediateTexture: GPUTexture?
     private var blurIntermediateTextureView: GPUTextureView?
-
-    /// Blur pipelines
-    private var blurHorizontalPipeline: GPURenderPipeline?
-    private var blurVerticalPipeline: GPURenderPipeline?
-
-    /// Shadow composite pipeline
-    private var shadowCompositePipeline: GPURenderPipeline?
-
-    /// Pattern rendering pipeline
-    private var patternPipeline: GPURenderPipeline?
-
-    /// Image rendering pipeline (texture sampling)
-    private var imagePipeline: GPURenderPipeline?
-
-    /// Sampler for texture operations
-    private var linearSampler: GPUSampler?
-
-    /// Cached textures for CGImages (weak references to avoid memory leaks)
-    private var imageTextureCache: [ObjectIdentifier: GPUTexture] = [:]
 
     // MARK: - Internal Render Target (for makeImage support)
 
@@ -153,42 +139,21 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             viewportWidth: viewportWidth,
             viewportHeight: viewportHeight
         )
+
+        // Initialize internal components (per ARCHITECTURE.md)
+        self.pipelineRegistry = PipelineRegistry(device: device, textureFormat: textureFormat)
+        self.textureManager = TextureManager(device: device)
+        self.bufferPool = BufferPool(device: device)
+        self.geometryCache = GeometryCache()
     }
 
     // MARK: - Setup
 
     /// Initialize rendering pipelines. Must be called before rendering.
     public func setup() {
-        // Create shader module
-        shaderModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
-            code: CGWebGPUShaders.simple2D,
-            label: "CGWebGPUContextRenderer Shader"
-        ))
+        // Warm up the pipeline registry (pre-creates commonly used pipelines)
+        pipelineRegistry.warmUp()
 
-        // Create pipelines for commonly used blend modes
-        let supportedModes: [CGBlendMode] = [
-            .normal, .copy, .sourceIn, .sourceOut, .sourceAtop,
-            .destinationOver, .destinationIn, .destinationOut, .destinationAtop,
-            .xor, .plusLighter, .darken, .lighten
-        ]
-
-        for mode in supportedModes {
-            pipelines[mode] = createPipeline(for: mode)
-            clippedPipelines[mode] = createClippedPipeline(for: mode)
-        }
-
-        // Create stencil write pipeline
-        stencilWritePipeline = createStencilWritePipeline()
-
-        // Create shadow/blur pipelines
-        setupShadowPipelines()
-
-        // Create initial offscreen textures
-        recreateOffscreenTexturesIfNeeded()
-    }
-
-    /// Sets up pipelines for shadow rendering (blur and composite).
-    private func setupShadowPipelines() {
         // Create linear sampler for texture sampling
         linearSampler = device.createSampler(descriptor: GPUSamplerDescriptor(
             addressModeU: .clampToEdge,
@@ -198,163 +163,8 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             label: "CGWebGPU Linear Sampler"
         ))
 
-        // Create blur horizontal shader module and pipeline
-        let blurHModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
-            code: CGWebGPUShaders.blurHorizontal,
-            label: "Blur Horizontal Shader"
-        ))
-
-        blurHorizontalPipeline = device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: blurHModule,
-                entryPoint: "vs_main"
-            ),
-            primitive: GPUPrimitiveState(topology: .triangleList),
-            fragment: GPUFragmentState(
-                module: blurHModule,
-                entryPoint: "fs_main",
-                targets: [GPUColorTargetState(format: textureFormat)]
-            ),
-            label: "Blur Horizontal Pipeline"
-        ))
-
-        // Create blur vertical shader module and pipeline
-        let blurVModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
-            code: CGWebGPUShaders.blurVertical,
-            label: "Blur Vertical Shader"
-        ))
-
-        blurVerticalPipeline = device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: blurVModule,
-                entryPoint: "vs_main"
-            ),
-            primitive: GPUPrimitiveState(topology: .triangleList),
-            fragment: GPUFragmentState(
-                module: blurVModule,
-                entryPoint: "fs_main",
-                targets: [GPUColorTargetState(format: textureFormat)]
-            ),
-            label: "Blur Vertical Pipeline"
-        ))
-
-        // Create shadow composite shader module and pipeline
-        let shadowModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
-            code: CGWebGPUShaders.shadowComposite,
-            label: "Shadow Composite Shader"
-        ))
-
-        shadowCompositePipeline = device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: shadowModule,
-                entryPoint: "vs_main"
-            ),
-            primitive: GPUPrimitiveState(topology: .triangleList),
-            fragment: GPUFragmentState(
-                module: shadowModule,
-                entryPoint: "fs_main",
-                targets: [
-                    GPUColorTargetState(
-                        format: textureFormat,
-                        blend: GPUBlendState(
-                            color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                            alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-                        )
-                    )
-                ]
-            ),
-            label: "Shadow Composite Pipeline"
-        ))
-
-        // Create pattern tiling shader module and pipeline
-        let patternModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
-            code: CGWebGPUShaders.patternTiling,
-            label: "Pattern Tiling Shader"
-        ))
-
-        patternPipeline = device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: patternModule,
-                entryPoint: "vs_main",
-                buffers: [
-                    GPUVertexBufferLayout(
-                        arrayStride: UInt64(CGWebGPUVertex.stride),
-                        attributes: [
-                            GPUVertexAttribute(
-                                format: .float32x2,
-                                offset: 0,
-                                shaderLocation: 0
-                            ),
-                            GPUVertexAttribute(
-                                format: .float32x4,
-                                offset: UInt64(MemoryLayout<Float>.stride * 2),
-                                shaderLocation: 1
-                            )
-                        ]
-                    )
-                ]
-            ),
-            primitive: GPUPrimitiveState(topology: .triangleList, cullMode: .none),
-            fragment: GPUFragmentState(
-                module: patternModule,
-                entryPoint: "fs_main",
-                targets: [
-                    GPUColorTargetState(
-                        format: textureFormat,
-                        blend: GPUBlendState(
-                            color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                            alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-                        )
-                    )
-                ]
-            ),
-            label: "Pattern Pipeline"
-        ))
-
-        // Create image rendering shader module and pipeline
-        let imageModule = device.createShaderModule(descriptor: GPUShaderModuleDescriptor(
-            code: CGWebGPUShaders.texture2D,
-            label: "Image Texture Shader"
-        ))
-
-        imagePipeline = device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: imageModule,
-                entryPoint: "vs_main",
-                buffers: [
-                    GPUVertexBufferLayout(
-                        arrayStride: UInt64(MemoryLayout<Float>.stride * 4),  // position(2) + texCoord(2)
-                        attributes: [
-                            GPUVertexAttribute(
-                                format: .float32x2,
-                                offset: 0,
-                                shaderLocation: 0  // position
-                            ),
-                            GPUVertexAttribute(
-                                format: .float32x2,
-                                offset: UInt64(MemoryLayout<Float>.stride * 2),
-                                shaderLocation: 1  // texCoord
-                            )
-                        ]
-                    )
-                ]
-            ),
-            primitive: GPUPrimitiveState(topology: .triangleList, cullMode: .none),
-            fragment: GPUFragmentState(
-                module: imageModule,
-                entryPoint: "fs_main",
-                targets: [
-                    GPUColorTargetState(
-                        format: textureFormat,
-                        blend: GPUBlendState(
-                            color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                            alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-                        )
-                    )
-                ]
-            ),
-            label: "Image Pipeline"
-        ))
+        // Create initial offscreen textures
+        recreateOffscreenTexturesIfNeeded()
     }
 
     /// Recreates offscreen textures when viewport size changes.
@@ -405,319 +215,46 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         blurIntermediateTextureView = blurIntermediateTexture?.createView()
     }
 
-    /// Creates a render pipeline for the specified blend mode.
-    private func createPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
-        guard let module = shaderModule else { return nil }
+    // MARK: - Pipeline Access (via PipelineRegistry)
 
-        let blendState = createBlendState(for: blendMode)
-
-        return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: module,
-                entryPoint: "vs_main",
-                buffers: [
-                    GPUVertexBufferLayout(
-                        arrayStride: UInt64(CGWebGPUVertex.stride),
-                        attributes: [
-                            GPUVertexAttribute(
-                                format: .float32x2,
-                                offset: 0,
-                                shaderLocation: 0  // position
-                            ),
-                            GPUVertexAttribute(
-                                format: .float32x4,
-                                offset: UInt64(MemoryLayout<Float>.stride * 2),
-                                shaderLocation: 1  // color
-                            )
-                        ]
-                    )
-                ]
-            ),
-            primitive: GPUPrimitiveState(
-                topology: .triangleList,
-                cullMode: .none
-            ),
-            fragment: GPUFragmentState(
-                module: module,
-                entryPoint: "fs_main",
-                targets: [
-                    GPUColorTargetState(
-                        format: textureFormat,
-                        blend: blendState
-                    )
-                ]
-            ),
-            label: "CGWebGPU Pipeline (\(blendMode))"
-        ))
-    }
-
-    /// Creates the WebGPU blend state for a CGBlendMode.
-    ///
-    /// Some blend modes (multiply, screen, overlay, etc.) require custom fragment shaders
-    /// and are not directly supported by WebGPU blend state alone. For these modes,
-    /// we fall back to normal alpha blending.
-    private func createBlendState(for mode: CGBlendMode) -> GPUBlendState {
-        switch mode {
-        case .normal:
-            // Standard alpha blending: src * srcAlpha + dst * (1 - srcAlpha)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-            )
-
-        case .copy:
-            // Just copy source: src
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .one, dstFactor: .zero, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .zero, operation: .add)
-            )
-
-        case .sourceIn:
-            // src * dstAlpha
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .zero, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .zero, operation: .add)
-            )
-
-        case .sourceOut:
-            // src * (1 - dstAlpha)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .zero, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .zero, operation: .add)
-            )
-
-        case .sourceAtop:
-            // src * dstAlpha + dst * (1 - srcAlpha)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .dstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add)
-            )
-
-        case .destinationOver:
-            // src * (1 - dstAlpha) + dst
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .one, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .one, operation: .add)
-            )
-
-        case .destinationIn:
-            // dst * srcAlpha
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .zero, dstFactor: .srcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .zero, dstFactor: .srcAlpha, operation: .add)
-            )
-
-        case .destinationOut:
-            // dst * (1 - srcAlpha)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .zero, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .zero, dstFactor: .oneMinusSrcAlpha, operation: .add)
-            )
-
-        case .destinationAtop:
-            // src * (1 - dstAlpha) + dst * srcAlpha
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .srcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .srcAlpha, operation: .add)
-            )
-
-        case .xor:
-            // src * (1 - dstAlpha) + dst * (1 - srcAlpha)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .oneMinusDstAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add)
-            )
-
-        case .plusLighter:
-            // src + dst (additive)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .add)
-            )
-
-        case .darken:
-            // min(src, dst)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .min),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .min)
-            )
-
-        case .lighten:
-            // max(src, dst)
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .max),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .one, operation: .max)
-            )
-
-        // Modes that require custom shaders - fall back to normal blending
-        case .multiply, .screen, .overlay, .colorDodge, .colorBurn,
-             .softLight, .hardLight, .difference, .exclusion,
-             .hue, .saturation, .color, .luminosity, .plusDarker, .clear:
-            // These modes cannot be implemented with WebGPU blend state alone.
-            // A full implementation would require custom fragment shaders.
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-            )
-
-        @unknown default:
-            return GPUBlendState(
-                color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-                alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-            )
-        }
-    }
-
-    /// Creates a render pipeline with stencil test for clipping.
-    private func createClippedPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
-        guard let module = shaderModule else { return nil }
-
-        let blendState = createBlendState(for: blendMode)
-
-        // Stencil state for drawing (test against stencil value)
-        let stencilState = GPUStencilFaceState(
-            compare: .equal,
-            failOp: .keep,
-            depthFailOp: .keep,
-            passOp: .keep
-        )
-
-        return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: module,
-                entryPoint: "vs_main",
-                buffers: [
-                    GPUVertexBufferLayout(
-                        arrayStride: UInt64(CGWebGPUVertex.stride),
-                        attributes: [
-                            GPUVertexAttribute(
-                                format: .float32x2,
-                                offset: 0,
-                                shaderLocation: 0
-                            ),
-                            GPUVertexAttribute(
-                                format: .float32x4,
-                                offset: UInt64(MemoryLayout<Float>.stride * 2),
-                                shaderLocation: 1
-                            )
-                        ]
-                    )
-                ]
-            ),
-            primitive: GPUPrimitiveState(
-                topology: .triangleList,
-                cullMode: .none
-            ),
-            depthStencil: GPUDepthStencilState(
-                format: depthStencilFormat,
-                depthWriteEnabled: false,
-                depthCompare: .always,
-                stencilFront: stencilState,
-                stencilBack: stencilState,
-                stencilReadMask: 0xFF,
-                stencilWriteMask: 0x00
-            ),
-            fragment: GPUFragmentState(
-                module: module,
-                entryPoint: "fs_main",
-                targets: [
-                    GPUColorTargetState(
-                        format: textureFormat,
-                        blend: blendState
-                    )
-                ]
-            ),
-            label: "CGWebGPU Clipped Pipeline (\(blendMode))"
-        ))
-    }
-
-    /// Creates a pipeline for writing clip paths to stencil buffer.
-    private func createStencilWritePipeline() -> GPURenderPipeline? {
-        guard let module = shaderModule else { return nil }
-
-        // Stencil state for writing (increment stencil value)
-        let stencilState = GPUStencilFaceState(
-            compare: .always,
-            failOp: .keep,
-            depthFailOp: .keep,
-            passOp: .incrementClamp
-        )
-
-        return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
-            vertex: GPUVertexState(
-                module: module,
-                entryPoint: "vs_main",
-                buffers: [
-                    GPUVertexBufferLayout(
-                        arrayStride: UInt64(CGWebGPUVertex.stride),
-                        attributes: [
-                            GPUVertexAttribute(
-                                format: .float32x2,
-                                offset: 0,
-                                shaderLocation: 0
-                            ),
-                            GPUVertexAttribute(
-                                format: .float32x4,
-                                offset: UInt64(MemoryLayout<Float>.stride * 2),
-                                shaderLocation: 1
-                            )
-                        ]
-                    )
-                ]
-            ),
-            primitive: GPUPrimitiveState(
-                topology: .triangleList,
-                cullMode: .none
-            ),
-            depthStencil: GPUDepthStencilState(
-                format: depthStencilFormat,
-                depthWriteEnabled: false,
-                depthCompare: .always,
-                stencilFront: stencilState,
-                stencilBack: stencilState,
-                stencilReadMask: 0xFF,
-                stencilWriteMask: 0xFF
-            ),
-            fragment: GPUFragmentState(
-                module: module,
-                entryPoint: "fs_main",
-                targets: [
-                    GPUColorTargetState(
-                        format: textureFormat,
-                        writeMask: []  // Don't write to color buffer
-                    )
-                ]
-            ),
-            label: "CGWebGPU Stencil Write Pipeline"
-        ))
-    }
-
-    /// Gets or creates the pipeline for a specific blend mode.
+    /// Gets the pipeline for a specific blend mode.
     private func getPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
-        if let existing = pipelines[blendMode] {
-            return existing
-        }
-
-        // Create on demand for modes not pre-created
-        let pipeline = createPipeline(for: blendMode)
-        if let pipeline = pipeline {
-            pipelines[blendMode] = pipeline
-        }
-        return pipeline
+        return pipelineRegistry.getPipeline(for: blendMode)
     }
 
-    /// Gets or creates the clipped pipeline for a specific blend mode.
+    /// Gets the clipped pipeline for a specific blend mode.
     private func getClippedPipeline(for blendMode: CGBlendMode) -> GPURenderPipeline? {
-        if let existing = clippedPipelines[blendMode] {
-            return existing
-        }
+        return pipelineRegistry.getClippedPipeline(for: blendMode)
+    }
 
-        // Create on demand for modes not pre-created
-        let pipeline = createClippedPipeline(for: blendMode)
-        if let pipeline = pipeline {
-            clippedPipelines[blendMode] = pipeline
-        }
-        return pipeline
+    /// Gets the stencil write pipeline.
+    private func getStencilWritePipeline() -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.stencilWrite)
+    }
+
+    /// Gets the image pipeline.
+    private func getImagePipeline() -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.image)
+    }
+
+    /// Gets the pattern pipeline.
+    private func getPatternPipeline() -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.pattern)
+    }
+
+    /// Gets the blur horizontal pipeline.
+    private func getBlurHorizontalPipeline() -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.blurHorizontal)
+    }
+
+    /// Gets the blur vertical pipeline.
+    private func getBlurVerticalPipeline() -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.blurVertical)
+    }
+
+    /// Gets the shadow composite pipeline.
+    private func getShadowCompositePipeline() -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.shadowComposite)
     }
 
     // MARK: - Render Target
@@ -751,6 +288,16 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         return renderTarget
     }
 
+    // MARK: - Frame Management
+
+    /// Begins a new frame.
+    ///
+    /// Call this at the start of each frame to reset internal buffers.
+    /// This advances the BufferPool's ring buffer to prevent GPU/CPU conflicts.
+    public func beginFrame() {
+        bufferPool.advanceFrame()
+    }
+
     // MARK: - CGContextRendererDelegate
 
     public func fill(
@@ -767,6 +314,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         let effectiveColor = applyAlpha(color, alpha: alpha)
 
         // Tessellate the path
+        // Note: GeometryCache is available for future optimization of static paths
         let batch = tessellator.tessellateFill(path, color: effectiveColor)
         guard !batch.vertices.isEmpty else { return }
 
@@ -850,11 +398,11 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         interpolationQuality: CGInterpolationQuality
     ) {
         guard let target = effectiveRenderTarget,
-              let pipeline = imagePipeline,
+              let pipeline = getImagePipeline(),
               let sampler = linearSampler else { return }
 
-        // Get or create texture for the image
-        guard let texture = getOrCreateTexture(for: image) else {
+        // Get or create texture view for the image (via TextureManager)
+        guard let textureView = getOrCreateTextureView(for: image) else {
             // Fall back to placeholder if texture creation fails
             guard let fallbackPipeline = getPipeline(for: blendMode) else { return }
             let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
@@ -870,9 +418,6 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
         // Create uniform buffer for alpha
         let uniformBuffer = createImageUniformBuffer(alpha: alpha)
-
-        // Create texture view
-        let textureView = texture.createView()
 
         // Create bind group
         let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
@@ -1101,7 +646,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         }
 
         // Use texture-based rendering
-        guard let pipeline = imagePipeline,
+        guard let pipeline = getImagePipeline(),
               let sampler = linearSampler else {
             // Fallback to placeholder
             let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
@@ -1117,8 +662,8 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             return
         }
 
-        // Get or create texture for the image
-        guard let texture = getOrCreateTexture(for: image) else {
+        // Get or create texture view for the image (via TextureManager)
+        guard let textureView = getOrCreateTextureView(for: image) else {
             // Fallback to placeholder
             let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
             guard !vertices.isEmpty else { return }
@@ -1133,7 +678,6 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         let vertices = createImageQuadVertices(rect: rect)
         let vertexBuffer = createImageVertexBuffer(from: vertices)
         let uniformBuffer = createImageUniformBuffer(alpha: alpha)
-        let textureView = texture.createView()
 
         let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
             layout: pipeline.getBindGroupLayout(index: 0),
@@ -1721,7 +1265,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         rule: CGPathFillRule
     ) {
         guard let target = effectiveRenderTarget,
-              let pipeline = patternPipeline else { return }
+              let pipeline = getPatternPipeline() else { return }
 
         // Determine the fill color based on pattern type
         let patternColor: CGColor
@@ -1780,7 +1324,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         blendMode: CGBlendMode
     ) {
         guard let target = effectiveRenderTarget,
-              let pipeline = patternPipeline else { return }
+              let pipeline = getPatternPipeline() else { return }
 
         // Determine the stroke color based on pattern type
         let patternColor: CGColor
@@ -1833,7 +1377,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     // MARK: - Private Helpers
 
     private func renderBatch(_ batch: CGWebGPUVertexBatch, to textureView: GPUTextureView, pipeline: GPURenderPipeline) {
-        let buffer = createVertexBuffer(from: batch)
+        guard let allocation = createVertexBufferAllocation(from: batch) else { return }
 
         let encoder = device.createCommandEncoder()
 
@@ -1848,7 +1392,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         ))
 
         renderPass.setPipeline(pipeline)
-        renderPass.setVertexBuffer(0, buffer: buffer)
+        renderPass.setVertexBuffer(0, buffer: allocation.buffer, offset: allocation.offset)
         renderPass.draw(vertexCount: UInt32(batch.vertices.count))
         renderPass.end()
 
@@ -1868,7 +1412,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         clipPaths: [CGPath]
     ) {
         guard let stencilView = stencilTextureView,
-              let stencilPipeline = stencilWritePipeline,
+              let stencilPipeline = getStencilWritePipeline(),
               !clipPaths.isEmpty else {
             // Fall back to regular rendering if no stencil available
             renderBatch(batch, to: textureView, pipeline: pipeline)
@@ -1956,9 +1500,9 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ) {
         guard let shadowMaskView = shadowMaskTextureView,
               let blurIntermediateView = blurIntermediateTextureView,
-              let blurHPipeline = blurHorizontalPipeline,
-              let blurVPipeline = blurVerticalPipeline,
-              let shadowPipeline = shadowCompositePipeline,
+              let blurHPipeline = getBlurHorizontalPipeline(),
+              let blurVPipeline = getBlurVerticalPipeline(),
+              let shadowPipeline = getShadowCompositePipeline(),
               let sampler = linearSampler,
               let normalPipeline = getPipeline(for: .copy) else { return }
 
@@ -2109,6 +1653,20 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         return buffer
     }
 
+    /// Creates a vertex buffer allocation from a batch (via BufferPool).
+    ///
+    /// - Parameter batch: The vertex batch to upload
+    /// - Returns: Buffer allocation with buffer and offset, or nil if empty
+    private func createVertexBufferAllocation(from batch: CGWebGPUVertexBatch) -> BufferPool.Allocation? {
+        guard !batch.vertices.isEmpty else { return nil }
+
+        let floatData = batch.toFloatArray()
+        return bufferPool.acquireAndWrite(data: floatData)
+    }
+
+    /// Creates a vertex buffer from a batch (convenience method, offset at 0).
+    ///
+    /// For cases where we need a standalone buffer (not using the pool).
     private func createVertexBuffer(from batch: CGWebGPUVertexBatch) -> GPUBuffer {
         let buffer = device.createBuffer(descriptor: GPUBufferDescriptor(
             size: UInt64(max(batch.byteSize, 1)),
@@ -2228,50 +1786,11 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         }
     }
 
-    // MARK: - Image Rendering Helpers
+    // MARK: - Image Rendering Helpers (via TextureManager)
 
-    /// Gets or creates a GPU texture for the given CGImage.
-    private func getOrCreateTexture(for image: CGImage) -> GPUTexture? {
-        let imageID = ObjectIdentifier(image)
-
-        // Check cache first
-        if let cached = imageTextureCache[imageID] {
-            return cached
-        }
-
-        // Get image dimensions
-        let width = UInt32(image.width)
-        let height = UInt32(image.height)
-        guard width > 0, height > 0 else { return nil }
-
-        // Get pixel data from the image
-        guard let pixelData = extractPixelData(from: image) else { return nil }
-
-        // Create GPU texture
-        let texture = device.createTexture(descriptor: GPUTextureDescriptor(
-            size: GPUExtent3D(width: width, height: height),
-            format: .rgba8unorm,
-            usage: [.textureBinding, .copyDst],
-            label: "CGImage Texture"
-        ))
-
-        // Upload pixel data to texture
-        let jsArray = JSTypedArray<UInt8>(pixelData)
-        queue.writeTexture(
-            destination: GPUImageCopyTexture(texture: texture),
-            data: jsArray.jsObject,
-            dataLayout: GPUImageDataLayout(
-                offset: 0,
-                bytesPerRow: UInt32(width * 4),
-                rowsPerImage: UInt32(height)
-            ),
-            size: GPUExtent3D(width: width, height: height)
-        )
-
-        // Cache the texture
-        imageTextureCache[imageID] = texture
-
-        return texture
+    /// Gets or creates a GPU texture view for the given CGImage.
+    private func getOrCreateTextureView(for image: CGImage) -> GPUTextureView? {
+        return textureManager.getOrCreateTexture(for: image)
     }
 
     /// Extracts RGBA pixel data from a CGImage.
@@ -2671,7 +2190,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
         // Use a simple full-screen blit to copy internal texture to external target
         guard let sampler = linearSampler,
-              let pipeline = imagePipeline else {
+              let pipeline = getImagePipeline() else {
             return
         }
 
