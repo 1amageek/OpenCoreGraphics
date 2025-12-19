@@ -39,8 +39,16 @@ public class CGContext: @unchecked Sendable {
     /// The bytes per row for the context.
     public let bytesPerRow: Int
 
+    /// Owned buffer - allocated by this context, will be deallocated on deinit.
+    private var ownedBuffer: UnsafeMutableRawBufferPointer?
+
+    /// Borrowed pointer - provided by caller, not managed by this context.
+    private var borrowedPointer: UnsafeMutableRawPointer?
+
     /// The underlying pixel data.
-    internal var data: UnsafeMutableRawPointer?
+    internal var data: UnsafeMutableRawPointer? {
+        ownedBuffer?.baseAddress ?? borrowedPointer
+    }
 
     // MARK: - Graphics State
 
@@ -136,12 +144,15 @@ public class CGContext: @unchecked Sendable {
 
         // Allocate or use provided data
         if let data = data {
-            self.data = data
+            self.borrowedPointer = data
+            self.ownedBuffer = nil
         } else {
             let totalBytes = bytesPerRow * height
-            self.data = UnsafeMutableRawPointer.allocate(byteCount: totalBytes, alignment: MemoryLayout<UInt8>.alignment)
+            let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: totalBytes, alignment: MemoryLayout<UInt8>.alignment)
             // Initialize to transparent
-            self.data?.initializeMemory(as: UInt8.self, repeating: 0, count: totalBytes)
+            buffer.initializeMemory(as: UInt8.self, repeating: 0)
+            self.ownedBuffer = buffer
+            self.borrowedPointer = nil
         }
 
         self.currentState = GraphicsState()
@@ -150,8 +161,7 @@ public class CGContext: @unchecked Sendable {
     }
 
     deinit {
-        // Note: In a real implementation, we'd track whether we own the data
-        // and free it appropriately
+        ownedBuffer?.deallocate()
     }
 
     // MARK: - Creating Images
