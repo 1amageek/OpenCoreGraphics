@@ -191,10 +191,10 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     private func setupShadowPipelines() {
         // Create linear sampler for texture sampling
         linearSampler = device.createSampler(descriptor: GPUSamplerDescriptor(
-            magFilter: .linear,
-            minFilter: .linear,
             addressModeU: .clampToEdge,
             addressModeV: .clampToEdge,
+            magFilter: .linear,
+            minFilter: .linear,
             label: "CGWebGPU Linear Sampler"
         ))
 
@@ -876,11 +876,11 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
         // Create bind group
         let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(0),
+            layout: pipeline.getBindGroupLayout(index: 0),
             entries: [
                 GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
                 GPUBindGroupEntry(binding: 1, resource: .textureView(textureView)),
-                GPUBindGroupEntry(binding: 2, resource: .buffer(uniformBuffer))
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
             ]
         ))
 
@@ -897,7 +897,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         ))
 
         renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup)
+        renderPass.setBindGroup(0, bindGroup: bindGroup)
         renderPass.setVertexBuffer(0, buffer: vertexBuffer)
         renderPass.draw(vertexCount: 6)
         renderPass.end()
@@ -1136,11 +1136,11 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         let textureView = texture.createView()
 
         let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(0),
+            layout: pipeline.getBindGroupLayout(index: 0),
             entries: [
                 GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
                 GPUBindGroupEntry(binding: 1, resource: .textureView(textureView)),
-                GPUBindGroupEntry(binding: 2, resource: .buffer(uniformBuffer))
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
             ]
         ))
 
@@ -1157,7 +1157,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         ))
 
         renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup)
+        renderPass.setBindGroup(0, bindGroup: bindGroup)
         renderPass.setVertexBuffer(0, buffer: vertexBuffer)
         renderPass.draw(vertexCount: 6)
         renderPass.end()
@@ -1494,9 +1494,9 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         var vertices: [CGWebGPUVertex] = []
 
         // Get color stops from gradient
-        guard let colors = gradient.colors,
-              let locations = gradient.locations,
-              colors.count > 0 else { return [] }
+        let colors = gradient.colors
+        guard !colors.isEmpty,
+              let locations = gradient.locations else { return [] }
 
         // Calculate gradient direction
         let dx = end.x - start.x
@@ -1588,9 +1588,9 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         var vertices: [CGWebGPUVertex] = []
 
         // Get color stops from gradient
-        guard let colors = gradient.colors,
-              let locations = gradient.locations,
-              colors.count > 0 else { return [] }
+        let colors = gradient.colors
+        guard !colors.isEmpty,
+              let locations = gradient.locations else { return [] }
 
         let segments = 32  // Number of segments around the circle
 
@@ -1751,9 +1751,9 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
         // Create bind group for pattern uniforms
         let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(0),
+            layout: pipeline.getBindGroupLayout(index: 0),
             entries: [
-                GPUBindGroupEntry(binding: 0, resource: .buffer(patternUniforms))
+                GPUBindGroupEntry(binding: 0, resource: .bufferBinding(GPUBufferBinding(buffer: patternUniforms)))
             ]
         ))
 
@@ -1820,9 +1820,9 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
         // Create bind group for pattern uniforms
         let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(0),
+            layout: pipeline.getBindGroupLayout(index: 0),
             entries: [
-                GPUBindGroupEntry(binding: 0, resource: .buffer(patternUniforms))
+                GPUBindGroupEntry(binding: 0, resource: .bufferBinding(GPUBufferBinding(buffer: patternUniforms)))
             ]
         ))
 
@@ -1986,11 +1986,11 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             // Pass 2: Horizontal blur (shadow mask → intermediate)
             let blurUniforms = createBlurUniformBuffer(blurRadius: shadowBlur)
             let hBlurBindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-                layout: blurHPipeline.getBindGroupLayout(0),
+                layout: blurHPipeline.getBindGroupLayout(index: 0),
                 entries: [
                     GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
                     GPUBindGroupEntry(binding: 1, resource: .textureView(shadowMaskView)),
-                    GPUBindGroupEntry(binding: 2, resource: .buffer(blurUniforms))
+                    GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: blurUniforms)))
                 ]
             ))
 
@@ -2005,17 +2005,17 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
                 colorAttachments: [hBlurAttachment]
             ))
             hBlurPass.setPipeline(blurHPipeline)
-            hBlurPass.setBindGroup(0, hBlurBindGroup)
+            hBlurPass.setBindGroup(0, bindGroup: hBlurBindGroup)
             hBlurPass.draw(vertexCount: 6)
             hBlurPass.end()
 
             // Pass 3: Vertical blur (intermediate → shadow mask)
             let vBlurBindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-                layout: blurVPipeline.getBindGroupLayout(0),
+                layout: blurVPipeline.getBindGroupLayout(index: 0),
                 entries: [
                     GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
                     GPUBindGroupEntry(binding: 1, resource: .textureView(blurIntermediateView)),
-                    GPUBindGroupEntry(binding: 2, resource: .buffer(blurUniforms))
+                    GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: blurUniforms)))
                 ]
             ))
 
@@ -2030,7 +2030,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
                 colorAttachments: [vBlurAttachment]
             ))
             vBlurPass.setPipeline(blurVPipeline)
-            vBlurPass.setBindGroup(0, vBlurBindGroup)
+            vBlurPass.setBindGroup(0, bindGroup: vBlurBindGroup)
             vBlurPass.draw(vertexCount: 6)
             vBlurPass.end()
         }
@@ -2042,11 +2042,11 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         )
 
         let shadowBindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: shadowPipeline.getBindGroupLayout(0),
+            layout: shadowPipeline.getBindGroupLayout(index: 0),
             entries: [
                 GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
                 GPUBindGroupEntry(binding: 1, resource: .textureView(shadowMaskView)),
-                GPUBindGroupEntry(binding: 2, resource: .buffer(shadowUniforms))
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: shadowUniforms)))
             ]
         ))
 
@@ -2060,7 +2060,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             colorAttachments: [compositeAttachment]
         ))
         compositePass.setPipeline(shadowPipeline)
-        compositePass.setBindGroup(0, shadowBindGroup)
+        compositePass.setBindGroup(0, bindGroup: shadowBindGroup)
         compositePass.draw(vertexCount: 6)
         compositePass.end()
 
@@ -2204,7 +2204,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         ))
 
         renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup)
+        renderPass.setBindGroup(0, bindGroup: bindGroup)
         renderPass.setVertexBuffer(0, buffer: buffer)
         renderPass.draw(vertexCount: UInt32(batch.vertices.count))
         renderPass.end()
@@ -2258,12 +2258,12 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         // Upload pixel data to texture
         let jsArray = JSTypedArray<UInt8>(pixelData)
         queue.writeTexture(
-            destination: GPUTexelCopyTextureInfo(texture: texture),
+            destination: GPUImageCopyTexture(texture: texture),
             data: jsArray.jsObject,
-            dataLayout: GPUTexelCopyBufferLayout(
+            dataLayout: GPUImageDataLayout(
                 offset: 0,
                 bytesPerRow: UInt32(width * 4),
-                rowsPerImage: height
+                rowsPerImage: UInt32(height)
             ),
             size: GPUExtent3D(width: width, height: height)
         )
@@ -2353,7 +2353,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
                 bitsPerComponent: 8,
                 bytesPerRow: width * 4,
                 space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
             ) else { return }
 
             // Important: Do NOT set rendererDelegate on this context
@@ -2705,7 +2705,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             entries: [
                 GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
                 GPUBindGroupEntry(binding: 1, resource: .textureView(internalView)),
-                GPUBindGroupEntry(binding: 2, resource: .buffer(uniformBuffer))
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
             ]
         ))
 
@@ -2723,8 +2723,8 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         ))
 
         renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup)
-        renderPass.setVertexBuffer(0, vertexBuffer)
+        renderPass.setBindGroup(0, bindGroup: bindGroup)
+        renderPass.setVertexBuffer(0, buffer: vertexBuffer)
         renderPass.draw(vertexCount: 6)
         renderPass.end()
 
