@@ -197,6 +197,269 @@ public enum CGWebGPUShaders {
             return vec4f(color.rgb, color.a * uniforms.alpha);
         }
         """
+
+    /// Gaussian blur shader (horizontal pass)
+    /// Uses separable Gaussian blur for efficiency
+    public static let blurHorizontal: String = """
+        struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) texCoord: vec2f,
+        }
+
+        struct BlurUniforms {
+            texelSize: vec2f,  // 1.0 / textureSize
+            blurRadius: f32,
+            _padding: f32,
+        }
+
+        @group(0) @binding(0) var textureSampler: sampler;
+        @group(0) @binding(1) var inputTexture: texture_2d<f32>;
+        @group(0) @binding(2) var<uniform> uniforms: BlurUniforms;
+
+        @vertex
+        fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+            // Full-screen quad
+            var positions = array<vec2f, 6>(
+                vec2f(-1.0, -1.0),
+                vec2f( 1.0, -1.0),
+                vec2f( 1.0,  1.0),
+                vec2f(-1.0, -1.0),
+                vec2f( 1.0,  1.0),
+                vec2f(-1.0,  1.0)
+            );
+            var texCoords = array<vec2f, 6>(
+                vec2f(0.0, 1.0),
+                vec2f(1.0, 1.0),
+                vec2f(1.0, 0.0),
+                vec2f(0.0, 1.0),
+                vec2f(1.0, 0.0),
+                vec2f(0.0, 0.0)
+            );
+
+            var output: VertexOutput;
+            output.position = vec4f(positions[vertexIndex], 0.0, 1.0);
+            output.texCoord = texCoords[vertexIndex];
+            return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+            var result = vec4f(0.0);
+            var totalWeight = 0.0;
+
+            let radius = i32(uniforms.blurRadius);
+            let sigma = uniforms.blurRadius / 3.0;
+
+            for (var i = -radius; i <= radius; i++) {
+                let offset = vec2f(f32(i) * uniforms.texelSize.x, 0.0);
+                let weight = exp(-f32(i * i) / (2.0 * sigma * sigma));
+                result += textureSample(inputTexture, textureSampler, input.texCoord + offset) * weight;
+                totalWeight += weight;
+            }
+
+            return result / totalWeight;
+        }
+        """
+
+    /// Gaussian blur shader (vertical pass)
+    public static let blurVertical: String = """
+        struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) texCoord: vec2f,
+        }
+
+        struct BlurUniforms {
+            texelSize: vec2f,
+            blurRadius: f32,
+            _padding: f32,
+        }
+
+        @group(0) @binding(0) var textureSampler: sampler;
+        @group(0) @binding(1) var inputTexture: texture_2d<f32>;
+        @group(0) @binding(2) var<uniform> uniforms: BlurUniforms;
+
+        @vertex
+        fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+            var positions = array<vec2f, 6>(
+                vec2f(-1.0, -1.0),
+                vec2f( 1.0, -1.0),
+                vec2f( 1.0,  1.0),
+                vec2f(-1.0, -1.0),
+                vec2f( 1.0,  1.0),
+                vec2f(-1.0,  1.0)
+            );
+            var texCoords = array<vec2f, 6>(
+                vec2f(0.0, 1.0),
+                vec2f(1.0, 1.0),
+                vec2f(1.0, 0.0),
+                vec2f(0.0, 1.0),
+                vec2f(1.0, 0.0),
+                vec2f(0.0, 0.0)
+            );
+
+            var output: VertexOutput;
+            output.position = vec4f(positions[vertexIndex], 0.0, 1.0);
+            output.texCoord = texCoords[vertexIndex];
+            return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+            var result = vec4f(0.0);
+            var totalWeight = 0.0;
+
+            let radius = i32(uniforms.blurRadius);
+            let sigma = uniforms.blurRadius / 3.0;
+
+            for (var i = -radius; i <= radius; i++) {
+                let offset = vec2f(0.0, f32(i) * uniforms.texelSize.y);
+                let weight = exp(-f32(i * i) / (2.0 * sigma * sigma));
+                result += textureSample(inputTexture, textureSampler, input.texCoord + offset) * weight;
+                totalWeight += weight;
+            }
+
+            return result / totalWeight;
+        }
+        """
+
+    /// Pattern tiling shader - repeats a pattern based on step values
+    public static let patternTiling: String = """
+        struct VertexInput {
+            @location(0) position: vec2f,
+            @location(1) color: vec4f,
+        }
+
+        struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) worldPos: vec2f,
+            @location(1) color: vec4f,
+        }
+
+        struct PatternUniforms {
+            bounds: vec4f,        // x, y, width, height
+            step: vec2f,          // xStep, yStep
+            isColored: f32,       // 1.0 if colored, 0.0 if uncolored
+            patternType: f32,     // 0=solid, 1=checkerboard, 2=stripes, 3=dots
+        }
+
+        @group(0) @binding(0) var<uniform> pattern: PatternUniforms;
+
+        @vertex
+        fn vs_main(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+            output.position = vec4f(input.position, 0.0, 1.0);
+            output.worldPos = input.position;
+            output.color = input.color;
+            return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+            // Calculate pattern cell coordinates
+            let cellX = input.worldPos.x / pattern.step.x;
+            let cellY = input.worldPos.y / pattern.step.y;
+
+            // Get position within cell (0 to 1)
+            let inCellX = fract(cellX);
+            let inCellY = fract(cellY);
+
+            // Cell indices (for checkerboard pattern)
+            let cellIdxX = i32(floor(cellX));
+            let cellIdxY = i32(floor(cellY));
+
+            var alpha = 1.0;
+
+            // Pattern type processing
+            let patternType = i32(pattern.patternType);
+
+            if (patternType == 1) {
+                // Checkerboard pattern
+                if ((cellIdxX + cellIdxY) % 2 == 0) {
+                    alpha = 1.0;
+                } else {
+                    alpha = 0.3;
+                }
+            } else if (patternType == 2) {
+                // Horizontal stripes
+                if (inCellY < 0.5) {
+                    alpha = 1.0;
+                } else {
+                    alpha = 0.3;
+                }
+            } else if (patternType == 3) {
+                // Dots pattern
+                let center = vec2f(0.5, 0.5);
+                let dist = length(vec2f(inCellX, inCellY) - center);
+                if (dist < 0.3) {
+                    alpha = 1.0;
+                } else {
+                    alpha = 0.0;
+                }
+            }
+            // else: solid pattern (patternType == 0), alpha = 1.0
+
+            // Apply color
+            if (pattern.isColored > 0.5) {
+                // Colored pattern - use pattern's own color (gray placeholder)
+                return vec4f(0.5, 0.5, 0.5, alpha);
+            } else {
+                // Uncolored pattern - use input color with pattern alpha
+                return vec4f(input.color.rgb, input.color.a * alpha);
+            }
+        }
+        """
+
+    /// Shadow composite shader - draws shadow with offset and color tint
+    public static let shadowComposite: String = """
+        struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) texCoord: vec2f,
+        }
+
+        struct ShadowUniforms {
+            shadowColor: vec4f,
+            offset: vec2f,       // Normalized offset
+            _padding: vec2f,
+        }
+
+        @group(0) @binding(0) var textureSampler: sampler;
+        @group(0) @binding(1) var shadowTexture: texture_2d<f32>;
+        @group(0) @binding(2) var<uniform> uniforms: ShadowUniforms;
+
+        @vertex
+        fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+            var positions = array<vec2f, 6>(
+                vec2f(-1.0, -1.0),
+                vec2f( 1.0, -1.0),
+                vec2f( 1.0,  1.0),
+                vec2f(-1.0, -1.0),
+                vec2f( 1.0,  1.0),
+                vec2f(-1.0,  1.0)
+            );
+            var texCoords = array<vec2f, 6>(
+                vec2f(0.0, 1.0),
+                vec2f(1.0, 1.0),
+                vec2f(1.0, 0.0),
+                vec2f(0.0, 1.0),
+                vec2f(1.0, 0.0),
+                vec2f(0.0, 0.0)
+            );
+
+            var output: VertexOutput;
+            output.position = vec4f(positions[vertexIndex], 0.0, 1.0);
+            output.texCoord = texCoords[vertexIndex];
+            return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+            // Sample shadow texture with offset
+            let shadowAlpha = textureSample(shadowTexture, textureSampler, input.texCoord - uniforms.offset).a;
+
+            // Apply shadow color with sampled alpha
+            return vec4f(uniforms.shadowColor.rgb, uniforms.shadowColor.a * shadowAlpha);
+        }
+        """
 }
 
 #endif

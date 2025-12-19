@@ -334,6 +334,38 @@ public protocol CGContextRendererDelegate: AnyObject, Sendable {
     ///   - alpha: The alpha value to apply when compositing the layer.
     ///   - blendMode: The blend mode to use when compositing.
     func endTransparencyLayer(alpha: CGFloat, blendMode: CGBlendMode)
+
+    // MARK: - Image Readback
+
+    /// Creates an image from the current render target contents.
+    ///
+    /// This method allows GPU-based renderers to read back rendered content
+    /// as a CGImage. It performs a GPU readback operation, which can be
+    /// expensive and should be used sparingly.
+    ///
+    /// ## Implementation Notes for GPU Renderers
+    ///
+    /// To support this method, GPU renderers should:
+    /// 1. Maintain an internal render texture with `CopySrc` usage
+    /// 2. Copy the texture contents to a staging buffer
+    /// 3. Map the buffer and read pixel data
+    /// 4. Create a CGImage from the pixel data
+    ///
+    /// ```swift
+    /// func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
+    ///     // 1. Create staging buffer with MapRead | CopyDst usage
+    ///     // 2. Copy texture to buffer
+    ///     // 3. Map buffer and read pixels
+    ///     // 4. Create CGImage from pixel data
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - width: The width of the image in pixels.
+    ///   - height: The height of the image in pixels.
+    ///   - colorSpace: The color space for the resulting image.
+    /// - Returns: A CGImage containing the rendered content, or nil if readback fails.
+    func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage?
 }
 
 // MARK: - Default Implementations
@@ -347,6 +379,11 @@ extension CGContextRendererDelegate {
 
     /// Default implementation does nothing.
     public func endTransparencyLayer(alpha: CGFloat, blendMode: CGBlendMode) {}
+
+    /// Default implementation returns nil.
+    public func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
+        return nil
+    }
 
     /// Default implementation does nothing.
     public func draw(

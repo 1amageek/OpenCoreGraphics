@@ -162,8 +162,7 @@ public class CGContext: @unchecked Sendable {
     ///
     /// - Important: When using a `rendererDelegate`, drawing operations are forwarded
     ///   to the delegate and do NOT update the internal bitmap data buffer. In this case,
-    ///   `makeImage()` will return an image containing only the initial transparent pixels,
-    ///   not the rendered content.
+    ///   use `makeImageAsync()` instead to perform GPU readback.
     ///
     /// ## Usage Patterns
     ///
@@ -175,15 +174,8 @@ public class CGContext: @unchecked Sendable {
     /// let image = context.makeImage()  // Contains the red rectangle
     /// ```
     ///
-    /// **For delegate-based rendering (GPU mode):**
-    /// ```swift
-    /// let context = CGContext(...)
-    /// context.rendererDelegate = myWebGPURenderer  // Drawing goes to GPU
-    /// context.setFillColor(.red)
-    /// context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
-    /// // Content is rendered by delegate, NOT stored in bitmap buffer
-    /// let image = context.makeImage()  // Returns empty/transparent image!
-    /// ```
+    /// **For GPU-based rendering:**
+    /// Use `makeImageAsync()` instead, which performs GPU readback.
     ///
     /// - Returns: A `CGImage` containing the bitmap data, or `nil` if the context
     ///   has no data buffer or color space.
@@ -207,6 +199,43 @@ public class CGContext: @unchecked Sendable {
             shouldInterpolate: currentState.interpolationQuality != .none,
             intent: .defaultIntent
         )
+    }
+
+    /// Creates an image from the contents of the context asynchronously.
+    ///
+    /// This method supports GPU-based rendering by calling the renderer delegate's
+    /// `makeImage` method to perform GPU readback. If no delegate is set, it falls
+    /// back to the synchronous `makeImage()` method.
+    ///
+    /// ## Usage Patterns
+    ///
+    /// **For GPU-based rendering:**
+    /// ```swift
+    /// let context = CGContext(...)
+    /// context.rendererDelegate = myWebGPURenderer
+    /// myWebGPURenderer.useInternalRendering = true  // Enable GPU readback support
+    ///
+    /// context.setFillColor(.red)
+    /// context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+    ///
+    /// // GPU readback
+    /// let image = await context.makeImageAsync()
+    ///
+    /// // Present to screen
+    /// myWebGPURenderer.present()
+    /// ```
+    ///
+    /// - Returns: A `CGImage` containing the rendered content, or `nil` if readback fails.
+    public func makeImageAsync() async -> CGImage? {
+        // If we have a delegate, try GPU readback first
+        if let delegate = rendererDelegate, let colorSpace = colorSpace {
+            if let image = await delegate.makeImage(width: width, height: height, colorSpace: colorSpace) {
+                return image
+            }
+        }
+
+        // Fall back to bitmap buffer
+        return makeImage()
     }
 
     // MARK: - Managing Graphics State

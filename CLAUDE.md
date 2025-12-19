@@ -48,6 +48,69 @@ swift build --swift-sdk swift-6.2.3-RELEASE_wasm
 
 ## Architecture
 
+### Native vs WASM: 根本的な違い
+
+**このライブラリはWASM専用です。** ネイティブプラットフォームではAppleのCoreGraphicsを直接使用します。
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    ネイティブ (macOS/iOS/tvOS/watchOS)                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ユーザーコード                                                          │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │              Apple CoreGraphics (システム提供)                    │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │  • Quartz 2D エンジン                                            │   │
+│  │  • ハードウェアアクセラレーション (Metal/GPU)                      │   │
+│  │  • フォントレンダリング (Core Text 連携)                          │   │
+│  │  • PDF 生成・解析                                                 │   │
+│  │  • 画像フォーマット対応 (ImageIO 連携)                            │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  OpenCoreGraphics: 使用しない (canImport(CoreGraphics) = true)         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              WASM                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ユーザーコード                                                          │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                      OpenCoreGraphics                            │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │  • CoreGraphics 互換 API                                         │   │
+│  │  • Delegate パターンによるレンダリング抽象化                       │   │
+│  │  • 状態管理 (CTM, クリッピング, シャドウ)                          │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │              CGWebGPU (レンダラー実装)                            │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │  • WebGPU によるGPUレンダリング                                   │   │
+│  │  • パステッセレーション                                           │   │
+│  │  • ブレンドモード (Porter-Duff)                                   │   │
+│  │  • グラデーション・シェーディング                                  │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  Apple CoreGraphics: 存在しない                                         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+| 環境 | CoreGraphics | OpenCoreGraphics | レンダリング |
+|------|--------------|------------------|-------------|
+| **macOS/iOS** | ✅ システム提供 | ❌ 使用しない | Apple Quartz 2D |
+| **WASM** | ❌ 存在しない | ✅ 使用する | Delegate (WebGPU等) |
+
+**重要**: OpenCoreGraphics のコードは `#if !canImport(CoreGraphics)` で囲まれており、ネイティブ環境ではコンパイルされません。
+
 ### Platform Differences: Foundation, CoreGraphics, and swift-corelibs-foundation
 
 Understanding the relationship between these frameworks is critical:
@@ -478,11 +541,13 @@ let image = ImageSource(data: pngData).createImage()  // Returns CGImage
 This separation provides:
 - **Cleaner architecture** - Each module has single responsibility
 - **Smaller binaries** - Users only import what they need
-- **Future flexibility** - Decoders can be updated independently
+- **Independent updates** - Decoders can be updated without affecting core graphics
 
-### Rendering Architecture: Delegate Pattern
+### Rendering Architecture: Delegate Pattern (WASM専用)
 
-**OpenCoreGraphics uses a delegate pattern for rendering.** All drawing operations in `CGContext` are forwarded to a `rendererDelegate` that implements the actual rendering.
+**このセクションはWASM環境でのOpenCoreGraphicsの動作を説明します。ネイティブ環境ではApple CoreGraphicsが直接レンダリングを行います。**
+
+OpenCoreGraphics uses a delegate pattern for rendering. All drawing operations in `CGContext` are forwarded to a `rendererDelegate` that implements the actual rendering.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -513,6 +578,7 @@ This separation provides:
 │  │  func draw(image:in:alpha:blendMode:...)                        │   │
 │  │  func drawLinearGradient(...)                                    │   │
 │  │  func beginTransparencyLayer(...)                                │   │
+│  │  func makeImage(width:height:colorSpace:) async -> CGImage?     │   │
 │  │  ...                                                             │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                              │                                          │
@@ -534,7 +600,7 @@ This separation provides:
 1. **CGContext does NOT render directly to pixels**
    - The internal `data` buffer is NOT updated by drawing operations
    - All rendering is delegated to `rendererDelegate`
-   - `makeImage()` returns empty/transparent images when using a delegate
+   - Use `makeImageAsync()` for GPU readback (sync `makeImage()` returns empty images)
 
 2. **Two delegate protocols**
    - `CGContextRendererDelegate`: Basic protocol with essential drawing methods
@@ -602,12 +668,37 @@ public struct CGDrawingState: Sendable {
 - Pass full state via `CGDrawingState` for stateful delegates
 - Update documentation to reflect delegate-based behavior
 
-#### Known Limitations
+#### 実装状況 (WASM/WebGPU)
+
+WASMでもネイティブと同等の機能をサポートしています。
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `CGContext.makeImage()` | ⚠️ Limited | Returns empty image when using delegate |
-| `CGPattern.renderCell()` | ⚠️ Limited | Returns empty image (no delegate) |
-| Software rasterization | ❌ Not supported | Delegate pattern only |
-| Blend modes in WebGPU | 🔨 TODO | Requires pipeline configuration |
-| Image rendering in WebGPU | 🔨 TODO | Requires texture sampling |
+| Blend modes | ✅ 実装済み | 12+ Porter-Duff modes via `GPUBlendState` |
+| Gradients | ✅ 実装済み | Linear and radial gradients with extend options |
+| Shading | ✅ 実装済み | Axial and radial shading with `extendStart`/`extendEnd` |
+| Image rendering | ✅ 実装済み | `imagePipeline` with texture sampling |
+| Clipping | ✅ 実装済み | Stencil buffer with `depth24plusStencil8` format |
+| Shadows | ✅ 実装済み | Multi-pass Gaussian blur (separable) |
+| Pattern rendering | ✅ 実装済み | GPU-based procedural tiling shader |
+| `makeImage()` | ✅ 実装済み | GPU readback via `makeImageAsync()` |
+
+#### makeImage() GPU Readback 使用方法
+
+```swift
+let renderer = CGWebGPUContextRenderer(...)
+renderer.useInternalRendering = true  // GPU readback を有効化
+
+let context = CGContext(...)
+context.rendererDelegate = renderer
+
+// 描画
+context.setFillColor(.red)
+context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+
+// GPU からの読み取り
+let image = await context.makeImageAsync()
+
+// 画面に表示
+renderer.present()
+```
