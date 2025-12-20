@@ -218,13 +218,13 @@ public struct PathTessellator: Sendable {
     ///   - n2: Normal of outgoing segment (unit vector)
     ///   - halfWidth: Half of line width
     ///   - miterLimit: Maximum miter length ratio
-    /// - Returns: Outer and inner offset vectors, or nil if segments are parallel
+    /// - Returns: Offsets for v0 (+normal side) and v1 (-normal side), or nil if segments are parallel
     private func calculateMiterOffset(
         n1: (CGFloat, CGFloat),
         n2: (CGFloat, CGFloat),
         halfWidth: CGFloat,
         miterLimit: CGFloat
-    ) -> (outer: CGVector, inner: CGVector)? {
+    ) -> (forV0: CGVector, forV1: CGVector)? {
         // Calculate the bisector of the two normals
         let bisectorX = n1.0 + n2.0
         let bisectorY = n1.1 + n2.1
@@ -233,27 +233,27 @@ public struct PathTessellator: Sendable {
         // If normals are opposite (180° turn), use simple offset
         if bisectorLen < 0.001 {
             return (
-                outer: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
-                inner: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
+                forV0: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
+                forV1: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
             )
         }
 
-        // Normalized bisector
+        // Normalized bisector (points in average normal direction)
         let bx = bisectorX / bisectorLen
         let by = bisectorY / bisectorLen
 
-        // Calculate the dot product to find the angle
+        // Calculate the dot product to find the angle between normals
         let dot = n1.0 * n2.0 + n1.1 * n2.1  // cos(angle between normals)
 
-        // Miter length = halfWidth / cos(angle/2)
-        // cos(angle/2) = sqrt((1 + cos(angle)) / 2) = sqrt((1 + dot) / 2)
+        // Miter length = halfWidth / cos(halfAngle)
+        // cos(halfAngle) = sqrt((1 + cos(angle)) / 2)
         let cosHalfAngle = sqrt((1 + dot) / 2)
 
         if cosHalfAngle < 0.001 {
             // Very sharp angle, fallback to simple offset
             return (
-                outer: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
-                inner: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
+                forV0: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
+                forV1: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
             )
         }
 
@@ -264,20 +264,30 @@ public struct PathTessellator: Sendable {
             miterLen = halfWidth * miterLimit
         }
 
-        // Determine which side is outer (positive cross product = left turn = outer is on + side)
+        // Cross product determines turn direction
+        // cross(n1, n2) > 0: clockwise turn (right turn in screen coords Y-down)
+        // cross(n1, n2) < 0: counter-clockwise turn (left turn in screen coords Y-down)
         let cross = n1.0 * n2.1 - n1.1 * n2.0
 
+        // The bisector points in the average direction of the normals
+        // For a CW turn: the outer edge of stroke is on -normal side (v1), needs miter extension
+        // For a CCW turn: the outer edge of stroke is on +normal side (v0), needs miter extension
+
         if cross >= 0 {
-            // Left turn: outer is along positive bisector
+            // Clockwise turn (right turn):
+            // - v0 (+normal side) is inner, gets simple offset along +bisector
+            // - v1 (-normal side) is outer, gets miter along -bisector
             return (
-                outer: CGVector(dx: bx * miterLen, dy: by * miterLen),
-                inner: CGVector(dx: -bx * halfWidth, dy: -by * halfWidth)
+                forV0: CGVector(dx: bx * halfWidth, dy: by * halfWidth),
+                forV1: CGVector(dx: -bx * miterLen, dy: -by * miterLen)
             )
         } else {
-            // Right turn: outer is along negative bisector
+            // Counter-clockwise turn (left turn):
+            // - v0 (+normal side) is outer, gets miter along +bisector
+            // - v1 (-normal side) is inner, gets simple offset along -bisector
             return (
-                outer: CGVector(dx: -bx * miterLen, dy: -by * miterLen),
-                inner: CGVector(dx: bx * halfWidth, dy: by * halfWidth)
+                forV0: CGVector(dx: bx * miterLen, dy: by * miterLen),
+                forV1: CGVector(dx: -bx * halfWidth, dy: -by * halfWidth)
             )
         }
     }
@@ -401,8 +411,8 @@ public struct PathTessellator: Sendable {
                             halfWidth: halfWidth,
                             miterLimit: miterLimit
                         ) {
-                            v0 = CGPoint(x: p0.x + miter.outer.dx, y: p0.y + miter.outer.dy)
-                            v1 = CGPoint(x: p0.x + miter.inner.dx, y: p0.y + miter.inner.dy)
+                            v0 = CGPoint(x: p0.x + miter.forV0.dx, y: p0.y + miter.forV0.dy)
+                            v1 = CGPoint(x: p0.x + miter.forV1.dx, y: p0.y + miter.forV1.dy)
                         }
                     }
                 }
@@ -424,8 +434,8 @@ public struct PathTessellator: Sendable {
                             halfWidth: halfWidth,
                             miterLimit: miterLimit
                         ) {
-                            v2 = CGPoint(x: p1.x + miter.outer.dx, y: p1.y + miter.outer.dy)
-                            v3 = CGPoint(x: p1.x + miter.inner.dx, y: p1.y + miter.inner.dy)
+                            v2 = CGPoint(x: p1.x + miter.forV0.dx, y: p1.y + miter.forV0.dy)
+                            v3 = CGPoint(x: p1.x + miter.forV1.dx, y: p1.y + miter.forV1.dy)
                         }
                     }
                 }
