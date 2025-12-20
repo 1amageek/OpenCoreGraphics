@@ -108,6 +108,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     /// Sample count for MSAA. 1 = no MSAA, 4 = 4x MSAA.
     private let msaaSampleCount: Int = 4
 
+    /// Flag indicating that MSAA content needs to be resolved to the target texture
+    private var needsMSAAResolve: Bool = false
+
     /// Viewport dimensions
     var viewportWidth: CGFloat {
         didSet {
@@ -1479,6 +1482,34 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     // MARK: - Private Helpers
 
+    /// Resolves MSAA content to the internal render texture if there's pending MSAA content.
+    private func resolveMSAAIfNeeded() {
+        guard needsMSAAResolve,
+              let msaaView = msaaRenderTextureView,
+              let targetView = internalRenderTextureView else {
+            return
+        }
+
+        let encoder = device.createCommandEncoder()
+
+        // Create a resolve render pass that copies MSAA content to the target
+        let colorAttachment = GPURenderPassColorAttachment(
+            view: msaaView,
+            resolveTarget: targetView,
+            loadOp: .load,      // Load existing MSAA content
+            storeOp: .discard   // Discard MSAA after resolve
+        )
+
+        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment]
+        ))
+        // Empty render pass - just triggers the resolve
+        renderPass.end()
+
+        queue.submit([encoder.finish()])
+        needsMSAAResolve = false
+    }
+
     private func renderBatch(_ batch: CGWebGPUVertexBatch, to textureView: GPUTextureView, pipeline: GPURenderPipeline) {
         guard let allocation = createVertexBufferAllocation(from: batch) else { return }
 
@@ -1504,9 +1535,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     /// Renders a batch with MSAA (multi-sample anti-aliasing).
     ///
-    /// This method:
-    /// 1. Renders to the MSAA texture (multisampled)
-    /// 2. Automatically resolves to the target texture via resolveTarget
+    /// This method renders to the MSAA texture. The MSAA content is accumulated
+    /// across multiple draw calls and resolved to the target only when makeImage is called.
     private func renderBatchWithMSAA(
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
@@ -1521,12 +1551,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let encoder = device.createCommandEncoder()
 
-        // MSAA color attachment: render to MSAA texture, resolve to target
+        // MSAA color attachment: render to MSAA texture, keep content for accumulation
+        // Note: We don't resolve here - resolution happens in makeImage/resolveMSAA
         let colorAttachment = GPURenderPassColorAttachment(
             view: msaaView,
-            resolveTarget: textureView,
             loadOp: .load,
-            storeOp: .discard  // Don't store MSAA texture, only the resolved result
+            storeOp: .store  // Store MSAA texture content for next draw
         )
 
         let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
@@ -1539,6 +1569,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         renderPass.end()
 
         queue.submit([encoder.finish()])
+
+        // Mark that MSAA content needs to be resolved
+        needsMSAAResolve = true
     }
 
     /// Renders a batch with MSAA and clipping applied using stencil buffer.
@@ -1576,9 +1609,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let colorLoadAttachment = GPURenderPassColorAttachment(
             view: msaaView,
-            resolveTarget: textureView,
             loadOp: .load,
-            storeOp: .discard
+            storeOp: .store  // Store MSAA content for next pass
         )
 
         // First render pass: write clip paths to stencil
@@ -1613,9 +1645,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let colorStoreAttachment = GPURenderPassColorAttachment(
             view: msaaView,
-            resolveTarget: textureView,
             loadOp: .load,
-            storeOp: .discard
+            storeOp: .store  // Store MSAA content for accumulation
         )
 
         let contentPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
@@ -1631,6 +1662,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         contentPass.end()
 
         queue.submit([encoder.finish()])
+
+        // Mark that MSAA content needs to be resolved
+        needsMSAAResolve = true
     }
 
     /// Renders a batch with clipping applied using stencil buffer.
@@ -2231,6 +2265,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     ///   - colorSpace: The color space for the resulting image.
     /// - Returns: A CGImage containing the rendered content, or nil if readback fails.
     func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
+        // Resolve MSAA content to the internal render texture if needed
+        resolveMSAAIfNeeded()
+
         guard let texture = internalRenderTexture else {
             return nil
         }
