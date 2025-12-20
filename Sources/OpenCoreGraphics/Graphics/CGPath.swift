@@ -780,23 +780,32 @@ public class CGPath: @unchecked Sendable {
     /// For each element in a graphics path, calls a custom applier function.
     public func apply(info: UnsafeMutableRawPointer?, function: CGPathApplierFunction) {
         for command in commands {
-            var element: CGPathElement
             switch command {
             case .moveTo(var point):
-                element = CGPathElement(type: .moveToPoint, points: &point)
+                var element = CGPathElement(type: .moveToPoint, points: &point)
+                withUnsafePointer(to: &element) { function(info, $0) }
+
             case .lineTo(var point):
-                element = CGPathElement(type: .addLineToPoint, points: &point)
+                var element = CGPathElement(type: .addLineToPoint, points: &point)
+                withUnsafePointer(to: &element) { function(info, $0) }
+
             case .quadCurveTo(let control, let end):
                 var points = [control, end]
-                element = CGPathElement(type: .addQuadCurveToPoint, points: &points)
+                points.withUnsafeMutableBufferPointer { buffer in
+                    var element = CGPathElement(type: .addQuadCurveToPoint, points: buffer.baseAddress)
+                    withUnsafePointer(to: &element) { function(info, $0) }
+                }
+
             case .curveTo(let control1, let control2, let end):
                 var points = [control1, control2, end]
-                element = CGPathElement(type: .addCurveToPoint, points: &points)
+                points.withUnsafeMutableBufferPointer { buffer in
+                    var element = CGPathElement(type: .addCurveToPoint, points: buffer.baseAddress)
+                    withUnsafePointer(to: &element) { function(info, $0) }
+                }
+
             case .closeSubpath:
-                element = CGPathElement(type: .closeSubpath, points: nil)
-            }
-            withUnsafePointer(to: &element) { elementPtr in
-                function(info, elementPtr)
+                var element = CGPathElement(type: .closeSubpath, points: nil)
+                withUnsafePointer(to: &element) { function(info, $0) }
             }
         }
     }
@@ -804,23 +813,32 @@ public class CGPath: @unchecked Sendable {
     /// For each element in a graphics path, calls a custom block.
     public func applyWithBlock(_ block: (UnsafePointer<CGPathElement>) -> Void) {
         for command in commands {
-            var element: CGPathElement
             switch command {
             case .moveTo(var point):
-                element = CGPathElement(type: .moveToPoint, points: &point)
+                var element = CGPathElement(type: .moveToPoint, points: &point)
+                withUnsafePointer(to: &element) { block($0) }
+
             case .lineTo(var point):
-                element = CGPathElement(type: .addLineToPoint, points: &point)
+                var element = CGPathElement(type: .addLineToPoint, points: &point)
+                withUnsafePointer(to: &element) { block($0) }
+
             case .quadCurveTo(let control, let end):
                 var points = [control, end]
-                element = CGPathElement(type: .addQuadCurveToPoint, points: &points)
+                points.withUnsafeMutableBufferPointer { buffer in
+                    var element = CGPathElement(type: .addQuadCurveToPoint, points: buffer.baseAddress)
+                    withUnsafePointer(to: &element) { block($0) }
+                }
+
             case .curveTo(let control1, let control2, let end):
                 var points = [control1, control2, end]
-                element = CGPathElement(type: .addCurveToPoint, points: &points)
+                points.withUnsafeMutableBufferPointer { buffer in
+                    var element = CGPathElement(type: .addCurveToPoint, points: buffer.baseAddress)
+                    withUnsafePointer(to: &element) { block($0) }
+                }
+
             case .closeSubpath:
-                element = CGPathElement(type: .closeSubpath, points: nil)
-            }
-            withUnsafePointer(to: &element) { elementPtr in
-                block(elementPtr)
+                var element = CGPathElement(type: .closeSubpath, points: nil)
+                withUnsafePointer(to: &element) { block($0) }
             }
         }
     }
