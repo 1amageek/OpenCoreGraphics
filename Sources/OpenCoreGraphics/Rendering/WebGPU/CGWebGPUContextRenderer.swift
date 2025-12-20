@@ -133,13 +133,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     ///   - width: Width of the viewport in pixels.
     ///   - height: Height of the viewport in pixels.
     init(width: Int, height: Int) {
-        // Get device from JavaScript global (set by setupGraphicsContext())
-        let deviceJS = JSObject.global.__cgDevice
-        guard !deviceJS.isUndefined && !deviceJS.isNull else {
+        // Get device from Swift global (set by setupGraphicsContext())
+        guard let device = getGlobalDevice() else {
             fatalError("WebGPU not initialized. Call setupGraphicsContext() before using CGContext.")
         }
 
-        let device = GPUDevice(from: deviceJS.object!)
         self.device = device
         self.queue = device.queue
         self.textureFormat = .bgra8unorm
@@ -259,9 +257,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         // Create MSAA render texture (multisampled)
         msaaRenderTexture = device.createTexture(descriptor: GPUTextureDescriptor(
             size: GPUExtent3D(width: width, height: height),
+            sampleCount: UInt32(msaaSampleCount),
             format: textureFormat,
             usage: [.renderAttachment],
-            sampleCount: UInt32(msaaSampleCount),
             label: "CGWebGPU MSAA Render Texture"
         ))
         msaaRenderTextureView = msaaRenderTexture?.createView()
@@ -269,9 +267,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         // Create MSAA stencil texture (multisampled)
         msaaStencilTexture = device.createTexture(descriptor: GPUTextureDescriptor(
             size: GPUExtent3D(width: width, height: height),
+            sampleCount: UInt32(msaaSampleCount),
             format: depthStencilFormat,
             usage: [.renderAttachment],
-            sampleCount: UInt32(msaaSampleCount),
             label: "CGWebGPU MSAA Stencil Texture"
         ))
         msaaStencilTextureView = msaaStencilTexture?.createView()
@@ -2513,7 +2511,7 @@ extension CGWebGPUContextRenderer {
             return nil
         }
 
-        guard let adapter = try await gpu.requestAdapter() else {
+        guard let adapter = await gpu.requestAdapter() else {
             print("Failed to get GPU adapter")
             return nil
         }

@@ -68,7 +68,10 @@ public class CGContext: @unchecked Sendable {
     /// When set, drawing operations like `fillPath()`, `strokePath()`, etc.
     /// will call the corresponding delegate methods to perform actual rendering.
     /// This is configured internally based on the target architecture (e.g., WebGPU for WASM).
-    weak var rendererDelegate: CGContextRendererDelegate?
+    ///
+    /// Note: This is a strong reference because CGContext owns the renderer on WASM.
+    /// The renderer is created internally and should live as long as the context.
+    var rendererDelegate: CGContextRendererDelegate?
 
     // MARK: - Graphics State Structure
 

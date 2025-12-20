@@ -13,6 +13,16 @@
 import SwiftWebGPU
 import JavaScriptKit
 
+/// Global storage for the WebGPU device.
+/// This is set by `setupGraphicsContext()` and accessed by `CGWebGPUContextRenderer`.
+nonisolated(unsafe) var _cgGlobalDevice: GPUDevice?
+
+/// Returns the global WebGPU device.
+/// - Returns: The GPUDevice set by `setupGraphicsContext()`, or nil if not initialized.
+public func getGlobalDevice() -> GPUDevice? {
+    return _cgGlobalDevice
+}
+
 /// Initializes WebGPU for graphics rendering.
 ///
 /// Call this function once at application startup before creating any `CGContext`.
@@ -38,29 +48,22 @@ import JavaScriptKit
 /// - Throws: `GraphicsContextError` if WebGPU is not supported or initialization fails.
 public func setupGraphicsContext() async throws {
     // Check WebGPU support
-    let gpu = JSObject.global.navigator.gpu
-    guard !gpu.isUndefined else {
+    guard let gpu = GPU.shared else {
         throw GraphicsContextError.webGPUNotSupported
     }
 
     // Request adapter
-    let adapterPromise = gpu.requestAdapter()
-    let adapter = try await JSPromise(adapterPromise.object!)!.value
-
-    guard !adapter.isUndefined && !adapter.isNull else {
+    guard let adapter = await gpu.requestAdapter() else {
         throw GraphicsContextError.adapterNotAvailable
     }
 
     // Request device
-    let devicePromise = adapter.requestDevice()
-    let device = try await JSPromise(devicePromise.object!)!.value
-
-    guard !device.isUndefined && !device.isNull else {
+    do {
+        let device = try await adapter.requestDevice()
+        _cgGlobalDevice = device
+    } catch {
         throw GraphicsContextError.deviceNotAvailable
     }
-
-    // Store device globally for CGContext to access
-    JSObject.global.__cgDevice = device
 }
 
 /// Errors that can occur during graphics context initialization.
