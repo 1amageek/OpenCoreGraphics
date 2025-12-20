@@ -572,7 +572,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
                     pipelineRegistry.setSampleCount(1)
                     return
                 }
-                renderBatchWithMSAAAndClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+                renderBatchWithMSAAAndClipping(batch, to: target, clippedPipeline: clippedPipeline, clipPaths: state.clipPaths)
             } else {
                 guard let pipeline = getPipeline(for: blendMode) else {
                     pipelineRegistry.setSampleCount(1)
@@ -649,7 +649,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
                     pipelineRegistry.setSampleCount(1)
                     return
                 }
-                renderBatchWithMSAAAndClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+                renderBatchWithMSAAAndClipping(batch, to: target, clippedPipeline: clippedPipeline, clipPaths: state.clipPaths)
             } else {
                 guard let pipeline = getPipeline(for: blendMode) else {
                     pipelineRegistry.setSampleCount(1)
@@ -1516,26 +1516,21 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     }
 
     /// Renders a batch with MSAA and clipping applied using stencil buffer.
+    ///
+    /// - Note: The caller must have already set the sampleCount on pipelineRegistry
+    ///   and obtained the clippedPipeline with MSAA enabled.
     private func renderBatchWithMSAAAndClipping(
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
-        pipeline: GPURenderPipeline,
+        clippedPipeline: GPURenderPipeline,
         clipPaths: [CGPath]
     ) {
         guard let msaaView = msaaRenderTextureView,
               let msaaStencilView = msaaStencilTextureView,
+              let stencilPipeline = getStencilWritePipeline(),
               !clipPaths.isEmpty else {
             // Fall back to non-MSAA clipping if MSAA textures are not available
-            renderBatchWithClipping(batch, to: textureView, pipeline: pipeline, clipPaths: clipPaths)
-            return
-        }
-
-        // Set pipeline registry to use MSAA sample count
-        pipelineRegistry.setSampleCount(msaaSampleCount)
-
-        guard let stencilPipeline = getStencilWritePipeline() else {
-            pipelineRegistry.setSampleCount(1)
-            renderBatchWithClipping(batch, to: textureView, pipeline: pipeline, clipPaths: clipPaths)
+            renderBatchWithClipping(batch, to: textureView, pipeline: clippedPipeline, clipPaths: clipPaths)
             return
         }
 
@@ -1597,28 +1592,19 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             storeOp: .discard
         )
 
-        // Get MSAA-enabled clipped pipeline
-        guard let msaaClippedPipeline = getClippedPipeline(for: .normal) else {
-            pipelineRegistry.setSampleCount(1)
-            queue.submit([encoder.finish()])
-            return
-        }
-
         let contentPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
             colorAttachments: [colorStoreAttachment],
             depthStencilAttachment: stencilTestAttachment
         ))
 
-        contentPass.setPipeline(msaaClippedPipeline)
+        // Use the passed clipped pipeline (already has correct blend mode and MSAA sample count)
+        contentPass.setPipeline(clippedPipeline)
         contentPass.setVertexBuffer(0, buffer: contentBuffer)
         contentPass.setStencilReference(UInt32(clipPaths.count))
         contentPass.draw(vertexCount: UInt32(batch.vertices.count))
         contentPass.end()
 
         queue.submit([encoder.finish()])
-
-        // Reset pipeline registry to non-MSAA
-        pipelineRegistry.setSampleCount(1)
     }
 
     /// Renders a batch with clipping applied using stencil buffer.
