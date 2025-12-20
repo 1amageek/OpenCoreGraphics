@@ -5,9 +5,8 @@
 //  Ear clipping algorithm for polygon triangulation
 //
 
-#if !canImport(CoreGraphics)
+#if arch(wasm32)
 import Foundation
-import OpenCoreGraphics
 
 /// Ear Clipping algorithm for polygon triangulation
 /// Handles both convex and concave (simple) polygons

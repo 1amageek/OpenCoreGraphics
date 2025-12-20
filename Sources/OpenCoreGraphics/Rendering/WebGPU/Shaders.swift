@@ -5,7 +5,7 @@
 //  WGSL shader code for 2D rendering
 //
 
-#if !canImport(CoreGraphics)
+#if arch(wasm32)
 
 /// WGSL shaders for CoreGraphics-style 2D rendering
 public enum CGWebGPUShaders {

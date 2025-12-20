@@ -48,6 +48,34 @@ swift build --swift-sdk swift-6.2.3-RELEASE_wasm
 
 ## Architecture
 
+### 設計原則: CoreGraphicsと完全に同じ使い方
+
+ユーザーはネイティブでもWASMでも**完全に同じコード**を書きます。初期化関数やレンダラー設定は不要です。
+
+```swift
+#if canImport(CoreGraphics)
+import CoreGraphics
+#else
+import OpenCoreGraphics
+#endif
+
+// これだけ。初期化関数は不要。CoreGraphicsと完全に同じAPI。
+let context = CGContext(
+    data: nil,
+    width: 800,
+    height: 600,
+    bitsPerComponent: 8,
+    bytesPerRow: 0,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+)!
+
+context.setFillColor(.red)
+context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+
+let image = context.makeImage()  // WASMでもネイティブでも動作
+```
+
 ### Native vs WASM: 根本的な違い
 
 **このライブラリはWASM専用です。** ネイティブプラットフォームではAppleのCoreGraphicsを直接使用します。
@@ -84,22 +112,18 @@ swift build --swift-sdk swift-6.2.3-RELEASE_wasm
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                      OpenCoreGraphics                            │   │
 │  ├─────────────────────────────────────────────────────────────────┤   │
-│  │  • CoreGraphics 互換 API                                         │   │
-│  │  • Delegate パターンによるレンダリング抽象化                       │   │
+│  │  Graphics/ (全アーキテクチャ)                                     │   │
+│  │  • CoreGraphics 互換 API (CGContext, CGPath, CGColor, etc.)     │   │
 │  │  • 状態管理 (CTM, クリッピング, シャドウ)                          │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                              │                                          │
-│                              ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │              CGWebGPU (レンダラー実装)                            │   │
-│  ├─────────────────────────────────────────────────────────────────┤   │
-│  │  • WebGPU によるGPUレンダリング                                   │   │
+│  │                                                                  │   │
+│  │  Rendering/WebGPU/ (#if arch(wasm32) のみ)                       │   │
+│  │  • WebGPU によるGPUレンダリング (自動設定)                        │   │
 │  │  • パステッセレーション                                           │   │
 │  │  • ブレンドモード (Porter-Duff)                                   │   │
 │  │  • グラデーション・シェーディング                                  │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
-│  Apple CoreGraphics: 存在しない                                         │
+│  ※ WebGPUレンダラーは内部で自動設定される（ユーザーは意識しない）       │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -107,9 +131,62 @@ swift build --swift-sdk swift-6.2.3-RELEASE_wasm
 | 環境 | CoreGraphics | OpenCoreGraphics | レンダリング |
 |------|--------------|------------------|-------------|
 | **macOS/iOS** | ✅ システム提供 | ❌ 使用しない | Apple Quartz 2D |
-| **WASM** | ❌ 存在しない | ✅ 使用する | Delegate (WebGPU等) |
+| **WASM** | ❌ 存在しない | ✅ 使用する | WebGPU (内部で自動設定) |
 
 **重要**: OpenCoreGraphics のコードは `#if !canImport(CoreGraphics)` で囲まれており、ネイティブ環境ではコンパイルされません。
+
+### モジュール構成
+
+```
+Sources/OpenCoreGraphics/
+├── Graphics/                    # 全プラットフォーム共通
+│   ├── CGContext.swift          # #if arch(wasm32) で自動的にWebGPUを設定
+│   ├── CGPath.swift
+│   ├── CGColor.swift
+│   ├── CGImage.swift
+│   └── ...
+│
+└── Rendering/                   # WASM専用 (#if arch(wasm32))
+    └── WebGPU/
+        ├── WebGPURendererManager.swift  # internal - レンダラーライフサイクル管理
+        ├── CGWebGPUContextRenderer.swift
+        ├── PathTessellator.swift
+        ├── EarClipping.swift
+        ├── StrokeGenerator.swift
+        ├── Shaders.swift
+        └── Internal/
+            ├── BufferPool.swift
+            ├── TextureManager.swift
+            └── ...
+```
+
+### 内部レンダラー設定
+
+`CGContext` の初期化時に、WASMアーキテクチャでは自動的にWebGPUレンダラーが設定されます。
+
+```swift
+// CGContext.swift (内部実装)
+public final class CGContext {
+
+    // internal - ユーザーには公開しない
+    weak var rendererDelegate: CGContextRendererDelegate?
+
+    public init?(data: UnsafeMutableRawPointer?, width: Int, height: Int, ...) {
+        // 既存の初期化コード
+        ...
+
+        // WASMでは自動的にWebGPUレンダラーを設定
+        #if arch(wasm32)
+        self.rendererDelegate = WebGPURendererManager.shared.createRenderer(
+            width: width,
+            height: height
+        )
+        #endif
+    }
+}
+```
+
+**重要**: `rendererDelegate` は `internal` です。ユーザーがレンダラーを意識したり設定したりする必要はありません。
 
 ### Platform Differences: Foundation, CoreGraphics, and swift-corelibs-foundation
 
@@ -543,22 +620,22 @@ This separation provides:
 - **Smaller binaries** - Users only import what they need
 - **Independent updates** - Decoders can be updated without affecting core graphics
 
-### Rendering Architecture: Delegate Pattern (WASM専用)
+### Rendering Architecture: 内部実装詳細 (WASM専用)
 
-**このセクションはWASM環境でのOpenCoreGraphicsの動作を説明します。ネイティブ環境ではApple CoreGraphicsが直接レンダリングを行います。**
+**このセクションはライブラリ開発者向けの内部実装詳細です。ユーザーはレンダリングアーキテクチャを意識する必要はありません。**
 
-OpenCoreGraphics uses a delegate pattern for rendering. All drawing operations in `CGContext` are forwarded to a `rendererDelegate` that implements the actual rendering.
+OpenCoreGraphics uses a delegate pattern for rendering internally. All drawing operations in `CGContext` are forwarded to an internal `rendererDelegate` that implements the actual rendering.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                     Delegate-Based Rendering                             │
+│                     Internal Rendering Architecture                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  User Code                                                              │
+│  User Code (CoreGraphicsと完全に同じAPI)                                 │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  let context = CGContext(...)  // 自動的にWebGPUレンダラーを設定  │   │
 │  │  context.setFillColor(.red)                                     │   │
-│  │  context.addRect(CGRect(x: 0, y: 0, width: 100, height: 100))   │   │
-│  │  context.fillPath()                                             │   │
+│  │  context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))      │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                              │                                          │
 │                              ▼                                          │
@@ -567,24 +644,13 @@ OpenCoreGraphics uses a delegate pattern for rendering. All drawing operations i
 │  │  • Manages graphics state (CTM, colors, line properties, etc.)  │   │
 │  │  • Builds paths                                                  │   │
 │  │  • Applies CTM to paths/coordinates                              │   │
-│  │  • Forwards drawing commands to rendererDelegate                 │   │
+│  │  • Forwards drawing commands to rendererDelegate (internal)     │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                              │                                          │
 │                              ▼                                          │
-│  CGContextRendererDelegate (Protocol)                                   │
+│  rendererDelegate (internal)                                            │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  func fill(path:color:alpha:blendMode:rule:)                    │   │
-│  │  func stroke(path:color:lineWidth:...)                          │   │
-│  │  func draw(image:in:alpha:blendMode:...)                        │   │
-│  │  func drawLinearGradient(...)                                    │   │
-│  │  func beginTransparencyLayer(...)                                │   │
-│  │  func makeImage(width:height:colorSpace:) async -> CGImage?     │   │
-│  │  ...                                                             │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                              │                                          │
-│                              ▼                                          │
-│  Renderer Implementation (e.g., CGWebGPUContextRenderer)                │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  CGWebGPUContextRenderer (自動設定)                              │   │
 │  │  • Tessellates paths into triangles                              │   │
 │  │  • Uploads vertices to GPU                                       │   │
 │  │  • Executes WebGPU render passes                                 │   │
@@ -597,16 +663,21 @@ OpenCoreGraphics uses a delegate pattern for rendering. All drawing operations i
 
 #### Key Design Decisions
 
-1. **CGContext does NOT render directly to pixels**
+1. **レンダラーは内部で自動設定される**
+   - `CGContext.init()` 内で `#if arch(wasm32)` により自動的に設定
+   - ユーザーはレンダラーを意識しない
+   - `rendererDelegate` は `internal` アクセス修飾子
+
+2. **CGContext does NOT render directly to pixels**
    - The internal `data` buffer is NOT updated by drawing operations
    - All rendering is delegated to `rendererDelegate`
-   - Use `makeImageAsync()` for GPU readback (sync `makeImage()` returns empty images)
+   - Use `makeImageAsync()` for GPU readback
 
-2. **Two delegate protocols**
+3. **Two delegate protocols (internal)**
    - `CGContextRendererDelegate`: Basic protocol with essential drawing methods
    - `CGContextStatefulRendererDelegate`: Extended protocol with full state (clip paths, shadows)
 
-3. **State is passed to delegates**
+4. **State is passed to delegates**
    - CTM is applied to paths/coordinates before delegation
    - Clip paths are passed as an array (for intersection)
    - Shadow parameters are included in `CGDrawingState`
@@ -683,22 +754,28 @@ WASMでもネイティブと同等の機能をサポートしています。
 | Pattern rendering | ✅ 実装済み | GPU-based procedural tiling shader |
 | `makeImage()` | ✅ 実装済み | GPU readback via `makeImageAsync()` |
 
-#### makeImage() GPU Readback 使用方法
+#### makeImage() の使用方法
+
+WASMでは `makeImageAsync()` を使用してGPU readbackを行います。レンダラーの設定は不要です。
 
 ```swift
-let renderer = CGWebGPUContextRenderer(...)
-renderer.useInternalRendering = true  // GPU readback を有効化
-
-let context = CGContext(...)
-context.rendererDelegate = renderer
+// CoreGraphicsと完全に同じAPI
+let context = CGContext(
+    data: nil,
+    width: 800,
+    height: 600,
+    bitsPerComponent: 8,
+    bytesPerRow: 0,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+)!
 
 // 描画
 context.setFillColor(.red)
 context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
 
-// GPU からの読み取り
+// GPU からの読み取り (WASMでは内部的にWebGPU readbackを実行)
 let image = await context.makeImageAsync()
-
-// 画面に表示
-renderer.present()
 ```
+
+**注意**: 同期版の `makeImage()` はWASMでは空の画像を返す可能性があります。非同期版の `makeImageAsync()` を使用してください。

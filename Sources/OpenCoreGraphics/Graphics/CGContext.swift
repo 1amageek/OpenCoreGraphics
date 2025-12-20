@@ -67,8 +67,8 @@ public class CGContext: @unchecked Sendable {
     ///
     /// When set, drawing operations like `fillPath()`, `strokePath()`, etc.
     /// will call the corresponding delegate methods to perform actual rendering.
-    /// This enables pluggable rendering backends such as WebGPU, Metal, or Canvas2D.
-    public weak var rendererDelegate: CGContextRendererDelegate?
+    /// This is configured internally based on the target architecture (e.g., WebGPU for WASM).
+    weak var rendererDelegate: CGContextRendererDelegate?
 
     // MARK: - Graphics State Structure
 
@@ -159,6 +159,14 @@ public class CGContext: @unchecked Sendable {
         self.currentState = GraphicsState()
         self.currentState.fillColorSpace = space
         self.currentState.strokeColorSpace = space
+
+        // On WASM, automatically set up the WebGPU renderer
+        #if arch(wasm32)
+        self.rendererDelegate = WebGPURendererManager.shared.createRenderer(
+            width: width,
+            height: height
+        )
+        #endif
     }
 
     deinit {
@@ -220,20 +228,15 @@ public class CGContext: @unchecked Sendable {
     ///
     /// ## Usage Patterns
     ///
-    /// **For GPU-based rendering:**
+    /// **For GPU-based rendering (WASM):**
     /// ```swift
     /// let context = CGContext(...)
-    /// context.rendererDelegate = myWebGPURenderer
-    /// myWebGPURenderer.useInternalRendering = true  // Enable GPU readback support
     ///
     /// context.setFillColor(.red)
     /// context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
     ///
-    /// // GPU readback
+    /// // GPU readback (on WASM, renderer delegate is set automatically)
     /// let image = await context.makeImageAsync()
-    ///
-    /// // Present to screen
-    /// myWebGPURenderer.present()
     /// ```
     ///
     /// - Returns: A `CGImage` containing the rendered content, or `nil` if readback fails.

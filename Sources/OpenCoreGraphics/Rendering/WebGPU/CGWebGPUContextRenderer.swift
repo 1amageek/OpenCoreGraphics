@@ -5,9 +5,8 @@
 //  WebGPU-based implementation of CGContextRendererDelegate
 //
 
-#if !canImport(CoreGraphics)
+#if arch(wasm32)
 import Foundation
-import OpenCoreGraphics
 import SwiftWebGPU
 import JavaScriptKit
 
@@ -19,21 +18,17 @@ import JavaScriptKit
 /// As a stateful renderer delegate, this class receives the full drawing state including
 /// clipping paths and shadow parameters for proper rendering.
 ///
+/// This renderer is configured automatically by CGContext on WASM architecture.
+/// Users interact with the standard CoreGraphics API without needing to configure
+/// the renderer directly.
+///
 /// ## Usage
 ///
 /// ```swift
-/// // Create the WebGPU renderer
-/// let contextRenderer = try await CGWebGPUContextRenderer.create()
-/// contextRenderer?.setup()
-///
-/// // Create a CGContext and connect the renderer
+/// // On WASM, CGContext automatically uses WebGPU for rendering
 /// let context = CGContext(...)!
-/// context.rendererDelegate = contextRenderer
 ///
-/// // Set the render target
-/// contextRenderer?.setRenderTarget(canvasTextureView)
-///
-/// // Draw using standard CoreGraphics API - automatically rendered via WebGPU
+/// // Draw using standard CoreGraphics API
 /// context.setFillColor(.red)
 /// context.addRect(CGRect(x: 100, y: 100, width: 200, height: 150))
 /// context.fillPath()

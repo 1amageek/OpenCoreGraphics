@@ -5,9 +5,8 @@
 //  Converts CGPath to GPU-renderable triangles
 //
 
-#if !canImport(CoreGraphics)
+#if arch(wasm32)
 import Foundation
-import OpenCoreGraphics
 
 /// Tessellates CGPath into triangles for GPU rendering
 public struct PathTessellator: Sendable {

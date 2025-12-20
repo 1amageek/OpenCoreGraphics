@@ -109,28 +109,25 @@ public struct CGDrawingState: Sendable {
 
 /// Protocol for rendering backends that execute CGContext drawing operations.
 ///
-/// This protocol enables pluggable rendering backends (such as WebGPU, Metal, Canvas2D)
+/// This protocol enables pluggable rendering backends (such as WebGPU for WASM)
 /// to receive drawing commands from CGContext and render them to their respective targets.
 ///
 /// The delegate receives only the parameters necessary for rendering, keeping
 /// CGContext's internal GraphicsState private.
 ///
-/// ## Example Usage
+/// The renderer delegate is configured internally based on the target architecture.
+/// On WASM, `CGWebGPUContextRenderer` is used automatically.
+///
+/// ## Implementation Example
 ///
 /// ```swift
-/// class WebGPURenderer: CGContextRendererDelegate {
+/// class MyRenderer: CGContextRendererDelegate {
 ///     func fill(path: CGPath, color: CGColor, alpha: CGFloat,
 ///               blendMode: CGBlendMode, rule: CGPathFillRule) {
-///         // Tessellate path and render with WebGPU
+///         // Tessellate path and render
 ///     }
 ///     // ... implement other methods
 /// }
-///
-/// let context = CGContext(...)!
-/// context.rendererDelegate = myWebGPURenderer
-/// context.setFillColor(.red)
-/// context.addRect(CGRect(x: 0, y: 0, width: 100, height: 100))
-/// context.fillPath()  // Calls delegate with transformed path and current fill color
 /// ```
 public protocol CGContextRendererDelegate: AnyObject, Sendable {
 

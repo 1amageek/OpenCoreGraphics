@@ -7,7 +7,6 @@
 
 #if arch(wasm32)
 import Foundation
-import OpenCoreGraphics
 import SwiftWebGPU
 import JavaScriptKit
 

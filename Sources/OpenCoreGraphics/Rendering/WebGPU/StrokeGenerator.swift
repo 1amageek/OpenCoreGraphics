@@ -5,9 +5,8 @@
 //  Generates triangle meshes for stroke rendering with line caps and joins
 //
 
-#if !canImport(CoreGraphics)
+#if arch(wasm32)
 import Foundation
-import OpenCoreGraphics
 
 /// Generates triangle meshes for strokes (lines)
 public struct StrokeGenerator: Sendable {

@@ -35,11 +35,82 @@ import CoreGraphics
 #else
 import OpenCoreGraphics
 #endif
+```
 
-// This code works in both environments
-let rect = CGRect(x: 0, y: 0, width: 100, height: 100)
-let point = CGPoint(x: 50, y: 50)
-let containsPoint = rect.contains(point)
+### Drawing with CGContext
+
+```swift
+// Create a bitmap context
+let context = CGContext(
+    data: nil,
+    width: 400,
+    height: 300,
+    bitsPerComponent: 8,
+    bytesPerRow: 400 * 4,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+)!
+
+// Draw shapes
+context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+context.fill(CGRect(x: 50, y: 50, width: 100, height: 80))
+
+context.setStrokeColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+context.setLineWidth(3)
+context.strokeEllipse(in: CGRect(x: 200, y: 50, width: 100, height: 100))
+
+// Get the rendered image
+let image = context.makeImage()
+```
+
+### Path Drawing
+
+```swift
+let path = CGMutablePath()
+path.move(to: CGPoint(x: 100, y: 100))
+path.addLine(to: CGPoint(x: 200, y: 100))
+path.addLine(to: CGPoint(x: 150, y: 200))
+path.closeSubpath()
+
+context.addPath(path)
+context.setFillColor(.red)
+context.fillPath()
+```
+
+### Gradients
+
+```swift
+let gradient = CGGradient(
+    colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+    colors: [CGColor.red, CGColor.blue],
+    locations: [0, 1]
+)!
+
+context.drawLinearGradient(
+    gradient,
+    start: CGPoint(x: 0, y: 0),
+    end: CGPoint(x: 400, y: 300),
+    options: []
+)
+```
+
+### Transforms
+
+```swift
+context.saveGState()
+context.translateBy(x: 200, y: 150)
+context.rotate(by: .pi / 4)
+context.scaleBy(x: 2, y: 2)
+context.fill(CGRect(x: -25, y: -25, width: 50, height: 50))
+context.restoreGState()
+```
+
+### Async Image Creation (WASM)
+
+On WASM, use `makeImageAsync()` for GPU readback:
+
+```swift
+let image = await context.makeImageAsync()
 ```
 
 ## Implemented Types
