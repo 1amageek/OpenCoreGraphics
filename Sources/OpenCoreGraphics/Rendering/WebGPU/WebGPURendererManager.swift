@@ -16,6 +16,19 @@ import JavaScriptKit
 /// This class handles the initialization and management of WebGPU resources,
 /// providing renderers to CGContext instances automatically. Users do not
 /// interact with this class directly - it is an internal implementation detail.
+///
+/// ## Important: Async Initialization Required
+///
+/// WebGPU requires asynchronous initialization. Call `initialize()` once
+/// at application startup before creating any CGContext:
+///
+/// ```swift
+/// // At app startup
+/// await WebGPURendererManager.shared.initialize()
+///
+/// // Then use CGContext normally
+/// let context = CGContext(...)
+/// ```
 internal final class WebGPURendererManager: @unchecked Sendable {
 
     // MARK: - Singleton
@@ -31,6 +44,9 @@ internal final class WebGPURendererManager: @unchecked Sendable {
     /// Whether WebGPU has been initialized.
     private var isInitialized = false
 
+    /// Whether initialization is in progress.
+    private var isInitializing = false
+
     /// Initialization error if any occurred.
     private var initializationError: Error?
 
@@ -43,10 +59,31 @@ internal final class WebGPURendererManager: @unchecked Sendable {
 
     // MARK: - Public Methods
 
+    /// Initializes WebGPU asynchronously.
+    ///
+    /// This method should be called once at application startup before
+    /// creating any CGContext. It initializes the WebGPU device which
+    /// is required for rendering.
+    ///
+    /// ```swift
+    /// // At app startup
+    /// await WebGPURendererManager.shared.initialize()
+    /// ```
+    func initialize() async {
+        await initializeWebGPU()
+    }
+
+    /// Returns whether WebGPU is initialized and ready.
+    var isReady: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isInitialized && device != nil
+    }
+
     /// Creates a renderer for a CGContext.
     ///
-    /// This method lazily initializes WebGPU on first call and returns
-    /// a configured renderer delegate for the context.
+    /// This method returns a configured renderer delegate for the context.
+    /// Returns nil if WebGPU has not been initialized yet.
     ///
     /// - Parameters:
     ///   - width: The width of the rendering target.
@@ -56,12 +93,8 @@ internal final class WebGPURendererManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        // Try to initialize WebGPU if not already done
-        if !isInitialized {
-            initializeWebGPUSync()
-        }
-
         guard let device = device else {
+            // WebGPU not initialized yet
             return nil
         }
 
@@ -75,10 +108,10 @@ internal final class WebGPURendererManager: @unchecked Sendable {
         )
     }
 
-    /// Creates a renderer asynchronously.
+    /// Creates a renderer asynchronously, initializing WebGPU if needed.
     ///
-    /// This method performs async WebGPU initialization and returns
-    /// a configured renderer delegate.
+    /// This method performs async WebGPU initialization if not already done,
+    /// then returns a configured renderer delegate.
     ///
     /// - Parameters:
     ///   - width: The width of the rendering target.
@@ -89,6 +122,9 @@ internal final class WebGPURendererManager: @unchecked Sendable {
         if !isInitialized {
             await initializeWebGPU()
         }
+
+        lock.lock()
+        defer { lock.unlock() }
 
         guard let device = device else {
             return nil
@@ -105,35 +141,14 @@ internal final class WebGPURendererManager: @unchecked Sendable {
 
     // MARK: - Private Methods
 
-    /// Synchronously initializes WebGPU.
-    private func initializeWebGPUSync() {
-        guard !isInitialized else { return }
-
-        do {
-            // Get the GPU from the navigator
-            let gpu = JSObject.global.navigator.gpu
-            guard !gpu.isUndefined else {
-                initializationError = WebGPUError.notSupported
-                isInitialized = true
-                return
-            }
-
-            // Note: In synchronous context, we can't await adapter/device.
-            // This is a limitation - async initialization is preferred.
-            isInitialized = true
-        } catch {
-            initializationError = error
-            isInitialized = true
-        }
-    }
-
     /// Asynchronously initializes WebGPU.
     private func initializeWebGPU() async {
         lock.lock()
-        guard !isInitialized else {
+        if isInitialized || isInitializing {
             lock.unlock()
             return
         }
+        isInitializing = true
         lock.unlock()
 
         do {
@@ -143,6 +158,7 @@ internal final class WebGPURendererManager: @unchecked Sendable {
                 lock.lock()
                 initializationError = WebGPUError.notSupported
                 isInitialized = true
+                isInitializing = false
                 lock.unlock()
                 return
             }
@@ -155,6 +171,7 @@ internal final class WebGPURendererManager: @unchecked Sendable {
                 lock.lock()
                 initializationError = WebGPUError.adapterNotAvailable
                 isInitialized = true
+                isInitializing = false
                 lock.unlock()
                 return
             }
@@ -167,6 +184,7 @@ internal final class WebGPURendererManager: @unchecked Sendable {
                 lock.lock()
                 initializationError = WebGPUError.deviceNotAvailable
                 isInitialized = true
+                isInitializing = false
                 lock.unlock()
                 return
             }
@@ -174,12 +192,14 @@ internal final class WebGPURendererManager: @unchecked Sendable {
             lock.lock()
             self.device = GPUDevice(from: deviceJS)
             isInitialized = true
+            isInitializing = false
             lock.unlock()
 
         } catch {
             lock.lock()
             initializationError = error
             isInitialized = true
+            isInitializing = false
             lock.unlock()
         }
     }

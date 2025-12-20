@@ -160,7 +160,7 @@ public class CGContext: @unchecked Sendable {
         self.currentState.fillColorSpace = space
         self.currentState.strokeColorSpace = space
 
-        // On WASM, automatically set up the WebGPU renderer
+        // On WASM, automatically set up the WebGPU renderer if already initialized
         #if arch(wasm32)
         self.rendererDelegate = WebGPURendererManager.shared.createRenderer(
             width: width,
@@ -168,6 +168,69 @@ public class CGContext: @unchecked Sendable {
         )
         #endif
     }
+
+    #if arch(wasm32)
+    /// Creates a bitmap graphics context asynchronously with WebGPU rendering support.
+    ///
+    /// On WASM, this method ensures WebGPU is fully initialized before returning,
+    /// so the context is immediately ready for GPU-accelerated rendering.
+    ///
+    /// ```swift
+    /// let context = await CGContext.create(
+    ///     data: nil,
+    ///     width: 400,
+    ///     height: 300,
+    ///     bitsPerComponent: 8,
+    ///     bytesPerRow: 400 * 4,
+    ///     space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    ///     bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+    /// )
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - data: A pointer to the destination in memory. Pass `nil` to have the context allocate memory.
+    ///   - width: The width of the bitmap in pixels.
+    ///   - height: The height of the bitmap in pixels.
+    ///   - bitsPerComponent: The number of bits to use for each component of a pixel.
+    ///   - bytesPerRow: The number of bytes of memory to use per row of the bitmap.
+    ///   - space: The color space to use for the bitmap context.
+    ///   - bitmapInfo: Bitmap layout information.
+    /// - Returns: A new bitmap context, or `nil` if creation fails.
+    public static func create(
+        data: UnsafeMutableRawPointer?,
+        width: Int,
+        height: Int,
+        bitsPerComponent: Int,
+        bytesPerRow: Int,
+        space: CGColorSpace,
+        bitmapInfo: CGBitmapInfo
+    ) async -> CGContext? {
+        // Create the context first
+        guard let context = CGContext(
+            data: data,
+            width: width,
+            height: height,
+            bitsPerComponent: bitsPerComponent,
+            bytesPerRow: bytesPerRow,
+            space: space,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return nil
+        }
+
+        // If renderer wasn't set up (WebGPU not initialized), initialize async
+        if context.rendererDelegate == nil {
+            if let renderer = await WebGPURendererManager.shared.createRendererAsync(
+                width: width,
+                height: height
+            ) {
+                context.rendererDelegate = renderer
+            }
+        }
+
+        return context
+    }
+    #endif
 
     deinit {
         ownedBuffer?.deallocate()
@@ -223,8 +286,8 @@ public class CGContext: @unchecked Sendable {
     /// Creates an image from the contents of the context asynchronously.
     ///
     /// This method supports GPU-based rendering by calling the renderer delegate's
-    /// `makeImage` method to perform GPU readback. If no delegate is set, it falls
-    /// back to the synchronous `makeImage()` method.
+    /// `makeImage` method to perform GPU readback. On WASM, if WebGPU is not yet
+    /// initialized, this method will automatically initialize it before rendering.
     ///
     /// ## Usage Patterns
     ///
@@ -235,12 +298,24 @@ public class CGContext: @unchecked Sendable {
     /// context.setFillColor(.red)
     /// context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
     ///
-    /// // GPU readback (on WASM, renderer delegate is set automatically)
+    /// // GPU readback - WebGPU is initialized automatically if needed
     /// let image = await context.makeImageAsync()
     /// ```
     ///
     /// - Returns: A `CGImage` containing the rendered content, or `nil` if readback fails.
     public func makeImageAsync() async -> CGImage? {
+        #if arch(wasm32)
+        // On WASM, ensure WebGPU is initialized and renderer is set up
+        if rendererDelegate == nil {
+            if let renderer = await WebGPURendererManager.shared.createRendererAsync(
+                width: width,
+                height: height
+            ) {
+                self.rendererDelegate = renderer
+            }
+        }
+        #endif
+
         // If we have a delegate, try GPU readback first
         if let delegate = rendererDelegate, let colorSpace = colorSpace {
             if let image = await delegate.makeImage(width: width, height: height, colorSpace: colorSpace) {

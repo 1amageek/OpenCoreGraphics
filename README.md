@@ -105,12 +105,48 @@ context.fill(CGRect(x: -25, y: -25, width: 50, height: 50))
 context.restoreGState()
 ```
 
-### Async Image Creation (WASM)
+### WASM Usage
 
-On WASM, use `makeImageAsync()` for GPU readback:
+On WASM, OpenCoreGraphics uses WebGPU for hardware-accelerated rendering. WebGPU initialization is handled automatically.
 
+**Option 1: Standard API with async image creation**
 ```swift
+// Create context using standard CoreGraphics API
+let context = CGContext(
+    data: nil,
+    width: 400,
+    height: 300,
+    bitsPerComponent: 8,
+    bytesPerRow: 400 * 4,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+)!
+
+// Draw normally
+context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+
+// Use async for GPU readback - WebGPU is initialized automatically
 let image = await context.makeImageAsync()
+```
+
+**Option 2: Async factory method (recommended for WASM)**
+```swift
+// Creates context with WebGPU fully initialized
+let context = await CGContext.create(
+    data: nil,
+    width: 400,
+    height: 300,
+    bitsPerComponent: 8,
+    bytesPerRow: 400 * 4,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+)
+
+// Draw and get image
+context?.setFillColor(.red)
+context?.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+let image = await context?.makeImageAsync()
 ```
 
 ## Implemented Types
