@@ -33,7 +33,7 @@ import JavaScriptKit
 /// context.addRect(CGRect(x: 100, y: 100, width: 200, height: 150))
 /// context.fillPath()
 /// ```
-public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @unchecked Sendable {
+internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -58,16 +58,16 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     // MARK: - Internal Components (per ARCHITECTURE.md)
 
     /// Pipeline registry for caching and managing render pipelines
-    private var pipelineRegistry: PipelineRegistry!
+    private var pipelineRegistry: PipelineRegistry
 
     /// Texture manager for CGImage texture caching
-    private var textureManager: TextureManager!
+    private var textureManager: TextureManager
 
     /// Buffer pool for efficient vertex buffer allocation
-    private var bufferPool: BufferPool!
+    private var bufferPool: BufferPool
 
     /// Geometry cache for tessellation result caching
-    private var geometryCache: GeometryCache!
+    private var geometryCache: GeometryCache
 
     /// Sampler for texture operations
     private var linearSampler: GPUSampler?
@@ -109,13 +109,13 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     private let msaaSampleCount: Int = 4
 
     /// Viewport dimensions
-    public var viewportWidth: CGFloat {
+    var viewportWidth: CGFloat {
         didSet {
             tessellator.viewportWidth = viewportWidth
             recreateOffscreenTexturesIfNeeded()
         }
     }
-    public var viewportHeight: CGFloat {
+    var viewportHeight: CGFloat {
         didSet {
             tessellator.viewportHeight = viewportHeight
             recreateOffscreenTexturesIfNeeded()
@@ -124,6 +124,40 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
     // MARK: - Initialization
 
+    /// Creates a new context renderer using the globally initialized WebGPU device.
+    ///
+    /// **Important**: `setupGraphicsContext()` must be called before creating any CGContext.
+    /// This initializes WebGPU and stores the device globally.
+    ///
+    /// - Parameters:
+    ///   - width: Width of the viewport in pixels.
+    ///   - height: Height of the viewport in pixels.
+    init(width: Int, height: Int) {
+        // Get device from JavaScript global (set by setupGraphicsContext())
+        let deviceJS = JSObject.global.__cgDevice
+        guard !deviceJS.isUndefined && !deviceJS.isNull else {
+            fatalError("WebGPU not initialized. Call setupGraphicsContext() before using CGContext.")
+        }
+
+        let device = GPUDevice(from: deviceJS.object!)
+        self.device = device
+        self.queue = device.queue
+        self.textureFormat = .bgra8unorm
+        self.viewportWidth = CGFloat(width)
+        self.viewportHeight = CGFloat(height)
+
+        // Initialize components
+        self.tessellator = PathTessellator(
+            flatness: 0.5,
+            viewportWidth: CGFloat(width),
+            viewportHeight: CGFloat(height)
+        )
+        self.pipelineRegistry = PipelineRegistry(device: device, textureFormat: textureFormat)
+        self.textureManager = TextureManager(device: device)
+        self.bufferPool = BufferPool(device: device)
+        self.geometryCache = GeometryCache()
+    }
+
     /// Creates a new context renderer with the given WebGPU device.
     ///
     /// - Parameters:
@@ -131,7 +165,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///   - textureFormat: The texture format for the render target.
     ///   - viewportWidth: Width of the viewport in pixels.
     ///   - viewportHeight: Height of the viewport in pixels.
-    public init(
+    init(
         device: GPUDevice,
         textureFormat: GPUTextureFormat,
         viewportWidth: CGFloat = 800,
@@ -142,13 +176,13 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         self.textureFormat = textureFormat
         self.viewportWidth = viewportWidth
         self.viewportHeight = viewportHeight
+
+        // Initialize components
         self.tessellator = PathTessellator(
             flatness: 0.5,
             viewportWidth: viewportWidth,
             viewportHeight: viewportHeight
         )
-
-        // Initialize internal components (per ARCHITECTURE.md)
         self.pipelineRegistry = PipelineRegistry(device: device, textureFormat: textureFormat)
         self.textureManager = TextureManager(device: device)
         self.bufferPool = BufferPool(device: device)
@@ -158,7 +192,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     // MARK: - Setup
 
     /// Initialize rendering pipelines. Must be called before rendering.
-    public func setup() {
+    func setup() {
         // Warm up the pipeline registry (pre-creates commonly used pipelines)
         pipelineRegistry.warmUp()
 
@@ -287,33 +321,32 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
     // MARK: - Render Target
 
-    /// Whether to use internal rendering (required for makeImage support).
-    ///
-    /// When enabled, all rendering goes to an internal texture that supports GPU readback.
-    /// Call `present()` to copy the internal texture to the external render target.
-    /// Default is `false` for backward compatibility.
-    public var useInternalRendering: Bool = false
-
     /// Set the render target texture view.
     ///
-    /// - Parameter textureView: The texture view to render to.
-    public func setRenderTarget(_ textureView: GPUTextureView?) {
+    /// When set, rendering goes directly to the external target (e.g., canvas).
+    /// When `nil`, rendering uses an internal texture that supports GPU readback
+    /// via `makeImageAsync()`.
+    ///
+    /// - Parameter textureView: The texture view to render to, or `nil` for internal rendering.
+    func setRenderTarget(_ textureView: GPUTextureView?) {
         self.renderTarget = textureView
     }
 
-    /// Gets the effective render target based on rendering mode.
+    /// Gets the effective render target.
     ///
-    /// When `useInternalRendering` is true, returns the internal texture view.
-    /// Otherwise, returns the external render target.
+    /// If an external render target is set, returns it.
+    /// Otherwise, returns the internal texture (for GPU readback support).
     private var effectiveRenderTarget: GPUTextureView? {
-        if useInternalRendering {
-            // Ensure internal texture is created
-            if internalRenderTextureView == nil {
-                recreateOffscreenTexturesIfNeeded()
-            }
-            return internalRenderTextureView
+        // If external target is set, use it
+        if let target = renderTarget {
+            return target
         }
-        return renderTarget
+
+        // Otherwise, fallback to internal texture
+        if internalRenderTextureView == nil {
+            recreateOffscreenTexturesIfNeeded()
+        }
+        return internalRenderTextureView
     }
 
     // MARK: - Frame Management
@@ -322,13 +355,13 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///
     /// Call this at the start of each frame to reset internal buffers.
     /// This advances the BufferPool's ring buffer to prevent GPU/CPU conflicts.
-    public func beginFrame() {
+    func beginFrame() {
         bufferPool.advanceFrame()
     }
 
     // MARK: - CGContextRendererDelegate
 
-    public func fill(
+    func fill(
         path: CGPath,
         color: CGColor,
         alpha: CGFloat,
@@ -350,7 +383,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         renderBatch(batch, to: target, pipeline: pipeline)
     }
 
-    public func stroke(
+    func stroke(
         path: CGPath,
         color: CGColor,
         lineWidth: CGFloat,
@@ -387,7 +420,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         renderBatch(batch, to: target, pipeline: pipeline)
     }
 
-    public func clear(rect: CGRect) {
+    func clear(rect: CGRect) {
         guard let target = effectiveRenderTarget,
               let pipeline = getPipeline(for: .copy) else { return }
 
@@ -418,7 +451,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///   - alpha: The global alpha value.
     ///   - blendMode: The blend mode for compositing.
     ///   - interpolationQuality: The interpolation quality for scaling.
-    public func draw(
+    func draw(
         image: CGImage,
         in rect: CGRect,
         alpha: CGFloat,
@@ -478,7 +511,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         queue.submit([encoder.finish()])
     }
 
-    public func drawLinearGradient(
+    func drawLinearGradient(
         _ gradient: CGGradient,
         start: CGPoint,
         end: CGPoint,
@@ -500,7 +533,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         renderBatch(batch, to: target, pipeline: pipeline)
     }
 
-    public func drawRadialGradient(
+    func drawRadialGradient(
         _ gradient: CGGradient,
         startCenter: CGPoint,
         startRadius: CGFloat,
@@ -528,7 +561,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
     // MARK: - CGContextStatefulRendererDelegate
 
-    public func fill(
+    func fill(
         path: CGPath,
         color: CGColor,
         alpha: CGFloat,
@@ -589,7 +622,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         }
     }
 
-    public func stroke(
+    func stroke(
         path: CGPath,
         color: CGColor,
         lineWidth: CGFloat,
@@ -666,7 +699,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         }
     }
 
-    public func clear(rect: CGRect, state: CGDrawingState) {
+    func clear(rect: CGRect, state: CGDrawingState) {
         guard let target = effectiveRenderTarget else { return }
 
         // Create a rectangle path for the clear area
@@ -690,7 +723,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     /// Draws an image in the specified rectangle with full drawing state.
     ///
     /// Supports texture-based rendering with clipping and shadow effects.
-    public func draw(
+    func draw(
         image: CGImage,
         in rect: CGRect,
         alpha: CGFloat,
@@ -781,7 +814,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         queue.submit([encoder.finish()])
     }
 
-    public func drawLinearGradient(
+    func drawLinearGradient(
         _ gradient: CGGradient,
         start: CGPoint,
         end: CGPoint,
@@ -811,7 +844,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         }
     }
 
-    public func drawRadialGradient(
+    func drawRadialGradient(
         _ gradient: CGGradient,
         startCenter: CGPoint,
         startRadius: CGFloat,
@@ -847,7 +880,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
 
     // MARK: - Shading Drawing
 
-    public func drawShading(
+    func drawShading(
         _ shading: CGShading,
         alpha: CGFloat,
         blendMode: CGBlendMode
@@ -1326,7 +1359,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///   A full implementation would require either:
     ///   1. A software rasterizer in CGContext
     ///   2. GPU-based pattern tiling using the pattern's bounds, xStep, yStep properties
-    public func fillWithPattern(
+    func fillWithPattern(
         path: CGPath,
         pattern: CGPattern,
         patternSpace: CGColorSpace,
@@ -1380,7 +1413,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     /// Strokes a path with a pattern.
     ///
     /// Uses GPU-based pattern tiling for efficient rendering.
-    public func strokeWithPattern(
+    func strokeWithPattern(
         path: CGPath,
         pattern: CGPattern,
         patternSpace: CGColorSpace,
@@ -2199,7 +2232,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///   - height: The height of the image in pixels.
     ///   - colorSpace: The color space for the resulting image.
     /// - Returns: A CGImage containing the rendered content, or nil if readback fails.
-    public func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
+    func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
         guard let texture = internalRenderTexture else {
             return nil
         }
@@ -2385,7 +2418,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///
     /// Call this method after all drawing operations are complete to copy
     /// the rendered content from the internal texture to the external canvas texture.
-    public func present() {
+    func present() {
         guard let internalView = internalRenderTextureView,
               let externalTarget = renderTarget else {
             return
@@ -2458,7 +2491,7 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     ///
     /// Use this when you want to render directly to the internal texture
     /// instead of the external render target.
-    public func getInternalRenderTarget() -> GPUTextureView? {
+    func getInternalRenderTarget() -> GPUTextureView? {
         // Ensure textures are created
         if internalRenderTextureView == nil {
             recreateOffscreenTexturesIfNeeded()

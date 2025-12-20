@@ -23,24 +23,22 @@ delegate パターンにより、`makeImage()` は内部 bitmap バッファを�
 1. `CGContext.makeImageAsync()` を追加 - 非同期で delegate の `makeImage()` を呼び出す
 2. `CGContextRendererDelegate.makeImage(width:height:colorSpace:)` を追加
 3. `CGWebGPUContextRenderer` に GPU readback を実装
-4. `useInternalRendering = true` を設定し、`present()` で画面に表示
+4. 外部レンダーターゲットがない場合、自動的に内部テクスチャに描画
 
 **使用例**:
 ```swift
-let renderer = CGWebGPUContextRenderer(...)
-renderer.useInternalRendering = true  // GPU readback を有効化
+// WebGPU 初期化
+try await setupGraphicsContext()
 
-let context = CGContext(...)
-context.rendererDelegate = renderer
+// CGContext を作成（レンダラーは内部で自動設定）
+let context = CGContext(...)!
 
 // 描画
+context.setFillColor(.red)
 context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
 
 // GPU からの読み取り
 let image = await context.makeImageAsync()
-
-// 画面に表示
-renderer.present()
 ```
 
 ---
@@ -178,7 +176,7 @@ GPU readback を実装：
 - ステージングバッファへのテクスチャコピー
 - 非同期バッファマッピングとピクセルデータ読み取り
 - BGRA → RGBA 変換と CGImage 作成
-- `useInternalRendering` フラグと `present()` メソッド
+- 外部ターゲット未設定時の自動フォールバック
 - `CGContext.makeImageAsync()` 非同期 API
 
 ## 今後の改善点

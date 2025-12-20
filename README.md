@@ -107,47 +107,60 @@ context.restoreGState()
 
 ### WASM Usage
 
-On WASM, OpenCoreGraphics uses WebGPU for hardware-accelerated rendering. WebGPU initialization is handled automatically.
+On WASM, OpenCoreGraphics uses WebGPU for hardware-accelerated rendering. Call `setupGraphicsContext()` once at application startup to initialize WebGPU.
 
-**Option 1: Standard API with async image creation**
 ```swift
-// Create context using standard CoreGraphics API
-let context = CGContext(
-    data: nil,
-    width: 400,
-    height: 300,
-    bitsPerComponent: 8,
-    bytesPerRow: 400 * 4,
-    space: CGColorSpace(name: CGColorSpace.sRGB)!,
-    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-)!
+import OpenCoreGraphics
 
-// Draw normally
-context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
-context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+@main
+struct MyApp {
+    static func main() async throws {
+        // Initialize WebGPU (call once at startup)
+        try await setupGraphicsContext()
 
-// Use async for GPU readback - WebGPU is initialized automatically
-let image = await context.makeImageAsync()
+        // Now use CGContext normally
+        let context = CGContext(
+            data: nil,
+            width: 400,
+            height: 300,
+            bitsPerComponent: 8,
+            bytesPerRow: 400 * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        )!
+
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+
+        // GPU readback
+        let image = await context.makeImageAsync()
+    }
+}
 ```
 
-**Option 2: Async factory method (recommended for WASM)**
-```swift
-// Creates context with WebGPU fully initialized
-let context = await CGContext.create(
-    data: nil,
-    width: 400,
-    height: 300,
-    bitsPerComponent: 8,
-    bytesPerRow: 400 * 4,
-    space: CGColorSpace(name: CGColorSpace.sRGB)!,
-    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-)
+#### Error Handling
 
-// Draw and get image
-context?.setFillColor(.red)
-context?.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
-let image = await context?.makeImageAsync()
+`setupGraphicsContext()` throws `GraphicsContextError` if initialization fails:
+
+```swift
+do {
+    try await setupGraphicsContext()
+} catch GraphicsContextError.webGPUNotSupported {
+    // Browser doesn't support WebGPU
+} catch GraphicsContextError.adapterNotAvailable {
+    // Failed to get WebGPU adapter
+} catch GraphicsContextError.deviceNotAvailable {
+    // Failed to get WebGPU device
+}
 ```
+
+#### Browser Requirements
+
+WebGPU is required for WASM rendering. Supported browsers:
+- Chrome 113+
+- Edge 113+
+- Firefox 139+ (with flags)
+- Safari 18+ (macOS Sequoia / iOS 18)
 
 ## Implemented Types
 

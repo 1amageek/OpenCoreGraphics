@@ -13,7 +13,7 @@ import Foundation
 ///
 /// This structure provides renderers with all the context state needed to properly
 /// render drawing operations, including clipping, shadows, and transformations.
-public struct CGDrawingState: Sendable {
+internal struct CGDrawingState: Sendable {
 
     /// The current clipping paths.
     ///
@@ -24,16 +24,16 @@ public struct CGDrawingState: Sendable {
     /// For GPU renderers, this typically means:
     /// - Render each clip path to a stencil buffer
     /// - Use stencil test to restrict drawing to the intersection
-    public var clipPaths: [CGPath]
+    var clipPaths: [CGPath]
 
     /// Convenience property for backward compatibility.
     /// Returns the first clip path, or nil if no clipping is active.
-    public var clipPath: CGPath? {
+    var clipPath: CGPath? {
         return clipPaths.first
     }
 
     /// Returns whether any clipping is active.
-    public var hasClipping: Bool {
+    var hasClipping: Bool {
         return !clipPaths.isEmpty
     }
 
@@ -41,22 +41,22 @@ public struct CGDrawingState: Sendable {
     ///
     /// This is provided for operations that need to apply CTM to coordinates.
     /// Note: For path-based operations, the path is already transformed.
-    public var ctm: CGAffineTransform
+    var ctm: CGAffineTransform
 
     /// The shadow offset in user space.
-    public var shadowOffset: CGSize
+    var shadowOffset: CGSize
 
     /// The blur radius of the shadow.
-    public var shadowBlur: CGFloat
+    var shadowBlur: CGFloat
 
     /// The shadow color, or nil if no shadow.
-    public var shadowColor: CGColor?
+    var shadowColor: CGColor?
 
     /// Whether anti-aliasing should be applied.
-    public var shouldAntialias: Bool
+    var shouldAntialias: Bool
 
     /// Creates a drawing state with default values (no clipping, no shadow, identity CTM).
-    public init() {
+    init() {
         self.clipPaths = []
         self.ctm = .identity
         self.shadowOffset = .zero
@@ -66,7 +66,7 @@ public struct CGDrawingState: Sendable {
     }
 
     /// Creates a drawing state with the specified values.
-    public init(
+    init(
         clipPaths: [CGPath],
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
@@ -83,7 +83,7 @@ public struct CGDrawingState: Sendable {
     }
 
     /// Creates a drawing state with a single clip path (convenience initializer).
-    public init(
+    init(
         clipPath: CGPath?,
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
@@ -100,7 +100,7 @@ public struct CGDrawingState: Sendable {
     }
 
     /// Returns whether a shadow should be drawn.
-    public var hasShadow: Bool {
+    var hasShadow: Bool {
         return shadowColor != nil && (shadowOffset != .zero || shadowBlur > 0)
     }
 }
@@ -129,7 +129,7 @@ public struct CGDrawingState: Sendable {
 ///     // ... implement other methods
 /// }
 /// ```
-public protocol CGContextRendererDelegate: AnyObject, Sendable {
+internal protocol CGContextRendererDelegate: AnyObject, Sendable {
 
     // MARK: - Path Drawing
 
@@ -493,7 +493,7 @@ extension CGContextRendererDelegate {
 ///     }
 /// }
 /// ```
-public protocol CGContextStatefulRendererDelegate: CGContextRendererDelegate {
+internal protocol CGContextStatefulRendererDelegate: CGContextRendererDelegate {
 
     // MARK: - Stateful Path Drawing
 

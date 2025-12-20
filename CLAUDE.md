@@ -123,7 +123,8 @@ let image = context.makeImage()  // WASMでもネイティブでも動作
 │  │  • グラデーション・シェーディング                                  │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
-│  ※ WebGPUレンダラーは内部で自動設定される（ユーザーは意識しない）       │
+│  ※ setupGraphicsContext() 呼び出し後、レンダラーは内部で自動設定される  │
+│   （ユーザーはレンダラーを意識する必要なし）                             │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -131,7 +132,7 @@ let image = context.makeImage()  // WASMでもネイティブでも動作
 | 環境 | CoreGraphics | OpenCoreGraphics | レンダリング |
 |------|--------------|------------------|-------------|
 | **macOS/iOS** | ✅ システム提供 | ❌ 使用しない | Apple Quartz 2D |
-| **WASM** | ❌ 存在しない | ✅ 使用する | WebGPU (内部で自動設定) |
+| **WASM** | ❌ 存在しない | ✅ 使用する | WebGPU (setupGraphicsContext()後に自動設定) |
 
 **重要**: OpenCoreGraphics のコードは `#if !canImport(CoreGraphics)` で囲まれており、ネイティブ環境ではコンパイルされません。
 
@@ -148,8 +149,7 @@ Sources/OpenCoreGraphics/
 │
 └── Rendering/                   # WASM専用 (#if arch(wasm32))
     └── WebGPU/
-        ├── WebGPURendererManager.swift  # internal - レンダラーライフサイクル管理
-        ├── CGWebGPUContextRenderer.swift
+        ├── CGWebGPUContextRenderer.swift  # WebGPUレンダラー実装
         ├── PathTessellator.swift
         ├── EarClipping.swift
         ├── StrokeGenerator.swift
@@ -160,33 +160,59 @@ Sources/OpenCoreGraphics/
             └── ...
 ```
 
-### 内部レンダラー設定
+### WebGPU初期化
 
-`CGContext` の初期化時に、WASMアーキテクチャでは自動的にWebGPUレンダラーが設定されます。
+WebGPUの初期化は非同期処理が必要なため、アプリケーション起動時に `setupGraphicsContext()` を呼び出す必要があります。
 
 ```swift
-// CGContext.swift (内部実装)
-public final class CGContext {
+// ユーザーコード
+@main
+struct MyApp {
+    static func main() async throws {
+        // WebGPUを初期化（起動時に1回呼び出す）
+        try await setupGraphicsContext()
 
-    // internal - ユーザーには公開しない
-    weak var rendererDelegate: CGContextRendererDelegate?
+        // 以降、CGContextは通常通り使用可能
+        let context = CGContext(...)!
+        context.setFillColor(.red)
+        context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
 
-    public init?(data: UnsafeMutableRawPointer?, width: Int, height: Int, ...) {
-        // 既存の初期化コード
-        ...
-
-        // WASMでは自動的にWebGPUレンダラーを設定
-        #if arch(wasm32)
-        self.rendererDelegate = WebGPURendererManager.shared.createRenderer(
-            width: width,
-            height: height
-        )
-        #endif
+        let image = await context.makeImageAsync()
     }
 }
 ```
 
-**重要**: `rendererDelegate` は `internal` です。ユーザーがレンダラーを意識したり設定したりする必要はありません。
+### 内部実装
+
+`setupGraphicsContext()` はWebGPUのアダプターとデバイスを取得し、グローバル変数に保存します。
+`CGContext` の初期化時に、このデバイスを使用してレンダラーが自動設定されます。
+
+```swift
+// OpenCoreGraphics.swift (公開API)
+public func setupGraphicsContext() async throws {
+    let gpu = JSObject.global.navigator.gpu
+    let adapter = try await JSPromise(gpu.requestAdapter().object!)!.value
+    let device = try await JSPromise(adapter.requestDevice().object!)!.value
+    JSObject.global.__cgDevice = device
+}
+
+// CGContext.swift (内部実装)
+public init?(data: UnsafeMutableRawPointer?, width: Int, height: Int, ...) {
+    // 既存の初期化コード
+    ...
+
+    // WASMでは常にWebGPUレンダラーを設定
+    #if arch(wasm32)
+    let renderer = CGWebGPUContextRenderer(width: width, height: height)
+    renderer.setup()
+    self.rendererDelegate = renderer
+    #endif
+}
+```
+
+**重要**:
+- `rendererDelegate` は `internal` です。ユーザーがレンダラーを意識したり設定したりする必要はありません。
+- `setupGraphicsContext()` を呼び出さずに `CGContext` を作成すると `fatalError` が発生します。
 
 ### Platform Differences: Foundation, CoreGraphics, and swift-corelibs-foundation
 
@@ -663,21 +689,33 @@ OpenCoreGraphics uses a delegate pattern for rendering internally. All drawing o
 
 #### Key Design Decisions
 
-1. **レンダラーは内部で自動設定される**
+1. **レンダラーは内部で自動設定される（非オプショナル）**
    - `CGContext.init()` 内で `#if arch(wasm32)` により自動的に設定
    - ユーザーはレンダラーを意識しない
    - `rendererDelegate` は `internal` アクセス修飾子
+   - **WASMでは非オプショナル** - nilになることはない
 
-2. **CGContext does NOT render directly to pixels**
+2. **コマンドバッファリングによる遅延初期化**
+   - WebGPU初期化は非同期だが、CGContext.init()は同期
+   - `CGWebGPUContextRenderer`は内部でコマンドをバッファリング
+   - `makeImageAsync()`呼び出し時にWebGPUを初期化し、バッファをフラッシュ
+
+   ```
+   CGContext.init()     → CGWebGPUContextRenderer作成（デバイスなし）
+   fill(), stroke()     → コマンドをバッファに記録
+   makeImageAsync()     → WebGPU初期化 → バッファのコマンドを実行 → 画像返却
+   ```
+
+3. **CGContext does NOT render directly to pixels**
    - The internal `data` buffer is NOT updated by drawing operations
    - All rendering is delegated to `rendererDelegate`
    - Use `makeImageAsync()` for GPU readback
 
-3. **Two delegate protocols (internal)**
+4. **Two delegate protocols (internal)**
    - `CGContextRendererDelegate`: Basic protocol with essential drawing methods
    - `CGContextStatefulRendererDelegate`: Extended protocol with full state (clip paths, shadows)
 
-4. **State is passed to delegates**
+5. **State is passed to delegates**
    - CTM is applied to paths/coordinates before delegation
    - Clip paths are passed as an array (for intersection)
    - Shadow parameters are included in `CGDrawingState`
