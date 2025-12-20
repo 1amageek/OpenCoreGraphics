@@ -45,9 +45,23 @@ public struct PathTessellator: Sendable {
 
     // MARK: - Path Flattening
 
+    /// Represents a flattened subpath with closure information
+    public struct FlattenedSubpath {
+        public let points: [CGPoint]
+        public let isClosed: Bool
+    }
+
     /// Flatten a path into line segments (converts curves to lines)
+    /// Returns subpaths without closure information (for backward compatibility)
     public func flattenPath(_ path: CGPath) -> [[CGPoint]] {
-        var subpaths: [[CGPoint]] = []
+        return flattenPathWithInfo(path).map { $0.points }
+    }
+
+    /// Flatten a path into line segments with closure information
+    /// - Parameter path: The path to flatten
+    /// - Returns: Array of FlattenedSubpath containing points and whether the subpath was closed
+    public func flattenPathWithInfo(_ path: CGPath) -> [FlattenedSubpath] {
+        var subpaths: [FlattenedSubpath] = []
         var currentSubpath: [CGPoint] = []
         var currentPoint = CGPoint.zero
         var subpathStart = CGPoint.zero
@@ -59,7 +73,7 @@ public struct PathTessellator: Sendable {
             switch type {
             case .moveToPoint:
                 if !currentSubpath.isEmpty {
-                    subpaths.append(currentSubpath)
+                    subpaths.append(FlattenedSubpath(points: currentSubpath, isClosed: false))
                 }
                 currentSubpath = []
                 if let points = points {
@@ -107,8 +121,13 @@ public struct PathTessellator: Sendable {
                 }
 
             case .closeSubpath:
-                if currentPoint != subpathStart {
+                // For closed subpaths, add the start point back to create the closing segment
+                // This is needed for stroke tessellation to draw the closing line
+                if !currentSubpath.isEmpty {
+                    // Add start point to close the path (for stroke tessellation)
                     currentSubpath.append(subpathStart)
+                    subpaths.append(FlattenedSubpath(points: currentSubpath, isClosed: true))
+                    currentSubpath = []
                 }
                 currentPoint = subpathStart
 
@@ -118,7 +137,7 @@ public struct PathTessellator: Sendable {
         }
 
         if !currentSubpath.isEmpty {
-            subpaths.append(currentSubpath)
+            subpaths.append(FlattenedSubpath(points: currentSubpath, isClosed: false))
         }
 
         return subpaths
@@ -193,17 +212,95 @@ public struct PathTessellator: Sendable {
         return hypot(point.x - projX, point.y - projY)
     }
 
+    /// Calculate miter offset for stroke corners
+    /// - Parameters:
+    ///   - n1: Normal of incoming segment (unit vector)
+    ///   - n2: Normal of outgoing segment (unit vector)
+    ///   - halfWidth: Half of line width
+    ///   - miterLimit: Maximum miter length ratio
+    /// - Returns: Outer and inner offset vectors, or nil if segments are parallel
+    private func calculateMiterOffset(
+        n1: (CGFloat, CGFloat),
+        n2: (CGFloat, CGFloat),
+        halfWidth: CGFloat,
+        miterLimit: CGFloat
+    ) -> (outer: CGVector, inner: CGVector)? {
+        // Calculate the bisector of the two normals
+        let bisectorX = n1.0 + n2.0
+        let bisectorY = n1.1 + n2.1
+        let bisectorLen = hypot(bisectorX, bisectorY)
+
+        // If normals are opposite (180° turn), use simple offset
+        if bisectorLen < 0.001 {
+            return (
+                outer: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
+                inner: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
+            )
+        }
+
+        // Normalized bisector
+        let bx = bisectorX / bisectorLen
+        let by = bisectorY / bisectorLen
+
+        // Calculate the dot product to find the angle
+        let dot = n1.0 * n2.0 + n1.1 * n2.1  // cos(angle between normals)
+
+        // Miter length = halfWidth / cos(angle/2)
+        // cos(angle/2) = sqrt((1 + cos(angle)) / 2) = sqrt((1 + dot) / 2)
+        let cosHalfAngle = sqrt((1 + dot) / 2)
+
+        if cosHalfAngle < 0.001 {
+            // Very sharp angle, fallback to simple offset
+            return (
+                outer: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
+                inner: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
+            )
+        }
+
+        var miterLen = halfWidth / cosHalfAngle
+
+        // Apply miter limit
+        if miterLen > halfWidth * miterLimit {
+            miterLen = halfWidth * miterLimit
+        }
+
+        // Determine which side is outer (positive cross product = left turn = outer is on + side)
+        let cross = n1.0 * n2.1 - n1.1 * n2.0
+
+        if cross >= 0 {
+            // Left turn: outer is along positive bisector
+            return (
+                outer: CGVector(dx: bx * miterLen, dy: by * miterLen),
+                inner: CGVector(dx: -bx * halfWidth, dy: -by * halfWidth)
+            )
+        } else {
+            // Right turn: outer is along negative bisector
+            return (
+                outer: CGVector(dx: -bx * miterLen, dy: -by * miterLen),
+                inner: CGVector(dx: bx * halfWidth, dy: by * halfWidth)
+            )
+        }
+    }
+
     // MARK: - Triangulation
 
     /// Tessellate a path for filling (converts polygon to triangles)
     public func tessellateFill(_ path: CGPath, color: CGColor) -> CGWebGPUVertexBatch {
-        let subpaths = flattenPath(path)
+        let flattenedSubpaths = flattenPathWithInfo(path)
         var vertices: [CGWebGPUVertex] = []
 
         // Extract color components
         let (r, g, b, a) = extractColorComponents(color)
 
-        for subpath in subpaths {
+        for flattenedSubpath in flattenedSubpaths {
+            var subpath = flattenedSubpath.points
+
+            // For closed paths, remove the duplicate end point before triangulation
+            // Ear clipping already treats the polygon as closed (uses modulo wrap-around)
+            if flattenedSubpath.isClosed && subpath.count > 1 {
+                subpath.removeLast()
+            }
+
             guard subpath.count >= 3 else { continue }
 
             // Simple ear-clipping triangulation for convex and simple concave polygons
@@ -235,36 +332,103 @@ public struct PathTessellator: Sendable {
         lineJoin: StrokeGenerator.LineJoin = .miter,
         miterLimit: CGFloat = 10
     ) -> CGWebGPUVertexBatch {
-        let subpaths = flattenPath(path)
+        let flattenedSubpaths = flattenPathWithInfo(path)
         var vertices: [CGWebGPUVertex] = []
 
         let (r, g, b, a) = extractColorComponents(color)
         let halfWidth = lineWidth / 2
 
-        for subpath in subpaths {
+        for flattenedSubpath in flattenedSubpaths {
+            let subpath = flattenedSubpath.points
             guard subpath.count >= 2 else { continue }
 
-            // Check if path is closed
-            let isClosed = subpath.first == subpath.last && subpath.count > 2
+            // Use the explicit closure information from flattenPathWithInfo
+            let isClosed = flattenedSubpath.isClosed
 
-            for i in 0..<(subpath.count - 1) {
+            // For closed paths, the points array includes start point at the end: [p0, p1, p2, p3, p0]
+            // So we draw subpath.count - 1 segments (same as open paths)
+            let segmentCount = subpath.count - 1
+
+            // Pre-calculate normals for each segment
+            var segmentNormals: [(nx: CGFloat, ny: CGFloat, length: CGFloat)] = []
+            for i in 0..<segmentCount {
                 let p0 = subpath[i]
                 let p1 = subpath[i + 1]
-
-                // Calculate direction
                 let dx = p1.x - p0.x
                 let dy = p1.y - p0.y
                 let length = hypot(dx, dy)
-                guard length > 0 else { continue }
+                if length > 0 {
+                    let nx = -dy / length
+                    let ny = dx / length
+                    segmentNormals.append((nx, ny, length))
+                } else {
+                    segmentNormals.append((0, 0, 0))
+                }
+            }
 
-                let nx = -dy / length * halfWidth
-                let ny = dx / length * halfWidth
+            for i in 0..<segmentCount {
+                guard segmentNormals[i].length > 0 else { continue }
 
-                // Create quad (2 triangles) for line segment
-                let v0 = CGPoint(x: p0.x + nx, y: p0.y + ny)
-                let v1 = CGPoint(x: p0.x - nx, y: p0.y - ny)
-                let v2 = CGPoint(x: p1.x + nx, y: p1.y + ny)
-                let v3 = CGPoint(x: p1.x - nx, y: p1.y - ny)
+                let p0 = subpath[i]
+                let p1 = subpath[i + 1]
+                let nx = segmentNormals[i].nx * halfWidth
+                let ny = segmentNormals[i].ny * halfWidth
+
+                // Calculate adjusted corner vertices for proper miter joins
+                // Start point (p0) adjustments
+                var v0 = CGPoint(x: p0.x + nx, y: p0.y + ny)  // outer at start
+                var v1 = CGPoint(x: p0.x - nx, y: p0.y - ny)  // inner at start
+
+                // End point (p1) adjustments
+                var v2 = CGPoint(x: p1.x + nx, y: p1.y + ny)  // outer at end
+                var v3 = CGPoint(x: p1.x - nx, y: p1.y - ny)  // inner at end
+
+                // For closed paths or intermediate points, adjust vertices at joins
+                // Adjust start vertices based on previous segment
+                let hasPrevSegment = isClosed || i > 0
+                if hasPrevSegment {
+                    let prevIdx = isClosed ? (i - 1 + segmentCount) % segmentCount : i - 1
+                    if prevIdx >= 0 && segmentNormals[prevIdx].length > 0 {
+                        let prevNx = segmentNormals[prevIdx].nx
+                        let prevNy = segmentNormals[prevIdx].ny
+                        let currNx = segmentNormals[i].nx
+                        let currNy = segmentNormals[i].ny
+
+                        // Calculate miter at start point
+                        if let miter = calculateMiterOffset(
+                            n1: (prevNx, prevNy),
+                            n2: (currNx, currNy),
+                            halfWidth: halfWidth,
+                            miterLimit: miterLimit
+                        ) {
+                            v0 = CGPoint(x: p0.x + miter.outer.dx, y: p0.y + miter.outer.dy)
+                            v1 = CGPoint(x: p0.x + miter.inner.dx, y: p0.y + miter.inner.dy)
+                        }
+                    }
+                }
+
+                // Adjust end vertices based on next segment
+                let hasNextSegment = isClosed || i < segmentCount - 1
+                if hasNextSegment {
+                    let nextIdx = (i + 1) % segmentCount
+                    if segmentNormals[nextIdx].length > 0 {
+                        let currNx = segmentNormals[i].nx
+                        let currNy = segmentNormals[i].ny
+                        let nextNx = segmentNormals[nextIdx].nx
+                        let nextNy = segmentNormals[nextIdx].ny
+
+                        // Calculate miter at end point
+                        if let miter = calculateMiterOffset(
+                            n1: (currNx, currNy),
+                            n2: (nextNx, nextNy),
+                            halfWidth: halfWidth,
+                            miterLimit: miterLimit
+                        ) {
+                            v2 = CGPoint(x: p1.x + miter.outer.dx, y: p1.y + miter.outer.dy)
+                            v3 = CGPoint(x: p1.x + miter.inner.dx, y: p1.y + miter.inner.dy)
+                        }
+                    }
+                }
 
                 // Triangle 1: v0, v1, v2
                 let (x0, y0) = toNDC(v0)
@@ -280,34 +444,6 @@ public struct PathTessellator: Sendable {
                 vertices.append(CGWebGPUVertex(x: x1, y: y1, r: r, g: g, b: b, a: a))
                 vertices.append(CGWebGPUVertex(x: x3, y: y3, r: r, g: g, b: b, a: a))
                 vertices.append(CGWebGPUVertex(x: x2, y: y2, r: r, g: g, b: b, a: a))
-
-                // Generate line join (if not at the end, or if closed)
-                if i < subpath.count - 2 || (isClosed && i == subpath.count - 2) {
-                    let nextIndex = (i + 2) % subpath.count
-                    let p2 = subpath[nextIndex]
-
-                    let incoming = CGVector(dx: dx / length, dy: dy / length)
-                    let outDx = p2.x - p1.x
-                    let outDy = p2.y - p1.y
-                    let outLen = hypot(outDx, outDy)
-
-                    if outLen > 0 {
-                        let outgoing = CGVector(dx: outDx / outLen, dy: outDy / outLen)
-                        let joinPoints = strokeGenerator.generateJoin(
-                            at: p1,
-                            incoming: incoming,
-                            outgoing: outgoing,
-                            halfWidth: halfWidth,
-                            style: lineJoin,
-                            miterLimit: miterLimit
-                        )
-
-                        for point in joinPoints {
-                            let (px, py) = toNDC(point)
-                            vertices.append(CGWebGPUVertex(x: px, y: py, r: r, g: g, b: b, a: a))
-                        }
-                    }
-                }
             }
 
             // Generate line caps (only for open paths)
