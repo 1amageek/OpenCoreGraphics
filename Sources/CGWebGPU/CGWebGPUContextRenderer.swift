@@ -100,6 +100,19 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
     /// Blit pipeline for copying internal texture to external target
     private var blitPipeline: GPURenderPipeline?
 
+    // MARK: - MSAA (Multi-Sample Anti-Aliasing) Textures
+
+    /// MSAA render texture (multisampled)
+    private var msaaRenderTexture: GPUTexture?
+    private var msaaRenderTextureView: GPUTextureView?
+
+    /// MSAA stencil texture (multisampled)
+    private var msaaStencilTexture: GPUTexture?
+    private var msaaStencilTextureView: GPUTextureView?
+
+    /// Sample count for MSAA. 1 = no MSAA, 4 = 4x MSAA.
+    private let msaaSampleCount: Int = 4
+
     /// Viewport dimensions
     public var viewportWidth: CGFloat {
         didSet {
@@ -213,6 +226,26 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             label: "CGWebGPU Blur Intermediate Texture"
         ))
         blurIntermediateTextureView = blurIntermediateTexture?.createView()
+
+        // Create MSAA render texture (multisampled)
+        msaaRenderTexture = device.createTexture(descriptor: GPUTextureDescriptor(
+            size: GPUExtent3D(width: width, height: height),
+            format: textureFormat,
+            usage: [.renderAttachment],
+            sampleCount: UInt32(msaaSampleCount),
+            label: "CGWebGPU MSAA Render Texture"
+        ))
+        msaaRenderTextureView = msaaRenderTexture?.createView()
+
+        // Create MSAA stencil texture (multisampled)
+        msaaStencilTexture = device.createTexture(descriptor: GPUTextureDescriptor(
+            size: GPUExtent3D(width: width, height: height),
+            format: depthStencilFormat,
+            usage: [.renderAttachment],
+            sampleCount: UInt32(msaaSampleCount),
+            label: "CGWebGPU MSAA Stencil Texture"
+        ))
+        msaaStencilTextureView = msaaStencilTexture?.createView()
     }
 
     // MARK: - Pipeline Access (via PipelineRegistry)
@@ -529,13 +562,35 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             )
         }
 
-        // Check if clipping is needed
-        if state.hasClipping {
-            guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
-            renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+        // Check if anti-aliasing (MSAA) is requested
+        if state.shouldAntialias {
+            // Use MSAA pipeline
+            pipelineRegistry.setSampleCount(msaaSampleCount)
+
+            if state.hasClipping {
+                guard let clippedPipeline = getClippedPipeline(for: blendMode) else {
+                    pipelineRegistry.setSampleCount(1)
+                    return
+                }
+                renderBatchWithMSAAAndClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+            } else {
+                guard let pipeline = getPipeline(for: blendMode) else {
+                    pipelineRegistry.setSampleCount(1)
+                    return
+                }
+                renderBatchWithMSAA(batch, to: target, pipeline: pipeline)
+            }
+
+            pipelineRegistry.setSampleCount(1)
         } else {
-            guard let pipeline = getPipeline(for: blendMode) else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
+            // Use non-MSAA pipeline
+            if state.hasClipping {
+                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
+                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+            } else {
+                guard let pipeline = getPipeline(for: blendMode) else { return }
+                renderBatch(batch, to: target, pipeline: pipeline)
+            }
         }
     }
 
@@ -584,13 +639,35 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
             )
         }
 
-        // Check if clipping is needed
-        if state.hasClipping {
-            guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
-            renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+        // Check if anti-aliasing (MSAA) is requested
+        if state.shouldAntialias {
+            // Use MSAA pipeline
+            pipelineRegistry.setSampleCount(msaaSampleCount)
+
+            if state.hasClipping {
+                guard let clippedPipeline = getClippedPipeline(for: blendMode) else {
+                    pipelineRegistry.setSampleCount(1)
+                    return
+                }
+                renderBatchWithMSAAAndClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+            } else {
+                guard let pipeline = getPipeline(for: blendMode) else {
+                    pipelineRegistry.setSampleCount(1)
+                    return
+                }
+                renderBatchWithMSAA(batch, to: target, pipeline: pipeline)
+            }
+
+            pipelineRegistry.setSampleCount(1)
         } else {
-            guard let pipeline = getPipeline(for: blendMode) else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
+            // Use non-MSAA pipeline
+            if state.hasClipping {
+                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
+                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+            } else {
+                guard let pipeline = getPipeline(for: blendMode) else { return }
+                renderBatch(batch, to: target, pipeline: pipeline)
+            }
         }
     }
 
@@ -1397,6 +1474,151 @@ public final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @
         renderPass.end()
 
         queue.submit([encoder.finish()])
+    }
+
+    /// Renders a batch with MSAA (multi-sample anti-aliasing).
+    ///
+    /// This method:
+    /// 1. Renders to the MSAA texture (multisampled)
+    /// 2. Automatically resolves to the target texture via resolveTarget
+    private func renderBatchWithMSAA(
+        _ batch: CGWebGPUVertexBatch,
+        to textureView: GPUTextureView,
+        pipeline: GPURenderPipeline
+    ) {
+        guard let msaaView = msaaRenderTextureView,
+              let allocation = createVertexBufferAllocation(from: batch) else {
+            // Fall back to non-MSAA rendering if MSAA textures are not available
+            renderBatch(batch, to: textureView, pipeline: pipeline)
+            return
+        }
+
+        let encoder = device.createCommandEncoder()
+
+        // MSAA color attachment: render to MSAA texture, resolve to target
+        let colorAttachment = GPURenderPassColorAttachment(
+            view: msaaView,
+            resolveTarget: textureView,
+            loadOp: .load,
+            storeOp: .discard  // Don't store MSAA texture, only the resolved result
+        )
+
+        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment]
+        ))
+
+        renderPass.setPipeline(pipeline)
+        renderPass.setVertexBuffer(0, buffer: allocation.buffer, offset: allocation.offset)
+        renderPass.draw(vertexCount: UInt32(batch.vertices.count))
+        renderPass.end()
+
+        queue.submit([encoder.finish()])
+    }
+
+    /// Renders a batch with MSAA and clipping applied using stencil buffer.
+    private func renderBatchWithMSAAAndClipping(
+        _ batch: CGWebGPUVertexBatch,
+        to textureView: GPUTextureView,
+        pipeline: GPURenderPipeline,
+        clipPaths: [CGPath]
+    ) {
+        guard let msaaView = msaaRenderTextureView,
+              let msaaStencilView = msaaStencilTextureView,
+              !clipPaths.isEmpty else {
+            // Fall back to non-MSAA clipping if MSAA textures are not available
+            renderBatchWithClipping(batch, to: textureView, pipeline: pipeline, clipPaths: clipPaths)
+            return
+        }
+
+        // Set pipeline registry to use MSAA sample count
+        pipelineRegistry.setSampleCount(msaaSampleCount)
+
+        guard let stencilPipeline = getStencilWritePipeline() else {
+            pipelineRegistry.setSampleCount(1)
+            renderBatchWithClipping(batch, to: textureView, pipeline: pipeline, clipPaths: clipPaths)
+            return
+        }
+
+        let contentBuffer = createVertexBuffer(from: batch)
+        let encoder = device.createCommandEncoder()
+
+        // Pass 1: Clear stencil and render clip paths to MSAA stencil
+        let stencilClearAttachment = GPURenderPassDepthStencilAttachment(
+            view: msaaStencilView,
+            depthClearValue: 1.0,
+            depthLoadOp: .clear,
+            depthStoreOp: .store,
+            stencilClearValue: 0,
+            stencilLoadOp: .clear,
+            stencilStoreOp: .store
+        )
+
+        let colorLoadAttachment = GPURenderPassColorAttachment(
+            view: msaaView,
+            resolveTarget: textureView,
+            loadOp: .load,
+            storeOp: .discard
+        )
+
+        // First render pass: write clip paths to stencil
+        let stencilPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorLoadAttachment],
+            depthStencilAttachment: stencilClearAttachment
+        ))
+
+        stencilPass.setPipeline(stencilPipeline)
+
+        // Tessellate and render each clip path
+        for clipPath in clipPaths {
+            let clipBatch = tessellator.tessellateFill(clipPath, color: .black)
+            if !clipBatch.vertices.isEmpty {
+                let clipBuffer = createVertexBuffer(from: clipBatch)
+                stencilPass.setVertexBuffer(0, buffer: clipBuffer)
+                stencilPass.setStencilReference(UInt32(clipPaths.count))
+                stencilPass.draw(vertexCount: UInt32(clipBatch.vertices.count))
+            }
+        }
+
+        stencilPass.end()
+
+        // Pass 2: Render actual content with stencil test (using MSAA)
+        let stencilTestAttachment = GPURenderPassDepthStencilAttachment(
+            view: msaaStencilView,
+            depthLoadOp: .load,
+            depthStoreOp: .store,
+            stencilLoadOp: .load,
+            stencilStoreOp: .store
+        )
+
+        let colorStoreAttachment = GPURenderPassColorAttachment(
+            view: msaaView,
+            resolveTarget: textureView,
+            loadOp: .load,
+            storeOp: .discard
+        )
+
+        // Get MSAA-enabled clipped pipeline
+        guard let msaaClippedPipeline = getClippedPipeline(for: .normal) else {
+            pipelineRegistry.setSampleCount(1)
+            queue.submit([encoder.finish()])
+            return
+        }
+
+        let contentPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorStoreAttachment],
+            depthStencilAttachment: stencilTestAttachment
+        ))
+
+        contentPass.setPipeline(msaaClippedPipeline)
+        contentPass.setVertexBuffer(0, buffer: contentBuffer)
+        contentPass.setStencilReference(UInt32(clipPaths.count))
+        contentPass.draw(vertexCount: UInt32(batch.vertices.count))
+        contentPass.end()
+
+        queue.submit([encoder.finish()])
+
+        // Reset pipeline registry to non-MSAA
+        pipelineRegistry.setSampleCount(1)
     }
 
     /// Renders a batch with clipping applied using stencil buffer.

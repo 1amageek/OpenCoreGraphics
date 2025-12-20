@@ -52,6 +52,9 @@ public struct CGDrawingState: Sendable {
     /// The shadow color, or nil if no shadow.
     public var shadowColor: CGColor?
 
+    /// Whether anti-aliasing should be applied.
+    public var shouldAntialias: Bool
+
     /// Creates a drawing state with default values (no clipping, no shadow, identity CTM).
     public init() {
         self.clipPaths = []
@@ -59,6 +62,7 @@ public struct CGDrawingState: Sendable {
         self.shadowOffset = .zero
         self.shadowBlur = 0
         self.shadowColor = nil
+        self.shouldAntialias = true
     }
 
     /// Creates a drawing state with the specified values.
@@ -67,13 +71,15 @@ public struct CGDrawingState: Sendable {
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
-        shadowColor: CGColor?
+        shadowColor: CGColor?,
+        shouldAntialias: Bool = true
     ) {
         self.clipPaths = clipPaths
         self.ctm = ctm
         self.shadowOffset = shadowOffset
         self.shadowBlur = shadowBlur
         self.shadowColor = shadowColor
+        self.shouldAntialias = shouldAntialias
     }
 
     /// Creates a drawing state with a single clip path (convenience initializer).
@@ -82,13 +88,15 @@ public struct CGDrawingState: Sendable {
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
-        shadowColor: CGColor?
+        shadowColor: CGColor?,
+        shouldAntialias: Bool = true
     ) {
         self.clipPaths = clipPath.map { [$0] } ?? []
         self.ctm = ctm
         self.shadowOffset = shadowOffset
         self.shadowBlur = shadowBlur
         self.shadowColor = shadowColor
+        self.shouldAntialias = shouldAntialias
     }
 
     /// Returns whether a shadow should be drawn.

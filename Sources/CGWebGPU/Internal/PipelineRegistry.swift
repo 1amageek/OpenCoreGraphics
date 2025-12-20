@@ -17,6 +17,12 @@ internal final class PipelineRegistry: @unchecked Sendable {
 
     // MARK: - Types
 
+    /// Pipeline cache key including sample count for MSAA support.
+    private struct PipelineCacheKey: Hashable {
+        let type: PipelineType
+        let sampleCount: Int
+    }
+
     /// Pipeline type identifier.
     enum PipelineType: Hashable {
         case blend(CGBlendMode)
@@ -35,20 +41,30 @@ internal final class PipelineRegistry: @unchecked Sendable {
     private let textureFormat: GPUTextureFormat
     private let depthStencilFormat: GPUTextureFormat = .depth24plusStencil8
 
-    private var pipelines: [PipelineType: GPURenderPipeline] = [:]
+    /// Current sample count for MSAA. 1 = no MSAA, 4 = 4x MSAA.
+    private(set) var sampleCount: Int
+
+    private var pipelines: [PipelineCacheKey: GPURenderPipeline] = [:]
     private var shaderModules: [String: GPUShaderModule] = [:]
     private var isWarmedUp: Bool = false
 
     // MARK: - Initialization
 
-    init(device: GPUDevice, textureFormat: GPUTextureFormat) {
+    init(device: GPUDevice, textureFormat: GPUTextureFormat, sampleCount: Int = 1) {
         self.device = device
         self.textureFormat = textureFormat
+        self.sampleCount = sampleCount
+    }
+
+    /// Updates the sample count for MSAA.
+    /// Pipelines with the new sample count will be created on demand.
+    func setSampleCount(_ count: Int) {
+        self.sampleCount = count
     }
 
     // MARK: - Warm-up
 
-    /// Pre-creates commonly used pipelines.
+    /// Pre-creates commonly used pipelines for the current sample count.
     func warmUp() {
         guard !isWarmedUp else { return }
 
@@ -61,16 +77,18 @@ internal final class PipelineRegistry: @unchecked Sendable {
         ]
 
         for mode in supportedModes {
-            pipelines[.blend(mode)] = createBlendPipeline(for: mode)
-            pipelines[.clipped(mode)] = createClippedPipeline(for: mode)
+            let blendKey = PipelineCacheKey(type: .blend(mode), sampleCount: sampleCount)
+            let clippedKey = PipelineCacheKey(type: .clipped(mode), sampleCount: sampleCount)
+            pipelines[blendKey] = createBlendPipeline(for: mode)
+            pipelines[clippedKey] = createClippedPipeline(for: mode)
         }
 
-        pipelines[.stencilWrite] = createStencilWritePipeline()
-        pipelines[.image] = createImagePipeline()
-        pipelines[.pattern] = createPatternPipeline()
-        pipelines[.blurHorizontal] = createBlurHorizontalPipeline()
-        pipelines[.blurVertical] = createBlurVerticalPipeline()
-        pipelines[.shadowComposite] = createShadowCompositePipeline()
+        pipelines[PipelineCacheKey(type: .stencilWrite, sampleCount: sampleCount)] = createStencilWritePipeline()
+        pipelines[PipelineCacheKey(type: .image, sampleCount: sampleCount)] = createImagePipeline()
+        pipelines[PipelineCacheKey(type: .pattern, sampleCount: sampleCount)] = createPatternPipeline()
+        pipelines[PipelineCacheKey(type: .blurHorizontal, sampleCount: sampleCount)] = createBlurHorizontalPipeline()
+        pipelines[PipelineCacheKey(type: .blurVertical, sampleCount: sampleCount)] = createBlurVerticalPipeline()
+        pipelines[PipelineCacheKey(type: .shadowComposite, sampleCount: sampleCount)] = createShadowCompositePipeline()
 
         isWarmedUp = true
     }
@@ -78,7 +96,7 @@ internal final class PipelineRegistry: @unchecked Sendable {
     // MARK: - Pipeline Access
 
     func getPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
-        let key = PipelineType.blend(mode)
+        let key = PipelineCacheKey(type: .blend(mode), sampleCount: sampleCount)
         if let existing = pipelines[key] {
             return existing
         }
@@ -93,7 +111,7 @@ internal final class PipelineRegistry: @unchecked Sendable {
     }
 
     func getClippedPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
-        let key = PipelineType.clipped(mode)
+        let key = PipelineCacheKey(type: .clipped(mode), sampleCount: sampleCount)
         if let existing = pipelines[key] {
             return existing
         }
@@ -108,7 +126,8 @@ internal final class PipelineRegistry: @unchecked Sendable {
     }
 
     func getPipeline(_ type: PipelineType) -> GPURenderPipeline? {
-        if let existing = pipelines[type] {
+        let key = PipelineCacheKey(type: type, sampleCount: sampleCount)
+        if let existing = pipelines[key] {
             return existing
         }
 
@@ -135,7 +154,7 @@ internal final class PipelineRegistry: @unchecked Sendable {
         }
 
         if let pipeline = pipeline {
-            pipelines[type] = pipeline
+            pipelines[key] = pipeline
         }
         return pipeline
     }
@@ -192,12 +211,13 @@ internal final class PipelineRegistry: @unchecked Sendable {
                 buffers: [createVertexBufferLayout()]
             ),
             primitive: GPUPrimitiveState(topology: .triangleList, cullMode: .none),
+            multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
                 targets: [GPUColorTargetState(format: textureFormat, blend: createBlendState(for: blendMode))]
             ),
-            label: "Blend Pipeline (\(blendMode))"
+            label: "Blend Pipeline (\(blendMode)) [MSAA \(sampleCount)x]"
         ))
     }
 
@@ -227,12 +247,13 @@ internal final class PipelineRegistry: @unchecked Sendable {
                 stencilReadMask: 0xFF,
                 stencilWriteMask: 0x00
             ),
+            multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
                 targets: [GPUColorTargetState(format: textureFormat, blend: createBlendState(for: blendMode))]
             ),
-            label: "Clipped Pipeline (\(blendMode))"
+            label: "Clipped Pipeline (\(blendMode)) [MSAA \(sampleCount)x]"
         ))
     }
 
@@ -262,12 +283,13 @@ internal final class PipelineRegistry: @unchecked Sendable {
                 stencilReadMask: 0xFF,
                 stencilWriteMask: 0xFF
             ),
+            multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
                 targets: [GPUColorTargetState(format: textureFormat, writeMask: [])]
             ),
-            label: "Stencil Write Pipeline"
+            label: "Stencil Write Pipeline [MSAA \(sampleCount)x]"
         ))
     }
 
@@ -286,12 +308,13 @@ internal final class PipelineRegistry: @unchecked Sendable {
                 buffers: [createImageVertexBufferLayout()]
             ),
             primitive: GPUPrimitiveState(topology: .triangleList, cullMode: .none),
+            multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
                 targets: [GPUColorTargetState(format: textureFormat, blend: normalBlend)]
             ),
-            label: "Image Pipeline"
+            label: "Image Pipeline [MSAA \(sampleCount)x]"
         ))
     }
 
@@ -310,18 +333,20 @@ internal final class PipelineRegistry: @unchecked Sendable {
                 buffers: [createVertexBufferLayout()]
             ),
             primitive: GPUPrimitiveState(topology: .triangleList, cullMode: .none),
+            multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
                 targets: [GPUColorTargetState(format: textureFormat, blend: normalBlend)]
             ),
-            label: "Pattern Pipeline"
+            label: "Pattern Pipeline [MSAA \(sampleCount)x]"
         ))
     }
 
     private func createBlurHorizontalPipeline() -> GPURenderPipeline? {
         guard let module = shaderModules["blurH"] else { return nil }
 
+        // Blur pipelines operate on intermediate textures, not MSAA textures
         return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
             vertex: GPUVertexState(module: module, entryPoint: "vs_main"),
             primitive: GPUPrimitiveState(topology: .triangleList),
@@ -337,6 +362,7 @@ internal final class PipelineRegistry: @unchecked Sendable {
     private func createBlurVerticalPipeline() -> GPURenderPipeline? {
         guard let module = shaderModules["blurV"] else { return nil }
 
+        // Blur pipelines operate on intermediate textures, not MSAA textures
         return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
             vertex: GPUVertexState(module: module, entryPoint: "vs_main"),
             primitive: GPUPrimitiveState(topology: .triangleList),
@@ -360,12 +386,13 @@ internal final class PipelineRegistry: @unchecked Sendable {
         return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
             vertex: GPUVertexState(module: module, entryPoint: "vs_main"),
             primitive: GPUPrimitiveState(topology: .triangleList),
+            multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
                 targets: [GPUColorTargetState(format: textureFormat, blend: shadowBlend)]
             ),
-            label: "Shadow Composite Pipeline"
+            label: "Shadow Composite Pipeline [MSAA \(sampleCount)x]"
         ))
     }
 

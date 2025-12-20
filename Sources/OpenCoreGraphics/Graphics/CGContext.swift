@@ -118,7 +118,8 @@ public class CGContext: @unchecked Sendable {
             ctm: currentState.ctm,
             shadowOffset: currentState.shadowOffset,
             shadowBlur: currentState.shadowBlur,
-            shadowColor: currentState.shadowColor
+            shadowColor: currentState.shadowColor,
+            shouldAntialias: currentState.shouldAntialias
         )
     }
 
