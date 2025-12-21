@@ -5,6 +5,7 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
 
 /// Component information for a bitmap image.
 ///
@@ -142,3 +143,5 @@ public let kCGBitmapByteOrder32Host: CGBitmapInfo = .byteOrder32Little
 #else
 public let kCGBitmapByteOrder32Host: CGBitmapInfo = .byteOrder32Big
 #endif
+
+#endif  // arch(wasm32)

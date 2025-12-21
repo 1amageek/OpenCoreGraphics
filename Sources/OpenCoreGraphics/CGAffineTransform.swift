@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 /// An affine transformation matrix for use in drawing 2D graphics.
@@ -264,3 +266,5 @@ extension CGAffineTransform {
         )
     }
 }
+
+#endif

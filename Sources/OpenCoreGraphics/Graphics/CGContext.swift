@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 
@@ -1648,4 +1650,6 @@ public let kCGPDFXInfo: String = "kCGPDFXInfo"
 
 /// The destination output profile.
 public let kCGPDFXDestinationOutputProfile: String = "kCGPDFXDestinationOutputProfile"
+
+#endif
 

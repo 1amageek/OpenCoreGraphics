@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 // MARK: - Drawing State
@@ -869,3 +871,5 @@ extension CGContextStatefulRendererDelegate {
         )
     }
 }
+
+#endif

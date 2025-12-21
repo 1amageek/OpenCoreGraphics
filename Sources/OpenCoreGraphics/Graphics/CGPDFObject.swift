@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 
@@ -49,3 +51,5 @@ public typealias CGPDFInteger = Int
 /// A PDF real value.
 public typealias CGPDFReal = CGFloat
 
+
+#endif

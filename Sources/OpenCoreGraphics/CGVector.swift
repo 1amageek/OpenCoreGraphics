@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 /// A structure that contains a two-dimensional vector.
@@ -90,3 +92,5 @@ extension CGVector: CustomDebugStringConvertible {
         return "(\(dx), \(dy))"
     }
 }
+
+#endif

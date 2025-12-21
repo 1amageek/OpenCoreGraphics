@@ -10,6 +10,8 @@
 ///
 /// Interpolation quality determines the algorithm used when scaling images.
 /// Higher quality settings produce smoother results but may be slower.
+
+#if arch(wasm32)
 public enum CGInterpolationQuality: Int32, Sendable {
     /// The default interpolation quality.
     case `default` = 0
@@ -29,3 +31,4 @@ public enum CGInterpolationQuality: Int32, Sendable {
 }
 
 
+#endif

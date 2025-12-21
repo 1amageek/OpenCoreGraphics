@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 
@@ -49,4 +51,6 @@ extension CGColorModel: ExpressibleByArrayLiteral {
         self = elements.reduce(CGColorModel(rawValue: 0)) { $0.union($1) }
     }
 }
+
+#endif
 

@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 /// A structure that defines the decomposed components of an affine transformation matrix.
@@ -123,3 +125,5 @@ extension CGAffineTransformComponents: CustomDebugStringConvertible {
         return "CGAffineTransformComponents(scale: \(scale), horizontalShear: \(horizontalShear), rotation: \(rotation), translation: \(translation))"
     }
 }
+
+#endif

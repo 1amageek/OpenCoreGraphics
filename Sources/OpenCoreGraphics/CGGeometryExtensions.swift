@@ -5,6 +5,8 @@
 //  Extensions for geometry types to work with CGAffineTransform.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 // MARK: - CGPoint Extensions
@@ -56,3 +58,5 @@ extension CGRect {
         return CGRect(x: newMinX, y: newMinY, width: newMaxX - newMinX, height: newMaxY - newMinY)
     }
 }
+
+#endif

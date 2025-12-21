@@ -12,6 +12,8 @@
 /// 1. Whether a bitmap contains an alpha channel
 /// 2. Where the alpha bits are located in the image data
 /// 3. Whether the alpha value is premultiplied
+
+#if arch(wasm32)
 public enum CGImageAlphaInfo: UInt32, Sendable, CaseIterable {
     /// There is no alpha channel.
     case none = 0
@@ -109,3 +111,4 @@ public enum CGImagePixelFormatInfo: UInt32, Sendable, CaseIterable {
 }
 
 
+#endif

@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 
@@ -169,3 +171,5 @@ extension CGFunction: Hashable {
     }
 }
 
+
+#endif

@@ -6,6 +6,8 @@
 //  All font data uses Big Endian byte order.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 extension Data {
@@ -192,3 +194,6 @@ enum FontTableTag {
         return String(bytes: bytes, encoding: .ascii) ?? ""
     }
 }
+
+
+#endif

@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 
@@ -158,3 +160,5 @@ extension CGRenderingBufferProvider: CGRenderingBufferProvider.Info {
     // CGRenderingBufferProvider itself conforms to its own Info protocol
 }
 
+
+#endif

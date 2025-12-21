@@ -7,6 +7,8 @@
 
 
 /// Options for drawing gradients.
+
+#if arch(wasm32)
 public struct CGGradientDrawingOptions: OptionSet, Sendable {
     public let rawValue: UInt32
 
@@ -24,3 +26,4 @@ public struct CGGradientDrawingOptions: OptionSet, Sendable {
 }
 
 
+#endif

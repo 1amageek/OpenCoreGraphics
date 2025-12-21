@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 
@@ -532,4 +534,6 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         hasher.combine(numberOfComponents)
     }
 }
+
+#endif
 

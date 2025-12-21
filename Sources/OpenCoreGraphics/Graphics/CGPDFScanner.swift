@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 
@@ -36,3 +38,5 @@ import Foundation
 //
 // Reference type aliases are preserved for API compatibility only:
 
+
+#endif

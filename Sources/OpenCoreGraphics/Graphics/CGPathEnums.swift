@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 
@@ -103,3 +105,5 @@ public enum CGPathDrawingMode: Int32, Sendable {
     case eoFillStroke = 4
 }
 
+
+#endif

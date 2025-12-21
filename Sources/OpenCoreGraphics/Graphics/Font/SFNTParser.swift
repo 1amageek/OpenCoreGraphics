@@ -5,6 +5,8 @@
 //  Internal parser for SFNT-based font files (TrueType, OpenType).
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 // MARK: - Parser Errors
@@ -783,3 +785,6 @@ internal struct SFNTParser: Sendable {
         return ""
     }
 }
+
+
+#endif

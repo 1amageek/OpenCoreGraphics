@@ -5,6 +5,8 @@
 //  Bridge between OpenCoreGraphics and SwiftWebGPU
 //
 
+#if arch(wasm32)
+
 import Foundation
 
 /// Vertex structure for 2D rendering with color
@@ -73,3 +75,5 @@ public struct CGWebGPUVertexBatch: Sendable {
         return floatData
     }
 }
+
+#endif

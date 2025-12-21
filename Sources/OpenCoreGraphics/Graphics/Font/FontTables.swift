@@ -5,6 +5,8 @@
 //  Internal structures representing parsed font tables.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 // MARK: - Head Table
@@ -517,3 +519,6 @@ internal struct CpalTable: Sendable {
         return palette[colorIndex]
     }
 }
+
+
+#endif

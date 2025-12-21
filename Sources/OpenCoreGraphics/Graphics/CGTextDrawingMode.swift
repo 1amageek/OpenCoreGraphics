@@ -7,6 +7,8 @@
 
 
 /// Modes for rendering text.
+
+#if arch(wasm32)
 public enum CGTextDrawingMode: Int32, Sendable {
     /// Perform a fill operation on the text.
     case fill = 0
@@ -37,3 +39,4 @@ public enum CGTextDrawingMode: Int32, Sendable {
 }
 
 
+#endif

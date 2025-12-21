@@ -5,6 +5,8 @@
 //  A set of character glyphs and layout information for drawing text.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 // MARK: - CGGlyph Type
@@ -577,3 +579,6 @@ extension CGContext {
         // This is a placeholder for future OpenCoreText integration
     }
 }
+
+
+#endif

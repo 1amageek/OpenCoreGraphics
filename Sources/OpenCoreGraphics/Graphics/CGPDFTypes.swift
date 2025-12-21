@@ -5,6 +5,8 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
+
+#if arch(wasm32)
 import Foundation
 
 
@@ -151,3 +153,5 @@ public typealias CGPDFStreamRef = OpaquePointer
 /// A reference to a PDF string object.
 public typealias CGPDFStringRef = OpaquePointer
 
+
+#endif
