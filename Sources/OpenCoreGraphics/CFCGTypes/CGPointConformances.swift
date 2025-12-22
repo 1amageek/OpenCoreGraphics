@@ -8,6 +8,7 @@
 
 import Foundation
 
+#if canImport(Darwin)
 extension CGPoint: Equatable {
 
     public static func == (lhs: CGPoint, rhs: CGPoint) -> Bool {
@@ -63,3 +64,4 @@ extension CGPoint {
         return self.x == point2.x && self.y == point2.y
     }
 }
+#endif

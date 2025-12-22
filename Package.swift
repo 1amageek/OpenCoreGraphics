@@ -16,7 +16,7 @@ let package = Package(
     ],
     dependencies: [
         // SwiftWebGPU is only used on WASM builds
-        .package(url: "https://github.com/1amageek/swift-webgpu.git", branch: "main"),
+        .package(url: "https://github.com/1amageek/swift-webgpu", branch: "main"),
     ],
     targets: [
         // Main target with CoreGraphics-compatible types

@@ -47,7 +47,7 @@ public final class CGImage: @unchecked Sendable {
     public let isMask: Bool
 
     /// The underlying data for the image.
-    internal let data: Data?
+    public let data: Data?
 
     /// The content headroom for HDR images.
     internal let _contentHeadroom: Float?

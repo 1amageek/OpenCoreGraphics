@@ -8,7 +8,7 @@
 
 import Foundation
 
-
+#if canImport(Darwin)
 extension CGSize: Equatable {
 
     public static func == (lhs: CGSize, rhs: CGSize) -> Bool {
@@ -65,3 +65,4 @@ extension CGSize {
         return self.width == size2.width && self.height == size2.height
     }
 }
+#endif

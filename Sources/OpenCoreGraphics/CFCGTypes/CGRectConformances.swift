@@ -8,6 +8,7 @@
 
 import Foundation
 
+#if canImport(Darwin)
 // MARK: - Basic Properties (Darwin only - CoreGraphics provides these)
 
 extension CGRect {
@@ -293,4 +294,4 @@ extension CGRect {
         }
     }
 }
-
+#endif
