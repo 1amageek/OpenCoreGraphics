@@ -80,7 +80,7 @@ public class CGFont: @unchecked Sendable {
     /// Creates a font object corresponding to the font specified by a PostScript or full name.
     /// Note: In WASM environment, system fonts are not available. This initializer
     /// is provided for API compatibility but will return nil.
-    public init?(_ name: CFString) {
+    public init?(_ name: String) {
         // System font lookup is not available in WASM
         // This is provided for API compatibility only
         return nil
@@ -224,13 +224,13 @@ public class CGFont: @unchecked Sendable {
     // MARK: - Font Metadata
 
     /// Returns the full name associated with a font object.
-    public var fullName: CFString? {
-        getNameTable()?.fullName as CFString?
+    public var fullName: String? {
+        getNameTable()?.fullName
     }
 
     /// Obtains the PostScript name of a font.
-    public var postScriptName: CFString? {
-        getNameTable()?.postScriptName as CFString?
+    public var postScriptName: String? {
+        getNameTable()?.postScriptName
     }
 
     /// Returns the number of glyphs in a font.
@@ -301,16 +301,13 @@ public class CGFont: @unchecked Sendable {
     // MARK: - Font Tables
 
     /// Returns an array of tags that correspond to the font tables for a font.
-    public var tableTags: CFArray? {
-        guard let parser = parser else { return nil }
-        let tags = parser.tableTags
-        return tags as CFArray
+    public var tableTags: [UInt32]? {
+        parser?.tableTags
     }
 
     /// Returns the font table that corresponds to the provided tag.
-    public func table(for tag: UInt32) -> CFData? {
-        guard let data = parser?.tableData(for: tag) else { return nil }
-        return data as CFData
+    public func table(for tag: UInt32) -> Data? {
+        parser?.tableData(for: tag)
     }
 
     // MARK: - Glyph Metrics
@@ -357,21 +354,20 @@ public class CGFont: @unchecked Sendable {
     // MARK: - Glyph Names
 
     /// Returns the glyph name of the specified glyph in the specified font.
-    public func name(for glyph: CGGlyph) -> CFString? {
+    public func name(for glyph: CGGlyph) -> String? {
         guard let post = getPostTable() else { return nil }
-        return post.name(for: Int(glyph)) as CFString?
+        return post.name(for: Int(glyph))
     }
 
     /// Returns the glyph for the glyph name associated with the specified font object.
-    public func getGlyphWithGlyphName(name: CFString) -> CGGlyph {
+    public func getGlyphWithGlyphName(name: String) -> CGGlyph {
         guard let post = getPostTable(),
               let glyphNames = post.glyphNames else {
             return kCGFontIndexInvalid
         }
 
-        let searchName = name as String
         for (index, glyphName) in glyphNames.enumerated() {
-            if glyphName == searchName {
+            if glyphName == name {
                 return CGGlyph(index)
             }
         }
@@ -381,17 +377,12 @@ public class CGFont: @unchecked Sendable {
     // MARK: - Variations
 
     /// Returns the variation specification dictionary for a font.
-    public var variations: CFDictionary? {
-        guard let coords = variationCoordinates else { return nil }
-        var result: [CFString: CFNumber] = [:]
-        for (key, value) in coords {
-            result[key as CFString] = value as CFNumber
-        }
-        return result as CFDictionary
+    public var variations: [String: CGFloat]? {
+        variationCoordinates
     }
 
     /// Returns an array of the variation axis dictionaries for a font.
-    public var variationAxes: CFArray? {
+    public var variationAxes: [[String: Any]]? {
         guard let fvar = getFvarTable() else { return nil }
 
         var axes: [[String: Any]] = []
@@ -414,11 +405,11 @@ public class CGFont: @unchecked Sendable {
             axes.append(axisDict)
         }
 
-        return axes as CFArray
+        return axes
     }
 
     /// Creates a copy of a font using a variation specification dictionary.
-    public func copy(withVariations variations: CFDictionary?) -> CGFont? {
+    public func copy(withVariations variations: [String: Any]?) -> CGFont? {
         guard let fvar = getFvarTable(), !fvar.axes.isEmpty else {
             // Not a variable font
             return nil
@@ -426,14 +417,14 @@ public class CGFont: @unchecked Sendable {
 
         var coords: [String: CGFloat] = variationCoordinates ?? [:]
 
-        if let variations = variations as? [String: Any] {
+        if let variations = variations {
             for (key, value) in variations {
-                if let numValue = value as? NSNumber {
-                    coords[key] = CGFloat(numValue.doubleValue)
-                } else if let cgFloatValue = value as? CGFloat {
+                if let cgFloatValue = value as? CGFloat {
                     coords[key] = cgFloatValue
                 } else if let doubleValue = value as? Double {
                     coords[key] = CGFloat(doubleValue)
+                } else if let intValue = value as? Int {
+                    coords[key] = CGFloat(intValue)
                 }
             }
         }
@@ -488,28 +479,26 @@ public class CGFont: @unchecked Sendable {
 
     /// Creates a subset of the font in the specified PostScript format.
     public func createPostScriptSubset(
-        subsetName: CFString,
+        subsetName: String,
         format: CGFontPostScriptFormat,
         glyphs: UnsafePointer<CGGlyph>?,
         count: Int,
         encoding: UnsafePointer<CGGlyph>?
-    ) -> CFData? {
+    ) -> Data? {
         // PostScript subset creation is not implemented
         return nil
     }
 
     /// Creates a PostScript encoding of a font.
-    public func createPostScriptEncoding(encoding: UnsafePointer<CGGlyph>?) -> CFData? {
+    public func createPostScriptEncoding(encoding: UnsafePointer<CGGlyph>?) -> Data? {
         // PostScript encoding creation is not implemented
         return nil
     }
 
     // MARK: - Type ID
 
-    /// Returns the Core Foundation type identifier for Core Graphics fonts.
-    public class var typeID: CFTypeID {
-        // Return a placeholder type ID
-        // In a real implementation, this would return the actual CFTypeID
+    /// Returns a type identifier for CGFont.
+    public class var typeID: UInt {
         return 0
     }
 }
@@ -548,12 +537,12 @@ public func CGFontCreateWithDataProvider(_ provider: CGDataProvider) -> CGFont? 
 }
 
 /// Creates a font with the specified name.
-public func CGFontCreateWithFontName(_ name: CFString) -> CGFont? {
+public func CGFontCreateWithFontName(_ name: String) -> CGFont? {
     return CGFont(name)
 }
 
 /// Creates a copy of a font with variations.
-public func CGFontCreateCopyWithVariations(_ font: CGFont, _ variations: CFDictionary?) -> CGFont? {
+public func CGFontCreateCopyWithVariations(_ font: CGFont, _ variations: [String: Any]?) -> CGFont? {
     return font.copy(withVariations: variations)
 }
 
@@ -578,5 +567,3 @@ extension CGContext {
         // This is a placeholder for future OpenCoreText integration
     }
 }
-
-
