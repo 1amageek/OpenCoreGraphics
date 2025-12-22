@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -232,4 +231,3 @@ public class CGGradient: @unchecked Sendable {
 }
 
 
-#endif

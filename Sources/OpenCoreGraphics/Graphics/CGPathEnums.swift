@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -106,4 +105,3 @@ public enum CGPathDrawingMode: Int32, Sendable {
 }
 
 
-#endif

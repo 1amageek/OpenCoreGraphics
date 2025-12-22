@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -47,4 +46,3 @@ extension CGImageComponentInfo: CustomDebugStringConvertible {
 }
 
 
-#endif

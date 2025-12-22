@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -52,4 +51,3 @@ public typealias CGPDFInteger = Int
 public typealias CGPDFReal = CGFloat
 
 
-#endif

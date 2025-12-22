@@ -5,9 +5,9 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-#if arch(wasm32)
-
 import Foundation
+
+#if arch(wasm32)
 
 /// An affine transformation matrix for use in drawing 2D graphics.
 @frozen
@@ -263,6 +263,94 @@ extension CGAffineTransform {
             horizontalShear: shear,
             rotation: rotation,
             translation: translation
+        )
+    }
+}
+
+#else
+
+extension CGAffineTransform {
+
+    /// The identity transform.
+    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+
+    /// Returns whether this transform is the identity transform.
+    @inlinable
+    public var isIdentity: Bool {
+        return a == 1 && b == 0 && c == 0 && d == 1 && tx == 0 && ty == 0
+    }
+
+    /// Returns an affine transformation matrix constructed by translating an existing one.
+    @inlinable
+    public func translatedBy(x tx: CGFloat, y ty: CGFloat) -> CGAffineTransform {
+        return CGAffineTransform(
+            a: a,
+            b: b,
+            c: c,
+            d: d,
+            tx: self.tx + a * tx + c * ty,
+            ty: self.ty + b * tx + d * ty
+        )
+    }
+
+    /// Returns an affine transformation matrix constructed by scaling an existing one.
+    @inlinable
+    public func scaledBy(x sx: CGFloat, y sy: CGFloat) -> CGAffineTransform {
+        return CGAffineTransform(
+            a: a * sx,
+            b: b * sx,
+            c: c * sy,
+            d: d * sy,
+            tx: tx,
+            ty: ty
+        )
+    }
+
+    /// Returns an affine transformation matrix constructed by rotating an existing one.
+    @inlinable
+    public func rotated(by angle: CGFloat) -> CGAffineTransform {
+        let cosAngle = cos(angle)
+        let sinAngle = sin(angle)
+        return CGAffineTransform(
+            a: a * cosAngle + c * sinAngle,
+            b: b * cosAngle + d * sinAngle,
+            c: c * cosAngle - a * sinAngle,
+            d: d * cosAngle - b * sinAngle,
+            tx: tx,
+            ty: ty
+        )
+    }
+
+    /// Returns an affine transformation matrix constructed by inverting an existing one.
+    ///
+    /// If the transform is singular (non-invertible, i.e., determinant is zero),
+    /// returns the identity transform. This matches CoreGraphics behavior and
+    /// ensures `convertToUserSpace()` returns predictable results.
+    @inlinable
+    public func inverted() -> CGAffineTransform {
+        let determinant = a * d - b * c
+        guard determinant != 0 else { return .identity }
+        let invDet = 1.0 / determinant
+        return CGAffineTransform(
+            a: d * invDet,
+            b: -b * invDet,
+            c: -c * invDet,
+            d: a * invDet,
+            tx: (c * ty - d * tx) * invDet,
+            ty: (b * tx - a * ty) * invDet
+        )
+    }
+
+    /// Returns an affine transformation matrix constructed by combining two existing ones.
+    @inlinable
+    public func concatenating(_ t2: CGAffineTransform) -> CGAffineTransform {
+        return CGAffineTransform(
+            a: a * t2.a + b * t2.c,
+            b: a * t2.b + b * t2.d,
+            c: c * t2.a + d * t2.c,
+            d: c * t2.b + d * t2.d,
+            tx: tx * t2.a + ty * t2.c + t2.tx,
+            ty: tx * t2.b + ty * t2.d + t2.ty
         )
     }
 }

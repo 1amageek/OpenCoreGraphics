@@ -5,10 +5,7 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-
-#if arch(wasm32)
 import Foundation
-
 
 /// A bitmap image or image mask.
 ///
@@ -562,4 +559,3 @@ extension CGImage: Hashable {
 }
 
 
-#endif

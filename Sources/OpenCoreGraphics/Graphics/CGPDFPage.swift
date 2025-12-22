@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -105,8 +104,8 @@ public class CGPDFPage: @unchecked Sendable {
         let boxRect = getBoxRect(box)
 
         // Calculate scale factors
-        var scaleX = rect.width / boxRect.width
-        var scaleY = rect.height / boxRect.height
+        var scaleX = rect.size.width / boxRect.size.width
+        var scaleY = rect.size.height / boxRect.size.height
 
         if preserveAspectRatio {
             let scale = min(scaleX, scaleY)
@@ -121,7 +120,9 @@ public class CGPDFPage: @unchecked Sendable {
         var transform = CGAffineTransform.identity
 
         // Translate to the center of the target rectangle
-        transform = transform.translatedBy(x: rect.midX, y: rect.midY)
+        let rectMidX = rect.origin.x + rect.size.width / 2
+        let rectMidY = rect.origin.y + rect.size.height / 2
+        transform = transform.translatedBy(x: rectMidX, y: rectMidY)
 
         // Apply rotation
         let radians = CGFloat(totalRotation) * .pi / 180.0
@@ -131,7 +132,9 @@ public class CGPDFPage: @unchecked Sendable {
         transform = transform.scaledBy(x: scaleX, y: scaleY)
 
         // Translate back from the center of the box
-        transform = transform.translatedBy(x: -boxRect.midX, y: -boxRect.midY)
+        let boxMidX = boxRect.origin.x + boxRect.size.width / 2
+        let boxMidY = boxRect.origin.y + boxRect.size.height / 2
+        transform = transform.translatedBy(x: -boxMidX, y: -boxMidY)
 
         return transform
     }
@@ -161,4 +164,3 @@ extension CGPDFPage: Hashable {
 }
 
 
-#endif

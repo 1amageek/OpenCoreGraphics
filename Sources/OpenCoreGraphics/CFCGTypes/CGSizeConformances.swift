@@ -8,23 +8,23 @@
 
 import Foundation
 
-#if canImport(Darwin)
-extension CGSize: @retroactive Equatable {
-    @inlinable
+
+extension CGSize: Equatable {
+
     public static func == (lhs: CGSize, rhs: CGSize) -> Bool {
         return lhs.width == rhs.width && lhs.height == rhs.height
     }
 }
 
-extension CGSize: @retroactive Hashable {
-    @inlinable
+extension CGSize: Hashable {
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(width)
         hasher.combine(height)
     }
 }
 
-extension CGSize: @retroactive Codable {
+extension CGSize: Codable {
     enum CodingKeys: String, CodingKey {
         case width
         case height
@@ -44,21 +44,19 @@ extension CGSize: @retroactive Codable {
     }
 }
 
-extension CGSize: @retroactive CustomDebugStringConvertible {
+extension CGSize: CustomDebugStringConvertible {
     public var debugDescription: String {
         return "(\(width), \(height))"
     }
 }
-#endif
 
 // MARK: - Extension Methods
 
-#if canImport(Darwin)
 extension CGSize {
     /// The size whose width and height are both zero.
     public static var zero: CGSize { CGSize(width: 0, height: 0) }
 }
-#endif
+
 
 extension CGSize {
     /// Returns whether two sizes are equal.

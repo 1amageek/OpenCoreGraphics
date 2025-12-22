@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 // MARK: - Head Table
@@ -521,4 +520,3 @@ internal struct CpalTable: Sendable {
 }
 
 
-#endif

@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -203,8 +202,8 @@ extension CGPattern {
     ///   drawing operations (which require a delegate).
     public func renderCell() -> CGImage? {
         // Calculate cell dimensions
-        let cellWidth = Int(ceil(abs(bounds.width)))
-        let cellHeight = Int(ceil(abs(bounds.height)))
+        let cellWidth = Int(ceil(abs(bounds.size.width)))
+        let cellHeight = Int(ceil(abs(bounds.size.height)))
 
         guard cellWidth > 0, cellHeight > 0 else { return nil }
 
@@ -249,8 +248,8 @@ extension CGPattern {
     ///
     /// - Returns: A tuple containing the pixel data, width, and height, or nil if rendering fails.
     public func renderCellData() -> (data: Data, width: Int, height: Int)? {
-        let cellWidth = Int(ceil(abs(bounds.width)))
-        let cellHeight = Int(ceil(abs(bounds.height)))
+        let cellWidth = Int(ceil(abs(bounds.size.width)))
+        let cellHeight = Int(ceil(abs(bounds.size.height)))
 
         guard cellWidth > 0, cellHeight > 0 else { return nil }
 
@@ -301,11 +300,10 @@ extension CGPattern {
     public var effectiveCellSize: CGSize {
         let transformedBounds = bounds.applying(matrix)
         return CGSize(
-            width: abs(transformedBounds.width),
-            height: abs(transformedBounds.height)
+            width: abs(transformedBounds.size.width),
+            height: abs(transformedBounds.size.height)
         )
     }
 }
 
 
-#endif

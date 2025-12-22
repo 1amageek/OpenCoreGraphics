@@ -5,7 +5,6 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-#if arch(wasm32)
 
 import Foundation
 
@@ -93,30 +92,30 @@ extension CGAffineTransformComponents: Hashable {
 
 // MARK: - Codable
 
-extension CGAffineTransformComponents: Codable {
-    enum CodingKeys: String, CodingKey {
-        case scale
-        case horizontalShear
-        case rotation
-        case translation
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.scale = try container.decode(CGSize.self, forKey: .scale)
-        self.horizontalShear = try container.decode(CGFloat.self, forKey: .horizontalShear)
-        self.rotation = try container.decode(CGFloat.self, forKey: .rotation)
-        self.translation = try container.decode(CGVector.self, forKey: .translation)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(scale, forKey: .scale)
-        try container.encode(horizontalShear, forKey: .horizontalShear)
-        try container.encode(rotation, forKey: .rotation)
-        try container.encode(translation, forKey: .translation)
-    }
-}
+//extension CGAffineTransformComponents: Codable {
+//    enum CodingKeys: String, CodingKey {
+//        case scale
+//        case horizontalShear
+//        case rotation
+//        case translation
+//    }
+//
+//    public init(from decoder: Decoder) throws {
+//        let container = try decoder.container(keyedBy: CodingKeys.self)
+//        self.scale = try container.decode(CGSize.self, forKey: .scale)
+//        self.horizontalShear = try container.decode(CGFloat.self, forKey: .horizontalShear)
+//        self.rotation = try container.decode(CGFloat.self, forKey: .rotation)
+//        self.translation = try container.decode(CGVector.self, forKey: .translation)
+//    }
+//
+//    public func encode(to encoder: Encoder) throws {
+//        var container = encoder.container(keyedBy: CodingKeys.self)
+//        try container.encode(scale, forKey: .scale)
+//        try container.encode(horizontalShear, forKey: .horizontalShear)
+//        try container.encode(rotation, forKey: .rotation)
+//        try container.encode(translation, forKey: .translation)
+//    }
+//}
 
 // MARK: - CustomDebugStringConvertible
 
@@ -126,4 +125,3 @@ extension CGAffineTransformComponents: CustomDebugStringConvertible {
     }
 }
 
-#endif

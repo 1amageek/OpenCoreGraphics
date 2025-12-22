@@ -7,7 +7,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 extension Data {
@@ -196,4 +195,3 @@ enum FontTableTag {
 }
 
 
-#endif

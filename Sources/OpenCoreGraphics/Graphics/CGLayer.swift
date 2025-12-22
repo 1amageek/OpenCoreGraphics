@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -116,4 +115,3 @@ extension CGContext {
 }
 
 
-#endif

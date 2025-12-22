@@ -8,23 +8,63 @@
 
 import Foundation
 
-#if canImport(Darwin)
-extension CGRect: @retroactive Equatable {
-    @inlinable
+// MARK: - Basic Properties (Darwin only - CoreGraphics provides these)
+
+extension CGRect {
+    /// Creates a rectangle with coordinates and dimensions specified as floating-point values.
+    public init(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+        self.init(origin: CGPoint(x: x, y: y), size: CGSize(width: width, height: height))
+    }
+
+    /// The width of the rectangle.
+    public var width: CGFloat { size.width }
+
+    /// The height of the rectangle.
+    public var height: CGFloat { size.height }
+
+    /// The x-coordinate of the rectangle's origin.
+    public var minX: CGFloat {
+        size.width >= 0 ? origin.x : origin.x + size.width
+    }
+
+    /// The y-coordinate of the rectangle's origin.
+    public var minY: CGFloat {
+        size.height >= 0 ? origin.y : origin.y + size.height
+    }
+
+    /// The x-coordinate that establishes the center of the rectangle.
+    public var midX: CGFloat { origin.x + size.width / 2 }
+
+    /// The y-coordinate that establishes the center of the rectangle.
+    public var midY: CGFloat { origin.y + size.height / 2 }
+
+    /// The largest x-coordinate of the rectangle.
+    public var maxX: CGFloat {
+        size.width >= 0 ? origin.x + size.width : origin.x
+    }
+
+    /// The largest y-coordinate of the rectangle.
+    public var maxY: CGFloat {
+        size.height >= 0 ? origin.y + size.height : origin.y
+    }
+}
+
+extension CGRect: Equatable {
+
     public static func == (lhs: CGRect, rhs: CGRect) -> Bool {
         return lhs.origin == rhs.origin && lhs.size == rhs.size
     }
 }
 
-extension CGRect: @retroactive Hashable {
-    @inlinable
+extension CGRect: Hashable {
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(origin)
         hasher.combine(size)
     }
 }
 
-extension CGRect: @retroactive Codable {
+extension CGRect: Codable {
     enum CodingKeys: String, CodingKey {
         case origin
         case size
@@ -44,66 +84,15 @@ extension CGRect: @retroactive Codable {
     }
 }
 
-extension CGRect: @retroactive CustomDebugStringConvertible {
+extension CGRect: CustomDebugStringConvertible {
     public var debugDescription: String {
         return "(\(origin.x), \(origin.y), \(size.width), \(size.height))"
     }
 }
 
-// MARK: - Basic Properties (Darwin only - CoreGraphics provides these)
-
-extension CGRect {
-    /// Creates a rectangle with coordinates and dimensions specified as floating-point values.
-    @inlinable
-    public init(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
-        self.init(origin: CGPoint(x: x, y: y), size: CGSize(width: width, height: height))
-    }
-
-    /// The width of the rectangle.
-    @inlinable
-    public var width: CGFloat { size.width }
-
-    /// The height of the rectangle.
-    @inlinable
-    public var height: CGFloat { size.height }
-
-    /// The x-coordinate of the rectangle's origin.
-    @inlinable
-    public var minX: CGFloat {
-        size.width >= 0 ? origin.x : origin.x + size.width
-    }
-
-    /// The y-coordinate of the rectangle's origin.
-    @inlinable
-    public var minY: CGFloat {
-        size.height >= 0 ? origin.y : origin.y + size.height
-    }
-
-    /// The x-coordinate that establishes the center of the rectangle.
-    @inlinable
-    public var midX: CGFloat { origin.x + size.width / 2 }
-
-    /// The y-coordinate that establishes the center of the rectangle.
-    @inlinable
-    public var midY: CGFloat { origin.y + size.height / 2 }
-
-    /// The largest x-coordinate of the rectangle.
-    @inlinable
-    public var maxX: CGFloat {
-        size.width >= 0 ? origin.x + size.width : origin.x
-    }
-
-    /// The largest y-coordinate of the rectangle.
-    @inlinable
-    public var maxY: CGFloat {
-        size.height >= 0 ? origin.y + size.height : origin.y
-    }
-}
-#endif
 
 // MARK: - CGRectEdge
 
-#if !canImport(Darwin)
 /// Coordinates that establish the edges of a rectangle.
 public enum CGRectEdge: UInt32, Sendable {
     case minXEdge = 0
@@ -111,11 +100,9 @@ public enum CGRectEdge: UInt32, Sendable {
     case maxXEdge = 2
     case maxYEdge = 3
 }
-#endif
 
 // MARK: - Static Properties (Darwin only - swift-corelibs-foundation provides these on non-Darwin)
 
-#if canImport(Darwin)
 extension CGRect {
     /// The rectangle whose origin and size are both zero.
     public static var zero: CGRect { CGRect(origin: .zero, size: .zero) }
@@ -130,11 +117,9 @@ extension CGRect {
         CGRect(origin: CGPoint(x: CGFloat.infinity, y: CGFloat.infinity), size: CGSize(width: 0, height: 0))
     }
 }
-#endif
 
 // MARK: - Extension Methods (Darwin only - swift-corelibs-foundation provides these on non-Darwin)
 
-#if canImport(Darwin)
 extension CGRect {
     /// Returns whether two rectangles are equal.
     @inlinable
@@ -308,4 +293,4 @@ extension CGRect {
         }
     }
 }
-#endif
+

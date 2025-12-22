@@ -19,16 +19,11 @@ let package = Package(
         .package(url: "https://github.com/1amageek/swift-webgpu.git", branch: "main"),
     ],
     targets: [
-        // Protocol conformances and extensions for geometry types
-        .target(
-            name: "CGExtensions"
-        ),
         // Main target with CoreGraphics-compatible types
         // On WASM, includes WebGPU rendering via Rendering/WebGPU/
         .target(
             name: "OpenCoreGraphics",
             dependencies: [
-                "CGExtensions",
                 // SwiftWebGPU is only linked on WASM
                 .product(name: "SwiftWebGPU", package: "swift-webgpu", condition: .when(platforms: [.wasi])),
             ]

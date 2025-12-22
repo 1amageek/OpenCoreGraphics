@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 // MARK: - CGGlyph Type
@@ -581,4 +580,3 @@ extension CGContext {
 }
 
 
-#endif

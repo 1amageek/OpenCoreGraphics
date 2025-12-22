@@ -5,7 +5,6 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-#if arch(wasm32)
 
 /// Compositing operations for images.
 ///
@@ -114,7 +113,4 @@ public enum CGBlendMode: Int32, Sendable {
     /// maximum value.
     case plusLighter = 27
 }
-
-#endif
-
 

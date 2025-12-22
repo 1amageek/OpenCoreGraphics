@@ -5,7 +5,6 @@
 //  Extensions for geometry types to work with CGAffineTransform.
 //
 
-#if arch(wasm32)
 
 import Foundation
 
@@ -59,4 +58,3 @@ extension CGRect {
     }
 }
 
-#endif

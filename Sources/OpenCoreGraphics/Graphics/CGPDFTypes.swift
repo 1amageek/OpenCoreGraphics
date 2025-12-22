@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -154,4 +153,3 @@ public typealias CGPDFStreamRef = OpaquePointer
 public typealias CGPDFStringRef = OpaquePointer
 
 
-#endif

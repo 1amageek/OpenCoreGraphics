@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -72,4 +71,3 @@ extension CGError: Equatable {}
 extension CGError: Hashable {}
 
 
-#endif

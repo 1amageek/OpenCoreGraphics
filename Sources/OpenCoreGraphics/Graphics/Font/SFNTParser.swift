@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 // MARK: - Parser Errors
@@ -787,4 +786,3 @@ internal struct SFNTParser: Sendable {
 }
 
 
-#endif

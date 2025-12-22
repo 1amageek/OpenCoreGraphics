@@ -6,7 +6,6 @@
 //
 
 
-#if arch(wasm32)
 import Foundation
 
 
@@ -161,4 +160,3 @@ extension CGRenderingBufferProvider: CGRenderingBufferProvider.Info {
 }
 
 
-#endif
