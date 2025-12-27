@@ -6,9 +6,8 @@
 //  On non-Darwin platforms, swift-corelibs-foundation already provides these.
 //
 
-import Foundation
-
 #if canImport(Darwin)
+import Foundation
 extension CGPoint: Equatable {
 
     public static func == (lhs: CGPoint, rhs: CGPoint) -> Bool {

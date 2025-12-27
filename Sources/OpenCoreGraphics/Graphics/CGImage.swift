@@ -445,7 +445,15 @@ public final class CGImage: @unchecked Sendable {
             return nil
         }
 
-        guard let sourceData = data else { return nil }
+        // Try to get source data from data or dataProvider
+        let sourceData: Data
+        if let directData = data {
+            sourceData = directData
+        } else if let provider = dataProvider, let providerData = provider.data {
+            sourceData = providerData
+        } else {
+            return nil
+        }
 
         let bytesPerPixelValue = bitsPerPixel / 8
         let newBytesPerRow = cropWidth * bytesPerPixelValue
