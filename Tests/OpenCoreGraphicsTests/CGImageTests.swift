@@ -69,7 +69,7 @@ struct CGImageByteOrderInfoTests {
 
     @Test("Order mask")
     func orderMask() {
-        #expect(CGImageByteOrderInfo.orderMask.rawValue == 0x7000)
+        #expect(CGImageByteOrderInfo.orderMask == 0x7000)
     }
 
     @Test("Init from raw value")
@@ -96,7 +96,7 @@ struct CGImagePixelFormatInfoTests {
 
     @Test("Pixel format mask")
     func pixelFormatMask() {
-        #expect(CGImagePixelFormatInfo.mask.rawValue == 0xF0000)
+        #expect(CGImagePixelFormatInfo.mask == 0xF0000)
     }
 }
 

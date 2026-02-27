@@ -105,7 +105,7 @@ extension CGVector {
 
 // MARK: - Equatable
 
-extension CGVector: Equatable {
+extension CGVector: @retroactive Equatable {
     @inlinable
     public static func == (lhs: CGVector, rhs: CGVector) -> Bool {
         return lhs.dx == rhs.dx && lhs.dy == rhs.dy
@@ -114,7 +114,7 @@ extension CGVector: Equatable {
 
 // MARK: - Hashable
 
-extension CGVector: Hashable {
+extension CGVector: @retroactive Hashable {
     @inlinable
     public func hash(into hasher: inout Hasher) {
         hasher.combine(dx)
@@ -124,7 +124,7 @@ extension CGVector: Hashable {
 
 // MARK: - Codable
 
-extension CGVector: Codable {
+extension CGVector: @retroactive Codable {
     enum CodingKeys: String, CodingKey {
         case dx
         case dy
@@ -146,7 +146,7 @@ extension CGVector: Codable {
 
 // MARK: - CustomDebugStringConvertible
 
-extension CGVector: CustomDebugStringConvertible {
+extension CGVector: @retroactive CustomDebugStringConvertible {
     public var debugDescription: String {
         return "(\(dx), \(dy))"
     }

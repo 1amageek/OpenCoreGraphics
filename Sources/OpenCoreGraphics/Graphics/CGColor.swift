@@ -109,8 +109,8 @@ public class CGColor: @unchecked Sendable {
     public func converted(to space: CGColorSpace, intent: CGColorRenderingIntent, options: [String: Any]?) -> CGColor? {
         guard let components = self.components else { return nil }
 
-        // Same model - just copy components
-        if colorSpace?.model == space.model {
+        // Same color space - just copy components
+        if let sourceName = colorSpace?.name, sourceName == space.name {
             return CGColor(space: space, componentArray: components)
         }
 

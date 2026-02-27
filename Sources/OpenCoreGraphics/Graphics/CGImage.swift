@@ -37,6 +37,9 @@ public final class CGImage: @unchecked Sendable {
     /// The decode array for the image (stored as contiguous memory for pointer access).
     private let decodeStorage: ContiguousArray<CGFloat>?
 
+    /// Stable heap-allocated decode pointer for safe access via `decode` property.
+    private let _decodePointer: UnsafeMutableBufferPointer<CGFloat>?
+
     /// Whether the image should be interpolated.
     public let shouldInterpolate: Bool
 
@@ -80,9 +83,10 @@ public final class CGImage: @unchecked Sendable {
 
     /// Returns the decode array for a bitmap image.
     ///
-    /// - Note: The returned pointer is valid only for the lifetime of this CGImage instance.
+    /// - Note: The returned pointer is valid for the lifetime of this CGImage instance.
     public var decode: UnsafePointer<CGFloat>? {
-        decodeStorage?.withUnsafeBufferPointer { $0.baseAddress }
+        guard let pointer = _decodePointer?.baseAddress else { return nil }
+        return UnsafePointer(pointer)
     }
 
     /// The content headroom value for HDR images.
@@ -172,6 +176,15 @@ public final class CGImage: @unchecked Sendable {
         self._contentHeadroom = contentHeadroom
         self._contentAverageLightLevel = contentAverageLightLevel
         self._cachedDataProvider = nil
+
+        // Allocate stable heap buffer for decode pointer access
+        if let storage = decodeStorage, !storage.isEmpty {
+            let buffer = UnsafeMutableBufferPointer<CGFloat>.allocate(capacity: storage.count)
+            _ = buffer.initialize(from: storage)
+            self._decodePointer = buffer
+        } else {
+            self._decodePointer = nil
+        }
     }
 
     // MARK: - Public Initializers
@@ -538,6 +551,10 @@ public final class CGImage: @unchecked Sendable {
         // Note: Cannot cache here as properties are let-bound for Sendable
         // In a real implementation, consider using a lock or making this computed
         return provider
+    }
+
+    deinit {
+        _decodePointer?.deallocate()
     }
 
     // MARK: - Type ID

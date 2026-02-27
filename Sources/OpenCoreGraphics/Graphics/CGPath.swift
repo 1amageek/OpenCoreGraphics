@@ -187,16 +187,22 @@ public class CGPath: @unchecked Sendable {
 
     /// Returns the current point in a graphics path.
     public var currentPoint: CGPoint {
+        var needsSubpathStart = false
         for command in commands.reversed() {
             switch command {
-            case .moveTo(let point), .lineTo(let point):
+            case .moveTo(let point):
+                return point
+            case .lineTo(let point):
+                if needsSubpathStart { continue }
                 return point
             case .quadCurveTo(_, let end):
+                if needsSubpathStart { continue }
                 return end
             case .curveTo(_, _, let end):
+                if needsSubpathStart { continue }
                 return end
             case .closeSubpath:
-                continue
+                needsSubpathStart = true
             }
         }
         return CGPoint.zero

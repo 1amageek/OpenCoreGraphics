@@ -60,6 +60,12 @@ public class CGContext: @unchecked Sendable {
     /// The current path being constructed.
     private var currentPath: CGMutablePath = CGMutablePath()
 
+    /// The current text position (not part of graphics state per CoreGraphics spec).
+    private var _textPosition: CGPoint = .zero
+
+    /// The current text matrix (not part of graphics state per CoreGraphics spec).
+    private var _textMatrix: CGAffineTransform = .identity
+
     // MARK: - Renderer Delegate
 
     /// The rendering delegate that receives drawing commands.
@@ -92,8 +98,6 @@ public class CGContext: @unchecked Sendable {
         var shouldSmoothFonts: Bool = true
         var allowsAntialiasing: Bool = true
         var textDrawingMode: CGTextDrawingMode = .fill
-        var textPosition: CGPoint = .zero
-        var textMatrix: CGAffineTransform = .identity
         var characterSpacing: CGFloat = 0.0
         var shadowOffset: CGSize = .zero
         var shadowBlur: CGFloat = 0.0
@@ -139,18 +143,27 @@ public class CGContext: @unchecked Sendable {
         self.bitsPerComponent = bitsPerComponent
         self.colorSpace = space
         self.bitmapInfo = bitmapInfo
-        self.bytesPerRow = bytesPerRow
 
         // Calculate bits per pixel based on color space and bitmap info
         let componentsPerPixel = space.numberOfComponents + (bitmapInfo.alphaInfo != .none ? 1 : 0)
         self.bitsPerPixel = bitsPerComponent * componentsPerPixel
+
+        // Auto-calculate bytesPerRow when 0 is passed (16-byte aligned)
+        let effectiveBytesPerRow: Int
+        if bytesPerRow == 0 {
+            let minBytesPerRow = (width * self.bitsPerPixel + 7) / 8
+            effectiveBytesPerRow = (minBytesPerRow + 15) & ~15
+        } else {
+            effectiveBytesPerRow = bytesPerRow
+        }
+        self.bytesPerRow = effectiveBytesPerRow
 
         // Allocate or use provided data
         if let data = data {
             self.borrowedPointer = data
             self.ownedBuffer = nil
         } else {
-            let totalBytes = bytesPerRow * height
+            let totalBytes = effectiveBytesPerRow * height
             let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: totalBytes, alignment: MemoryLayout<UInt8>.alignment)
             // Initialize to transparent
             buffer.initializeMemory(as: UInt8.self, repeating: 0)
@@ -596,10 +609,18 @@ public class CGContext: @unchecked Sendable {
         case .stroke:
             strokePath()
         case .fillStroke:
+            let savedPath = currentPath.mutableCopy()
             fillPath(using: .winding)
+            if let savedPath = savedPath {
+                currentPath = savedPath
+            }
             strokePath()
         case .eoFillStroke:
+            let savedPath = currentPath.mutableCopy()
             fillPath(using: .evenOdd)
+            if let savedPath = savedPath {
+                currentPath = savedPath
+            }
             strokePath()
         }
     }
@@ -790,14 +811,14 @@ public class CGContext: @unchecked Sendable {
     ///
     /// The contents of the layer are composited with the current alpha and blend mode.
     public func endTransparencyLayer() {
-        // Notify the renderer to end and composite the transparency layer
+        restoreGState()
+
+        // Composite with the restored state's alpha and blend mode
         if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
             statefulDelegate.endTransparencyLayer(alpha: currentState.alpha, blendMode: currentState.blendMode, state: currentDrawingState)
         } else {
             rendererDelegate?.endTransparencyLayer(alpha: currentState.alpha, blendMode: currentState.blendMode)
         }
-
-        restoreGState()
     }
 
     // MARK: - Color and Color Space
@@ -1019,13 +1040,13 @@ public class CGContext: @unchecked Sendable {
     }
 
     /// Clears the fill pattern and reverts to solid color fill.
-    public func clearFillPattern() {
+    internal func clearFillPattern() {
         currentState.fillPattern = nil
         currentState.fillPatternColorComponents = nil
     }
 
     /// Clears the stroke pattern and reverts to solid color stroke.
-    public func clearStrokePattern() {
+    internal func clearStrokePattern() {
         currentState.strokePattern = nil
         currentState.strokePatternColorComponents = nil
     }
@@ -1131,7 +1152,7 @@ public class CGContext: @unchecked Sendable {
     public func setShadow(offset: CGSize, blur: CGFloat) {
         currentState.shadowOffset = offset
         currentState.shadowBlur = blur
-        currentState.shadowColor = CGColor.black
+        currentState.shadowColor = CGColor(gray: 0.0, alpha: 1.0 / 3.0)
     }
 
     /// Sets the shadow with a specified color.
@@ -1305,22 +1326,22 @@ public class CGContext: @unchecked Sendable {
 
     /// Sets the current text position.
     public func setTextPosition(x: CGFloat, y: CGFloat) {
-        currentState.textPosition = CGPoint(x: x, y: y)
+        _textPosition = CGPoint(x: x, y: y)
     }
 
     /// The current text position.
     public var textPosition: CGPoint {
-        return currentState.textPosition
+        return _textPosition
     }
 
     /// Sets the text matrix.
     public func setTextMatrix(_ transform: CGAffineTransform) {
-        currentState.textMatrix = transform
+        _textMatrix = transform
     }
 
     /// The current text matrix.
     public var textMatrix: CGAffineTransform {
-        return currentState.textMatrix
+        return _textMatrix
     }
 
     /// The current character spacing.

@@ -256,7 +256,7 @@ extension CGAffineTransform {
         let rotation = atan2(b, a)
 
         // Extract shear
-        let shear = (a * c + b * d) / (scaleX * scaleY)
+        let shear = (a * c + b * d) / determinant
 
         return CGAffineTransformComponents(
             scale: scale,

@@ -164,9 +164,20 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
             commands.append(.lineTo(startPoint))
         }
 
+        // Normalize target angle for sweep direction
+        var targetAngle = endAngle
+        if clockwise {
+            while targetAngle >= startAngle {
+                targetAngle -= 2 * CGFloat.pi
+            }
+        } else {
+            while targetAngle <= startAngle {
+                targetAngle += 2 * CGFloat.pi
+            }
+        }
+
         // Approximate arc with bezier curves
         var angle = startAngle
-        let targetAngle = endAngle
         let direction: CGFloat = clockwise ? -1.0 : 1.0
         let step = CGFloat.pi / 2 * direction
 
@@ -187,10 +198,13 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
     private func addArcSegment(center: CGPoint, radius: CGFloat, startAngle: CGFloat,
                                endAngle: CGFloat, transform: CGAffineTransform) {
         let angleDiff = endAngle - startAngle
+        guard abs(angleDiff) > 1e-10 else { return }
         let halfAngle = angleDiff / 2
+        let sinHalf = sin(halfAngle)
+        guard abs(sinHalf) > 1e-10 else { return }
 
         // Control point distance
-        let k = CGFloat(4.0 / 3.0) * (1.0 - cos(halfAngle)) / sin(halfAngle)
+        let k = CGFloat(4.0 / 3.0) * (1.0 - cos(halfAngle)) / sinHalf
 
         let p0 = CGPoint(
             x: center.x + radius * cos(startAngle),

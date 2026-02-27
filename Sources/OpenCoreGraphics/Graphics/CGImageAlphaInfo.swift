@@ -70,7 +70,7 @@ public enum CGImageByteOrderInfo: UInt32, Sendable, CaseIterable {
     case order32Big = 16384  // 4 << 12
 
     /// The byte order mask.
-    case orderMask = 28672  // 0x7000
+    public static let orderMask: UInt32 = 0x7000
 
     /// 16-bit, host-endian format.
     #if _endian(little)
@@ -92,7 +92,7 @@ public enum CGImageByteOrderInfo: UInt32, Sendable, CaseIterable {
 /// Pixel format information for images.
 public enum CGImagePixelFormatInfo: UInt32, Sendable, CaseIterable {
     /// The pixel format mask.
-    case mask = 983040  // 0xF0000
+    public static let mask: UInt32 = 0xF0000
 
     /// The pixel format is packed (standard format).
     case packed = 0

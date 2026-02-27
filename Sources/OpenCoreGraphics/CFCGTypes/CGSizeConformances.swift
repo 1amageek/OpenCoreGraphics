@@ -8,14 +8,14 @@
 
 #if canImport(Darwin)
 import Foundation
-extension CGSize: Equatable {
+extension CGSize: @retroactive Equatable {
 
     public static func == (lhs: CGSize, rhs: CGSize) -> Bool {
         return lhs.width == rhs.width && lhs.height == rhs.height
     }
 }
 
-extension CGSize: Hashable {
+extension CGSize: @retroactive Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(width)
@@ -23,7 +23,7 @@ extension CGSize: Hashable {
     }
 }
 
-extension CGSize: Codable {
+extension CGSize: @retroactive Codable {
     enum CodingKeys: String, CodingKey {
         case width
         case height
@@ -43,7 +43,7 @@ extension CGSize: Codable {
     }
 }
 
-extension CGSize: CustomDebugStringConvertible {
+extension CGSize: @retroactive CustomDebugStringConvertible {
     public var debugDescription: String {
         return "(\(width), \(height))"
     }

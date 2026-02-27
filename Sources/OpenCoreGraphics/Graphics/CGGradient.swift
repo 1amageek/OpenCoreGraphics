@@ -176,6 +176,7 @@ public class CGGradient: @unchecked Sendable {
     /// Interpolates a color at the given position (0.0 to 1.0).
     public func color(at position: CGFloat) -> CGColor? {
         guard !colors.isEmpty else { return nil }
+        if colors.count == 1 { return colors[0] }
 
         let pos = max(0, min(1, position))
 
@@ -185,8 +186,12 @@ public class CGGradient: @unchecked Sendable {
             effectiveLocations = locations
         } else {
             // Generate evenly spaced locations
-            effectiveLocations = (0..<colors.count).map { i in
-                CGFloat(Double(i) / Double(colors.count - 1))
+            if colors.count == 1 {
+                effectiveLocations = [0.0]
+            } else {
+                effectiveLocations = (0..<colors.count).map { i in
+                    CGFloat(Double(i) / Double(colors.count - 1))
+                }
             }
         }
 

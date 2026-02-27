@@ -11,16 +11,16 @@ import Foundation
 
 /// Information about the components in an image.
 public enum CGImageComponentInfo: UInt32, Sendable, CaseIterable {
-    /// Floating-point components.
-    case float = 0
-
     /// Integer components.
-    case integer = 1
+    case integer = 0
+
+    /// Floating-point components.
+    case float = 256
 
     public init?(rawValue: UInt32) {
         switch rawValue {
-        case 0: self = .float
-        case 1: self = .integer
+        case 0: self = .integer
+        case 256: self = .float
         default: return nil
         }
     }
@@ -39,8 +39,8 @@ extension CGImageComponentInfo: Hashable {}
 extension CGImageComponentInfo: CustomDebugStringConvertible {
     public var debugDescription: String {
         switch self {
-        case .float: return "CGImageComponentInfo.float"
         case .integer: return "CGImageComponentInfo.integer"
+        case .float: return "CGImageComponentInfo.float"
         }
     }
 }

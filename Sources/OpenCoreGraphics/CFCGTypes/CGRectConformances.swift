@@ -49,14 +49,18 @@ extension CGRect {
     }
 }
 
-extension CGRect: Equatable {
+extension CGRect: @retroactive Equatable {
 
     public static func == (lhs: CGRect, rhs: CGRect) -> Bool {
-        return lhs.origin == rhs.origin && lhs.size == rhs.size
+        if lhs.isNull && rhs.isNull { return true }
+        if lhs.isNull || rhs.isNull { return false }
+        let r1 = lhs.standardized
+        let r2 = rhs.standardized
+        return r1.origin == r2.origin && r1.size == r2.size
     }
 }
 
-extension CGRect: Hashable {
+extension CGRect: @retroactive Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(origin)
@@ -64,7 +68,7 @@ extension CGRect: Hashable {
     }
 }
 
-extension CGRect: Codable {
+extension CGRect: @retroactive Codable {
     enum CodingKeys: String, CodingKey {
         case origin
         case size
@@ -84,7 +88,7 @@ extension CGRect: Codable {
     }
 }
 
-extension CGRect: CustomDebugStringConvertible {
+extension CGRect: @retroactive CustomDebugStringConvertible {
     public var debugDescription: String {
         return "(\(origin.x), \(origin.y), \(size.width), \(size.height))"
     }
@@ -109,7 +113,10 @@ extension CGRect {
 
     /// A rectangle that has infinite extent.
     public static var infinite: CGRect {
-        CGRect(origin: CGPoint(x: -CGFloat.infinity, y: -CGFloat.infinity), size: CGSize(width: CGFloat.infinity, height: CGFloat.infinity))
+        CGRect(origin: CGPoint(x: -CGFloat.greatestFiniteMagnitude / 2,
+                               y: -CGFloat.greatestFiniteMagnitude / 2),
+               size: CGSize(width: CGFloat.greatestFiniteMagnitude,
+                            height: CGFloat.greatestFiniteMagnitude))
     }
 
     /// The null rectangle, representing an invalid value.
@@ -124,8 +131,7 @@ extension CGRect {
     /// Returns whether two rectangles are equal.
     @inlinable
     public func equalTo(_ rect2: CGRect) -> Bool {
-        return self.origin.x == rect2.origin.x && self.origin.y == rect2.origin.y &&
-               self.size.width == rect2.size.width && self.size.height == rect2.size.height
+        return self == rect2
     }
 
     /// Returns whether a rectangle has zero width or height, or is a null rectangle.
@@ -137,8 +143,7 @@ extension CGRect {
     /// Returns whether the rectangle is infinite.
     @inlinable
     public var isInfinite: Bool {
-        return origin.x == -CGFloat.infinity && origin.y == -CGFloat.infinity &&
-               size.width == CGFloat.infinity && size.height == CGFloat.infinity
+        return self == .infinite
     }
 
     /// Returns whether the rectangle is equal to the null rectangle.
@@ -152,6 +157,7 @@ extension CGRect {
     /// Returns a rectangle with a positive width and height.
     @inlinable
     public var standardized: CGRect {
+        if isNull { return .null }
         var rect = self
         if rect.size.width < 0 {
             rect.origin.x += rect.size.width
@@ -213,6 +219,7 @@ extension CGRect {
     /// Returns whether a rectangle contains a specified point.
     @inlinable
     public func contains(_ point: CGPoint) -> Bool {
+        if isNull || isEmpty { return false }
         let r = standardized
         return point.x >= r.origin.x && point.x < r.origin.x + r.size.width &&
                point.y >= r.origin.y && point.y < r.origin.y + r.size.height
@@ -236,23 +243,24 @@ extension CGRect {
     /// Returns a rectangle that is smaller or larger than the source rectangle.
     @inlinable
     public func insetBy(dx: CGFloat, dy: CGFloat) -> CGRect {
-        let newWidth = size.width - dx * 2
-        let newHeight = size.height - dy * 2
-
-        if newWidth < 0 || newHeight < 0 {
+        if isNull { return self }
+        var rect = self.standardized
+        rect.origin.x += dx
+        rect.origin.y += dy
+        rect.size.width -= 2 * dx
+        rect.size.height -= 2 * dy
+        if rect.size.width < 0 || rect.size.height < 0 {
             return .null
         }
-
-        return CGRect(
-            origin: CGPoint(x: origin.x + dx, y: origin.y + dy),
-            size: CGSize(width: newWidth, height: newHeight)
-        )
+        return rect
     }
 
     /// Returns the smallest rectangle that results from converting the source rectangle values to integers.
     @inlinable
     public var integral: CGRect {
+        if isNull { return self }
         let r = standardized
+        if r.isEmpty { return r }
         let x = r.origin.x.rounded(.down)
         let y = r.origin.y.rounded(.down)
         let maxX = (r.origin.x + r.size.width).rounded(.up)
@@ -263,6 +271,7 @@ extension CGRect {
     /// Creates two rectangles by dividing the original rectangle.
     @inlinable
     public func divided(atDistance: CGFloat, from edge: CGRectEdge) -> (slice: CGRect, remainder: CGRect) {
+        if isNull { return (.null, .null) }
         let rect = self.standardized
         let distance = Swift.max(0, atDistance)
 

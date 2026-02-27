@@ -30,7 +30,7 @@ public struct CGBitmapInfo: OptionSet, Sendable, Hashable {
     public static let floatComponents = CGBitmapInfo(rawValue: 1 << 8)
 
     /// The mask for extracting float info.
-    public static let floatInfoMask = CGBitmapInfo(rawValue: 0xF00)
+    public static let floatInfoMask = CGBitmapInfo(rawValue: 0x100)
 
     // MARK: - Byte Order
 
@@ -118,7 +118,7 @@ public struct CGBitmapInfo: OptionSet, Sendable, Hashable {
 
     /// Returns the pixel format info from this bitmap info.
     public var pixelFormat: CGImagePixelFormatInfo {
-        return CGImagePixelFormatInfo(rawValue: rawValue & CGImagePixelFormatInfo.mask.rawValue) ?? .packed
+        return CGImagePixelFormatInfo(rawValue: rawValue & CGImagePixelFormatInfo.mask) ?? .packed
     }
 
     /// Returns whether the components are floating-point values.

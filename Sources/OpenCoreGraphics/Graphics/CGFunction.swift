@@ -101,6 +101,13 @@ public class CGFunction: @unchecked Sendable {
                 domainArray.append(domain[i])
             }
             self.domain = domainArray
+        } else if domainDimension > 0 {
+            var domainArray: [CGFloat] = []
+            for _ in 0..<domainDimension {
+                domainArray.append(0.0)
+                domainArray.append(1.0)
+            }
+            self.domain = domainArray
         } else {
             self.domain = []
         }
@@ -110,6 +117,13 @@ public class CGFunction: @unchecked Sendable {
             var rangeArray: [CGFloat] = []
             for i in 0..<(rangeDimension * 2) {
                 rangeArray.append(range[i])
+            }
+            self.range = rangeArray
+        } else if rangeDimension > 0 {
+            var rangeArray: [CGFloat] = []
+            for _ in 0..<rangeDimension {
+                rangeArray.append(0.0)
+                rangeArray.append(1.0)
             }
             self.range = rangeArray
         } else {

@@ -8,14 +8,14 @@
 
 #if canImport(Darwin)
 import Foundation
-extension CGPoint: Equatable {
+extension CGPoint: @retroactive Equatable {
 
     public static func == (lhs: CGPoint, rhs: CGPoint) -> Bool {
         return lhs.x == rhs.x && lhs.y == rhs.y
     }
 }
 
-extension CGPoint: Hashable {
+extension CGPoint: @retroactive Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(x)
@@ -23,7 +23,7 @@ extension CGPoint: Hashable {
     }
 }
 
-extension CGPoint: Codable {
+extension CGPoint: @retroactive Codable {
     enum CodingKeys: String, CodingKey {
         case x
         case y
@@ -43,7 +43,7 @@ extension CGPoint: Codable {
     }
 }
 
-extension CGPoint: CustomDebugStringConvertible {
+extension CGPoint: @retroactive CustomDebugStringConvertible {
     public var debugDescription: String {
         return "(\(x), \(y))"
     }
