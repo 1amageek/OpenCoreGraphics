@@ -280,14 +280,14 @@ struct CGImageComponentInfoTests {
 
     @Test("Raw values")
     func rawValues() {
-        #expect(CGImageComponentInfo.float.rawValue == 0)
-        #expect(CGImageComponentInfo.integer.rawValue == 1)
+        #expect(CGImageComponentInfo.float.rawValue == 0x100)
+        #expect(CGImageComponentInfo.integer.rawValue == 0)
     }
 
     @Test("Init from raw value")
     func initFromRawValue() {
-        #expect(CGImageComponentInfo(rawValue: 0) == .float)
-        #expect(CGImageComponentInfo(rawValue: 1) == .integer)
+        #expect(CGImageComponentInfo(rawValue: 0x100) == .float)
+        #expect(CGImageComponentInfo(rawValue: 0) == .integer)
         #expect(CGImageComponentInfo(rawValue: 100) == nil)
     }
 

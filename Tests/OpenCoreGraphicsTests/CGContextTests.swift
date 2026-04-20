@@ -1280,8 +1280,8 @@ struct CGContextTests {
             #expect(context.lineWidth == 5.0)
         }
 
-        @Test("GState saves and restores text position")
-        func gstateSavesRestoresTextPosition() {
+        @Test("GState does not restore text position")
+        func gstateDoesNotRestoreTextPosition() {
             guard let context = createTestContext() else {
                 #expect(Bool(false), "Failed to create context")
                 return
@@ -1296,12 +1296,13 @@ struct CGContextTests {
 
             context.restoreGState()
 
-            #expect(context.textPosition.x == 10)
-            #expect(context.textPosition.y == 20)
+            // CoreGraphics keeps text state outside the graphics state stack.
+            #expect(context.textPosition.x == 50)
+            #expect(context.textPosition.y == 60)
         }
 
-        @Test("GState saves and restores text matrix")
-        func gstateSavesRestoresTextMatrix() {
+        @Test("GState does not restore text matrix")
+        func gstateDoesNotRestoreTextMatrix() {
             guard let context = createTestContext() else {
                 #expect(Bool(false), "Failed to create context")
                 return
@@ -1318,7 +1319,8 @@ struct CGContextTests {
 
             context.restoreGState()
 
-            #expect(isApproximatelyEqual(context.textMatrix.a, 2))
+            // CoreGraphics keeps text state outside the graphics state stack.
+            #expect(isApproximatelyEqual(context.textMatrix.a, matrix2.a))
         }
 
         @Test("GState saves and restores interpolation quality")

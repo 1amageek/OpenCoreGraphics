@@ -5,10 +5,12 @@
 //  Tests for CGVector type
 //
 
+import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
 // Type alias to avoid ambiguity with CoreFoundation types on macOS
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGVector = OpenCoreGraphics.CGVector
 
 @Suite("CGVector Tests")
@@ -226,21 +228,25 @@ struct CGVectorTests {
 
     @Suite("Edge Cases")
     struct EdgeCaseTests {
+        private func expectExactValue(_ lhs: CGFloat, _ rhs: CGFloat) {
+            let matches = lhs == rhs
+            #expect(matches)
+        }
 
         @Test("Very large components")
         func veryLargeComponents() {
             let large = CGFloat.greatestFiniteMagnitude / 2
             let vector = CGVector(dx: large, dy: large)
-            #expect(vector.dx == large)
-            #expect(vector.dy == large)
+            expectExactValue(vector.dx, large)
+            expectExactValue(vector.dy, large)
         }
 
         @Test("Very small components")
         func verySmallComponents() {
             let small = CGFloat.leastNonzeroMagnitude
             let vector = CGVector(dx: small, dy: small)
-            #expect(vector.dx == small)
-            #expect(vector.dy == small)
+            expectExactValue(vector.dx, small)
+            expectExactValue(vector.dy, small)
         }
 
         @Test("Mixed positive and negative")

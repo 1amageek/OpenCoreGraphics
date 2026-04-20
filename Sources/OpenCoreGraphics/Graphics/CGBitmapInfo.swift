@@ -29,8 +29,8 @@ public struct CGBitmapInfo: OptionSet, Sendable, Hashable {
     /// The components are floating-point values.
     public static let floatComponents = CGBitmapInfo(rawValue: 1 << 8)
 
-    /// The mask for extracting float info.
-    public static let floatInfoMask = CGBitmapInfo(rawValue: 0x100)
+    /// The mask for extracting float-component flags.
+    public static let floatInfoMask = CGBitmapInfo(rawValue: 0xF00)
 
     // MARK: - Byte Order
 
