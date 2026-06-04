@@ -14,12 +14,27 @@ import JavaScriptKit
 ///
 /// Manages GPU textures created from CGImage instances with automatic
 /// memory management through LRU eviction.
+///
+/// ## Identity & Ownership
+///
+/// The cache is keyed by `ObjectIdentifier(CGImage)`, but a raw pointer
+/// identifier is only stable while the underlying object is alive. To
+/// guarantee key uniqueness, every cache entry holds a strong reference
+/// to its `CGImage`; without this, the source image could be released by
+/// ARC, its heap address reused by a fresh allocation, and a subsequent
+/// lookup would incorrectly return the stale `GPUTextureView`
+/// (cross-image identity collision symptom).
 internal final class TextureManager: @unchecked Sendable {
 
     // MARK: - Types
 
     /// Cached texture entry.
+    ///
+    /// Holds the source `CGImage` so the entry's
+    /// `ObjectIdentifier(cgImage)` key remains unique for the lifetime of
+    /// the cached texture.
     struct TextureEntry {
+        let cgImage: CGImage
         let texture: GPUTexture
         let textureView: GPUTextureView
         let width: Int
@@ -40,7 +55,10 @@ internal final class TextureManager: @unchecked Sendable {
     /// Maximum number of textures to cache
     private let capacity: Int
 
-    /// Cached textures by image identity
+    /// Cached textures keyed by `ObjectIdentifier(CGImage)`.
+    ///
+    /// Each entry retains its `CGImage` (see `TextureEntry.cgImage`) so
+    /// the identifier remains unique for the cached lifetime.
     private var cache: [ObjectIdentifier: TextureEntry] = [:]
 
     /// Access order for LRU eviction (oldest first)
@@ -54,6 +72,14 @@ internal final class TextureManager: @unchecked Sendable {
 
     /// Maximum memory before forced eviction (bytes)
     var maxMemoryUsage: Int = 256 * 1024 * 1024  // 256 MB
+
+    /// Called for each `CGImage` whose cached texture is removed.
+    ///
+    /// Downstream caches keyed by the same `ObjectIdentifier(CGImage)`
+    /// must drop their entries here, otherwise they may end up serving
+    /// stale `GPUTextureView`s for a future image whose heap address
+    /// happens to alias the evicted one.
+    var onEvict: ((CGImage) -> Void)?
 
     // MARK: - Initialization
 
@@ -151,6 +177,7 @@ internal final class TextureManager: @unchecked Sendable {
         accessCounter += 1
 
         return TextureEntry(
+            cgImage: image,
             texture: texture,
             textureView: textureView,
             width: width,
@@ -161,19 +188,100 @@ internal final class TextureManager: @unchecked Sendable {
 
     /// Extracts RGBA pixel data from a CGImage.
     private func extractPixelData(from image: CGImage) -> Data? {
-        guard let provider = image.dataProvider,
-              let data = provider.data else {
+        guard let data = image.data ?? image.dataProvider?.data else {
             return nil
         }
 
-        // Verify data size matches expected RGBA format
-        let expectedSize = image.width * image.height * 4
-        if data.count >= expectedSize {
-            return data
+        let width = image.width
+        let height = image.height
+        let bytesPerPixel = 4
+        let packedBytesPerRow = width * bytesPerPixel
+
+        guard width > 0,
+              height > 0,
+              image.bitsPerComponent == 8,
+              image.bitsPerPixel == 32,
+              image.bytesPerRow >= packedBytesPerRow else {
+            return nil
         }
 
-        // Format mismatch - would need conversion
-        return nil
+        let requiredByteCount = image.bytesPerRow * (height - 1) + packedBytesPerRow
+        guard data.count >= requiredByteCount else { return nil }
+
+        var result = [UInt8](repeating: 0, count: packedBytesPerRow * height)
+        data.withUnsafeBytes { raw in
+            guard let source = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+
+            for y in 0..<height {
+                let sourceRow = y * image.bytesPerRow
+                let destinationRow = y * packedBytesPerRow
+
+                for x in 0..<width {
+                    let sourceOffset = sourceRow + x * bytesPerPixel
+                    let destinationOffset = destinationRow + x * bytesPerPixel
+                    let b0 = source[sourceOffset]
+                    let b1 = source[sourceOffset + 1]
+                    let b2 = source[sourceOffset + 2]
+                    let b3 = source[sourceOffset + 3]
+                    let pixel = rgbaPixel(
+                        b0,
+                        b1,
+                        b2,
+                        b3,
+                        alphaInfo: image.alphaInfo,
+                        byteOrderInfo: image.byteOrderInfo
+                    )
+
+                    result[destinationOffset] = pixel.r
+                    result[destinationOffset + 1] = pixel.g
+                    result[destinationOffset + 2] = pixel.b
+                    result[destinationOffset + 3] = pixel.a
+                }
+            }
+        }
+
+        return Data(result)
+    }
+
+    private func rgbaPixel(
+        _ b0: UInt8,
+        _ b1: UInt8,
+        _ b2: UInt8,
+        _ b3: UInt8,
+        alphaInfo: CGImageAlphaInfo,
+        byteOrderInfo: CGImageByteOrderInfo
+    ) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
+        let hasAlpha: Bool
+        switch alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            hasAlpha = false
+        case .premultipliedLast, .premultipliedFirst, .last, .first, .alphaOnly:
+            hasAlpha = true
+        }
+
+        switch byteOrderInfo {
+        case .order32Little:
+            switch alphaInfo {
+            case .premultipliedLast, .last, .noneSkipLast:
+                return (b3, b2, b1, hasAlpha ? b0 : 255)
+            case .premultipliedFirst, .first, .noneSkipFirst:
+                return (b2, b1, b0, hasAlpha ? b3 : 255)
+            case .none:
+                return (b2, b1, b0, 255)
+            case .alphaOnly:
+                return (255, 255, 255, b0)
+            }
+
+        case .order32Big, .orderDefault, .order16Little, .order16Big:
+            switch alphaInfo {
+            case .premultipliedFirst, .first, .noneSkipFirst:
+                return (b1, b2, b3, hasAlpha ? b0 : 255)
+            case .premultipliedLast, .last, .noneSkipLast, .none:
+                return (b0, b1, b2, hasAlpha ? b3 : 255)
+            case .alphaOnly:
+                return (255, 255, 255, b0)
+            }
+        }
     }
 
     /// Uploads pixel data to a GPU texture.
@@ -212,18 +320,29 @@ internal final class TextureManager: @unchecked Sendable {
     private func evictLeastRecentlyUsed() {
         guard let lruKey = accessOrder.first else { return }
 
+        accessOrder.removeFirst()
+
         if let entry = cache.removeValue(forKey: lruKey) {
             totalMemoryUsage -= entry.memorySize
+            onEvict?(entry.cgImage)
         }
-
-        accessOrder.removeFirst()
     }
 
     /// Clears all cached textures.
     func clear() {
+        // Snapshot evicted images first so the callback can run after the
+        // dictionary is fully drained — avoids iteration-during-mutation
+        // if the callback indirectly inserts back into the cache.
+        let evicted = cache.values.map { $0.cgImage }
         cache.removeAll()
         accessOrder.removeAll()
         totalMemoryUsage = 0
+
+        if let onEvict = onEvict {
+            for cgImage in evicted {
+                onEvict(cgImage)
+            }
+        }
     }
 
     /// Removes a specific image from the cache.
@@ -236,6 +355,7 @@ internal final class TextureManager: @unchecked Sendable {
             if let index = accessOrder.firstIndex(of: key) {
                 accessOrder.remove(at: index)
             }
+            onEvict?(entry.cgImage)
         }
     }
 

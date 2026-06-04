@@ -125,8 +125,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedHhea == nil {
-            cachedHhea = try? parser?.parseHheaTable()
+        if cachedHhea == nil, let parser = parser {
+            do {
+                cachedHhea = try parser.parseHheaTable()
+            } catch {
+                print("CGFont: failed to parse hhea table: \(error)")
+                cachedHhea = nil
+            }
         }
         return cachedHhea
     }
@@ -137,11 +142,17 @@ public class CGFont: @unchecked Sendable {
 
         if cachedHmtx == nil {
             guard let hhea = getHheaTable(),
-                  let maxp = cachedMaxp else { return nil }
-            cachedHmtx = try? parser?.parseHmtxTable(
-                numberOfGlyphs: Int(maxp.numGlyphs),
-                numberOfHMetrics: Int(hhea.numberOfHMetrics)
-            )
+                  let maxp = cachedMaxp,
+                  let parser = parser else { return nil }
+            do {
+                cachedHmtx = try parser.parseHmtxTable(
+                    numberOfGlyphs: Int(maxp.numGlyphs),
+                    numberOfHMetrics: Int(hhea.numberOfHMetrics)
+                )
+            } catch {
+                print("CGFont: failed to parse hmtx table: \(error)")
+                cachedHmtx = nil
+            }
         }
         return cachedHmtx
     }
@@ -150,8 +161,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedPost == nil {
-            cachedPost = try? parser?.parsePostTable()
+        if cachedPost == nil, let parser = parser {
+            do {
+                cachedPost = try parser.parsePostTable()
+            } catch {
+                print("CGFont: failed to parse post table: \(error)")
+                cachedPost = nil
+            }
         }
         return cachedPost
     }
@@ -160,8 +176,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedOS2 == nil {
-            cachedOS2 = try? parser?.parseOS2Table()
+        if cachedOS2 == nil, let parser = parser {
+            do {
+                cachedOS2 = try parser.parseOS2Table()
+            } catch {
+                print("CGFont: failed to parse OS/2 table: \(error)")
+                cachedOS2 = nil
+            }
         }
         return cachedOS2
     }
@@ -170,8 +191,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedName == nil {
-            cachedName = try? parser?.parseNameTable()
+        if cachedName == nil, let parser = parser {
+            do {
+                cachedName = try parser.parseNameTable()
+            } catch {
+                print("CGFont: failed to parse name table: \(error)")
+                cachedName = nil
+            }
         }
         return cachedName
     }
@@ -182,11 +208,17 @@ public class CGFont: @unchecked Sendable {
 
         if cachedLoca == nil {
             guard let head = cachedHead,
-                  let maxp = cachedMaxp else { return nil }
-            cachedLoca = try? parser?.parseLocaTable(
-                numGlyphs: Int(maxp.numGlyphs),
-                indexToLocFormat: head.indexToLocFormat
-            )
+                  let maxp = cachedMaxp,
+                  let parser = parser else { return nil }
+            do {
+                cachedLoca = try parser.parseLocaTable(
+                    numGlyphs: Int(maxp.numGlyphs),
+                    indexToLocFormat: head.indexToLocFormat
+                )
+            } catch {
+                print("CGFont: failed to parse loca table: \(error)")
+                cachedLoca = nil
+            }
         }
         return cachedLoca
     }
@@ -195,8 +227,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedFvar == nil {
-            cachedFvar = try? parser?.parseFvarTable()
+        if cachedFvar == nil, let parser = parser {
+            do {
+                cachedFvar = try parser.parseFvarTable()
+            } catch {
+                print("CGFont: failed to parse fvar table: \(error)")
+                cachedFvar = nil
+            }
         }
         return cachedFvar
     }
@@ -205,8 +242,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedColr == nil {
-            cachedColr = try? parser?.parseColrTable()
+        if cachedColr == nil, let parser = parser {
+            do {
+                cachedColr = try parser.parseColrTable()
+            } catch {
+                print("CGFont: failed to parse COLR table: \(error)")
+                cachedColr = nil
+            }
         }
         return cachedColr
     }
@@ -215,8 +257,13 @@ public class CGFont: @unchecked Sendable {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
-        if cachedCpal == nil {
-            cachedCpal = try? parser?.parseCpalTable()
+        if cachedCpal == nil, let parser = parser {
+            do {
+                cachedCpal = try parser.parseCpalTable()
+            } catch {
+                print("CGFont: failed to parse CPAL table: \(error)")
+                cachedCpal = nil
+            }
         }
         return cachedCpal
     }

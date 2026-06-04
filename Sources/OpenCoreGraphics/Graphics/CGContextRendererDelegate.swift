@@ -15,21 +15,22 @@ import Foundation
 /// render drawing operations, including clipping, shadows, and transformations.
 internal struct CGDrawingState: Sendable {
 
-    /// The current clipping paths.
+    /// The current clipping paths with their fill rules.
     ///
     /// Multiple clip paths represent successive `clip()` calls that should be intersected.
     /// Renderers should apply all paths as an intersection (AND operation).
-    /// Each path in the array narrows the clipping region further.
+    /// Each entry carries its own fill rule so the renderer can honour
+    /// even-odd vs winding semantics per clip.
     ///
     /// For GPU renderers, this typically means:
-    /// - Render each clip path to a stencil buffer
+    /// - Render each clip path to a stencil buffer using its fill rule
     /// - Use stencil test to restrict drawing to the intersection
-    var clipPaths: [CGPath]
+    var clipPaths: [CGClipPath]
 
-    /// Convenience property for backward compatibility.
-    /// Returns the first clip path, or nil if no clipping is active.
+    /// Convenience property returning the first clip path, or nil if no
+    /// clipping is active.
     var clipPath: CGPath? {
-        return clipPaths.first
+        return clipPaths.first?.path
     }
 
     /// Returns whether any clipping is active.
@@ -67,7 +68,7 @@ internal struct CGDrawingState: Sendable {
 
     /// Creates a drawing state with the specified values.
     init(
-        clipPaths: [CGPath],
+        clipPaths: [CGClipPath],
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
@@ -85,13 +86,14 @@ internal struct CGDrawingState: Sendable {
     /// Creates a drawing state with a single clip path (convenience initializer).
     init(
         clipPath: CGPath?,
+        clipRule: CGPathFillRule = .winding,
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
         shadowColor: CGColor?,
         shouldAntialias: Bool = true
     ) {
-        self.clipPaths = clipPath.map { [$0] } ?? []
+        self.clipPaths = clipPath.map { [CGClipPath(path: $0, rule: clipRule)] } ?? []
         self.ctm = ctm
         self.shadowOffset = shadowOffset
         self.shadowBlur = shadowBlur

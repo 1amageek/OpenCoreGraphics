@@ -343,11 +343,15 @@ struct CGAffineTransformTests {
             #expect(abs(restored.y - original.y) < 0.0001)
         }
 
-        @Test("Invert singular matrix returns identity")
+        @Test("Invert singular matrix returns the original transform unchanged")
         func invertSingular() {
+            // Apple's CoreGraphics contract: when the determinant is zero, `inverted()`
+            // returns the receiver unchanged. This lets callers detect degeneracy by
+            // comparing input and output rather than masking the condition with
+            // a silent `.identity` fallback.
             let singular = CGAffineTransform(scaleX: 0.0, y: 0.0)
             let inverted = singular.inverted()
-            #expect(inverted == .identity)
+            #expect(inverted == singular)
         }
     }
 
@@ -381,6 +385,19 @@ struct CGAffineTransformTests {
             let components = transform.decomposed()
             #expect(abs(components.scale.width - 2.0) < 0.0001)
             #expect(abs(components.scale.height - 3.0) < 0.0001)
+        }
+
+        @Test("Decompose singular transform keeps components finite")
+        func decomposeSingularTransformKeepsComponentsFinite() {
+            let transform = CGAffineTransform(a: 1, b: 2, c: 2, d: 4, tx: 5, ty: 6)
+            let components = transform.decomposed()
+
+            #expect(components.scale.width.isFinite)
+            #expect(components.scale.height.isFinite)
+            #expect(components.horizontalShear.isFinite)
+            #expect(components.rotation.isFinite)
+            #expect(components.translation.dx == 5)
+            #expect(components.translation.dy == 6)
         }
 
         @Test("Init from components")
@@ -587,23 +604,24 @@ struct CGAffineTransformTests {
             #expect(isApproximatelyEqual(transformed.y, 5.0))
         }
 
-        @Test("Singular matrix (zero determinant) inversion returns identity")
+        @Test("Singular matrix (zero determinant) inversion returns the original transform unchanged")
         func singularMatrixInversion() {
-            // Singular matrix: det = a*d - b*c = 1*4 - 2*2 = 0
+            // Apple's CoreGraphics contract: when the determinant is zero,
+            // `inverted()` returns the receiver unchanged so callers can detect
+            // degeneracy by comparing input and output rather than masking the
+            // condition with a silent `.identity` fallback.
             let singular = CGAffineTransform(a: 1, b: 2, c: 2, d: 4, tx: 0, ty: 0)
             let inverted = singular.inverted()
 
-            // When matrix is singular, implementation returns identity
-            #expect(inverted == .identity)
+            #expect(inverted == singular)
         }
 
-        @Test("Scaling by zero creates singular matrix")
+        @Test("Scaling by zero creates singular matrix and inversion returns it unchanged")
         func zeroScaleSingular() {
             let zeroScale = CGAffineTransform(scaleX: 0, y: 0)
             let inverted = zeroScale.inverted()
 
-            // Singular matrix inversion returns identity
-            #expect(inverted == .identity)
+            #expect(inverted == zeroScale)
         }
 
         @Test("Matrix multiplication is associative")

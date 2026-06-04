@@ -295,9 +295,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         return pipelineRegistry.getPipeline(.stencilWrite)
     }
 
-    /// Gets the image pipeline.
-    private func getImagePipeline() -> GPURenderPipeline? {
-        return pipelineRegistry.getPipeline(.image)
+    /// Gets the image pipeline for a specific drawing state.
+    private func getImagePipeline(for blendMode: CGBlendMode = .normal, clipped: Bool = false) -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.image(blendMode, clipped))
     }
 
     /// Gets the pattern pipeline.
@@ -377,7 +377,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Tessellate the path
         // Note: GeometryCache is available for future optimization of static paths
-        let batch = tessellator.tessellateFill(path, color: effectiveColor)
+        let batch = tessellator.tessellateFill(path, color: effectiveColor, rule: rule)
         guard !batch.vertices.isEmpty else { return }
 
         // Render
@@ -460,7 +460,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         interpolationQuality: CGInterpolationQuality
     ) {
         guard let target = effectiveRenderTarget,
-              let pipeline = getImagePipeline(),
+              let pipeline = getImagePipeline(for: blendMode),
               let sampler = linearSampler else { return }
 
         // Get or create texture view for the image (via TextureManager)
@@ -576,7 +576,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         let effectiveColor = applyAlpha(color, alpha: alpha)
 
         // Tessellate the path
-        let batch = tessellator.tessellateFill(path, color: effectiveColor)
+        let batch = tessellator.tessellateFill(path, color: effectiveColor, rule: rule)
         guard !batch.vertices.isEmpty else { return }
 
         // Render shadow first if needed
@@ -752,7 +752,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         }
 
         // Use texture-based rendering
-        guard let pipeline = getImagePipeline(),
+        let usesClipping = state.hasClipping
+        guard let pipeline = getImagePipeline(for: blendMode, clipped: usesClipping),
               let sampler = linearSampler else {
             // Fallback to placeholder
             let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
@@ -774,7 +775,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
             guard !vertices.isEmpty else { return }
             let batch = CGWebGPUVertexBatch(vertices: vertices)
-            if let p = getPipeline(for: blendMode) {
+            if state.hasClipping {
+                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
+                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
+            } else if let p = getPipeline(for: blendMode) {
                 renderBatch(batch, to: target, pipeline: p)
             }
             return
@@ -794,25 +798,24 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             ]
         ))
 
-        // Render the image
-        let encoder = device.createCommandEncoder()
-        let colorAttachment = GPURenderPassColorAttachment(
-            view: target,
-            loadOp: .load,
-            storeOp: .store
-        )
-
-        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
-            colorAttachments: [colorAttachment]
-        ))
-
-        renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup: bindGroup)
-        renderPass.setVertexBuffer(0, buffer: vertexBuffer)
-        renderPass.draw(vertexCount: 6)
-        renderPass.end()
-
-        queue.submit([encoder.finish()])
+        if usesClipping {
+            renderImageWithClipping(
+                vertexBuffer: vertexBuffer,
+                bindGroup: bindGroup,
+                vertexCount: 6,
+                to: target,
+                pipeline: pipeline,
+                clipPaths: state.clipPaths
+            )
+        } else {
+            renderImage(
+                vertexBuffer: vertexBuffer,
+                bindGroup: bindGroup,
+                vertexCount: 6,
+                to: target,
+                pipeline: pipeline
+            )
+        }
     }
 
     func drawLinearGradient(
@@ -1393,7 +1396,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         }
 
         let effectiveColor = applyAlpha(patternColor, alpha: alpha)
-        let batch = tessellator.tessellateFill(path, color: effectiveColor)
+        let batch = tessellator.tessellateFill(path, color: effectiveColor, rule: rule)
         guard !batch.vertices.isEmpty else { return }
 
         // Create pattern uniform buffer
@@ -1533,6 +1536,111 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         queue.submit([encoder.finish()])
     }
 
+    private func renderImage(
+        vertexBuffer: GPUBuffer,
+        bindGroup: GPUBindGroup,
+        vertexCount: UInt32,
+        to textureView: GPUTextureView,
+        pipeline: GPURenderPipeline
+    ) {
+        let encoder = device.createCommandEncoder()
+        let colorAttachment = GPURenderPassColorAttachment(
+            view: textureView,
+            loadOp: .load,
+            storeOp: .store
+        )
+
+        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment]
+        ))
+
+        renderPass.setPipeline(pipeline)
+        renderPass.setBindGroup(0, bindGroup: bindGroup)
+        renderPass.setVertexBuffer(0, buffer: vertexBuffer)
+        renderPass.draw(vertexCount: vertexCount)
+        renderPass.end()
+
+        queue.submit([encoder.finish()])
+    }
+
+    private func renderImageWithClipping(
+        vertexBuffer: GPUBuffer,
+        bindGroup: GPUBindGroup,
+        vertexCount: UInt32,
+        to textureView: GPUTextureView,
+        pipeline: GPURenderPipeline,
+        clipPaths: [CGClipPath]
+    ) {
+        guard let stencilView = stencilTextureView,
+              let stencilPipeline = getStencilWritePipeline(),
+              !clipPaths.isEmpty else {
+            renderImage(
+                vertexBuffer: vertexBuffer,
+                bindGroup: bindGroup,
+                vertexCount: vertexCount,
+                to: textureView,
+                pipeline: pipeline
+            )
+            return
+        }
+
+        let encoder = device.createCommandEncoder()
+
+        let stencilClearAttachment = GPURenderPassDepthStencilAttachment(
+            view: stencilView,
+            depthClearValue: 1.0,
+            depthLoadOp: .clear,
+            depthStoreOp: .store,
+            stencilClearValue: 0,
+            stencilLoadOp: .clear,
+            stencilStoreOp: .store
+        )
+
+        let colorAttachment = GPURenderPassColorAttachment(
+            view: textureView,
+            loadOp: .load,
+            storeOp: .store
+        )
+
+        let stencilPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment],
+            depthStencilAttachment: stencilClearAttachment
+        ))
+
+        stencilPass.setPipeline(stencilPipeline)
+        for (index, clipPath) in clipPaths.enumerated() {
+            let clipBatch = tessellator.tessellateFill(clipPath.path, color: .black, rule: clipPath.rule)
+            guard !clipBatch.vertices.isEmpty else { continue }
+            let clipBuffer = createVertexBuffer(from: clipBatch)
+            stencilPass.setVertexBuffer(0, buffer: clipBuffer)
+            stencilPass.setStencilReference(UInt32(index))
+            stencilPass.draw(vertexCount: UInt32(clipBatch.vertices.count))
+        }
+        stencilPass.end()
+
+        let stencilTestAttachment = GPURenderPassDepthStencilAttachment(
+            view: stencilView,
+            depthLoadOp: .load,
+            depthStoreOp: .store,
+            stencilLoadOp: .load,
+            stencilStoreOp: .store
+        )
+
+        let contentPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment],
+            depthStencilAttachment: stencilTestAttachment
+        ))
+
+        contentPass.setPipeline(pipeline)
+        contentPass.setBindGroup(0, bindGroup: bindGroup)
+        contentPass.setVertexBuffer(0, buffer: vertexBuffer)
+        contentPass.setStencilReference(UInt32(clipPaths.count))
+        contentPass.draw(vertexCount: vertexCount)
+        contentPass.end()
+
+        queue.submit([encoder.finish()])
+    }
+
     /// Renders a batch with MSAA (multi-sample anti-aliasing).
     ///
     /// This method renders to the MSAA texture. The MSAA content is accumulated
@@ -1582,7 +1690,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
         clippedPipeline: GPURenderPipeline,
-        clipPaths: [CGPath]
+        clipPaths: [CGClipPath]
     ) {
         guard let msaaView = msaaRenderTextureView,
               let msaaStencilView = msaaStencilTextureView,
@@ -1622,12 +1730,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         stencilPass.setPipeline(stencilPipeline)
 
         // Tessellate and render each clip path
-        for clipPath in clipPaths {
-            let clipBatch = tessellator.tessellateFill(clipPath, color: .black)
+        for (index, clipPath) in clipPaths.enumerated() {
+            let clipBatch = tessellator.tessellateFill(clipPath.path, color: .black, rule: clipPath.rule)
             if !clipBatch.vertices.isEmpty {
                 let clipBuffer = createVertexBuffer(from: clipBatch)
                 stencilPass.setVertexBuffer(0, buffer: clipBuffer)
-                stencilPass.setStencilReference(UInt32(clipPaths.count))
+                stencilPass.setStencilReference(UInt32(index))
                 stencilPass.draw(vertexCount: UInt32(clipBatch.vertices.count))
             }
         }
@@ -1677,7 +1785,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
         pipeline: GPURenderPipeline,
-        clipPaths: [CGPath]
+        clipPaths: [CGClipPath]
     ) {
         guard let stencilView = stencilTextureView,
               let stencilPipeline = getStencilWritePipeline(),
@@ -1716,12 +1824,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         stencilPass.setPipeline(stencilPipeline)
 
         // Tessellate and render each clip path
-        for clipPath in clipPaths {
-            let clipBatch = tessellator.tessellateFill(clipPath, color: .black)
+        for (index, clipPath) in clipPaths.enumerated() {
+            let clipBatch = tessellator.tessellateFill(clipPath.path, color: .black, rule: clipPath.rule)
             if !clipBatch.vertices.isEmpty {
                 let clipBuffer = createVertexBuffer(from: clipBatch)
                 stencilPass.setVertexBuffer(0, buffer: clipBuffer)
-                stencilPass.setStencilReference(UInt32(clipPaths.count))
+                stencilPass.setStencilReference(UInt32(index))
                 stencilPass.draw(vertexCount: UInt32(clipBatch.vertices.count))
             }
         }
@@ -1764,7 +1872,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         shadowColor: CGColor,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
-        clipPaths: [CGPath]
+        clipPaths: [CGClipPath]
     ) {
         guard let shadowMaskView = shadowMaskTextureView,
               let blurIntermediateView = blurIntermediateTextureView,
@@ -2454,6 +2562,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     /// Call this method after all drawing operations are complete to copy
     /// the rendered content from the internal texture to the external canvas texture.
     func present() {
+        resolveMSAAIfNeeded()
+
         guard let internalView = internalRenderTextureView,
               let externalTarget = renderTarget else {
             return

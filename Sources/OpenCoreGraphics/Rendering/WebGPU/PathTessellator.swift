@@ -294,9 +294,30 @@ public struct PathTessellator: Sendable {
 
     // MARK: - Triangulation
 
-    /// Tessellate a path for filling (converts polygon to triangles)
-    public func tessellateFill(_ path: CGPath, color: CGColor) -> CGWebGPUVertexBatch {
-        let flattenedSubpaths = flattenPathWithInfo(path)
+    /// Tessellate a path for filling (converts polygon to triangles).
+    ///
+    /// - Parameters:
+    ///   - path: The path to fill.
+    ///   - color: The fill color applied to every produced vertex.
+    ///   - rule: The fill rule. Even-odd paths are pre-processed so that
+    ///     self-intersections are resolved against the even-odd interior; the
+    ///     ear-clipping triangulator only understands winding boundaries, so
+    ///     this conversion is required for the right coverage.
+    public func tessellateFill(
+        _ path: CGPath,
+        color: CGColor,
+        rule: CGPathFillRule = .winding
+    ) -> CGWebGPUVertexBatch {
+        let sourcePath: CGPath
+        switch rule {
+        case .evenOdd:
+            sourcePath = _resolveSelfIntersections(path: path, rule: .evenOdd)
+        case .winding:
+            sourcePath = path
+        @unknown default:
+            sourcePath = path
+        }
+        let flattenedSubpaths = flattenPathWithInfo(sourcePath)
         var vertices: [CGWebGPUVertex] = []
 
         // Extract color components

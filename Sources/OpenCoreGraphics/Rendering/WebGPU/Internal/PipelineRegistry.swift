@@ -27,7 +27,7 @@ internal final class PipelineRegistry: @unchecked Sendable {
         case blend(CGBlendMode)
         case clipped(CGBlendMode)
         case stencilWrite
-        case image
+        case image(CGBlendMode, Bool)
         case pattern
         case blurHorizontal
         case blurVertical
@@ -83,7 +83,8 @@ internal final class PipelineRegistry: @unchecked Sendable {
         }
 
         pipelines[PipelineCacheKey(type: .stencilWrite, sampleCount: sampleCount)] = createStencilWritePipeline()
-        pipelines[PipelineCacheKey(type: .image, sampleCount: sampleCount)] = createImagePipeline()
+        pipelines[PipelineCacheKey(type: .image(.normal, false), sampleCount: sampleCount)] = createImagePipeline(for: .normal, clipped: false)
+        pipelines[PipelineCacheKey(type: .image(.normal, true), sampleCount: sampleCount)] = createImagePipeline(for: .normal, clipped: true)
         pipelines[PipelineCacheKey(type: .pattern, sampleCount: sampleCount)] = createPatternPipeline()
         pipelines[PipelineCacheKey(type: .blurHorizontal, sampleCount: sampleCount)] = createBlurHorizontalPipeline()
         pipelines[PipelineCacheKey(type: .blurVertical, sampleCount: sampleCount)] = createBlurVerticalPipeline()
@@ -140,8 +141,8 @@ internal final class PipelineRegistry: @unchecked Sendable {
             pipeline = createClippedPipeline(for: mode)
         case .stencilWrite:
             pipeline = createStencilWritePipeline()
-        case .image:
-            pipeline = createImagePipeline()
+        case .image(let mode, let clipped):
+            pipeline = createImagePipeline(for: mode, clipped: clipped)
         case .pattern:
             pipeline = createPatternPipeline()
         case .blurHorizontal:
@@ -260,7 +261,7 @@ internal final class PipelineRegistry: @unchecked Sendable {
         guard let module = shaderModules["basic2D"] else { return nil }
 
         let stencilState = GPUStencilFaceState(
-            compare: .always,
+            compare: .equal,
             failOp: .keep,
             depthFailOp: .keep,
             passOp: .incrementClamp
@@ -292,13 +293,29 @@ internal final class PipelineRegistry: @unchecked Sendable {
         ))
     }
 
-    private func createImagePipeline() -> GPURenderPipeline? {
+    private func createImagePipeline(for blendMode: CGBlendMode, clipped: Bool) -> GPURenderPipeline? {
         guard let module = shaderModules["texture2D"] else { return nil }
 
-        let normalBlend = GPUBlendState(
-            color: GPUBlendComponent(srcFactor: .srcAlpha, dstFactor: .oneMinusSrcAlpha, operation: .add),
-            alpha: GPUBlendComponent(srcFactor: .one, dstFactor: .oneMinusSrcAlpha, operation: .add)
-        )
+        let depthStencil: GPUDepthStencilState?
+        if clipped {
+            let stencilState = GPUStencilFaceState(
+                compare: .equal,
+                failOp: .keep,
+                depthFailOp: .keep,
+                passOp: .keep
+            )
+            depthStencil = GPUDepthStencilState(
+                format: depthStencilFormat,
+                depthWriteEnabled: false,
+                depthCompare: .always,
+                stencilFront: stencilState,
+                stencilBack: stencilState,
+                stencilReadMask: 0xFF,
+                stencilWriteMask: 0x00
+            )
+        } else {
+            depthStencil = nil
+        }
 
         return device.createRenderPipeline(descriptor: GPURenderPipelineDescriptor(
             vertex: GPUVertexState(
@@ -307,13 +324,14 @@ internal final class PipelineRegistry: @unchecked Sendable {
                 buffers: [createImageVertexBufferLayout()]
             ),
             primitive: GPUPrimitiveState(topology: .triangleList, cullMode: .none),
+            depthStencil: depthStencil,
             multisample: GPUMultisampleState(count: UInt32(sampleCount)),
             fragment: GPUFragmentState(
                 module: module,
                 entryPoint: "fs_main",
-                targets: [GPUColorTargetState(format: textureFormat, blend: normalBlend)]
+                targets: [GPUColorTargetState(format: textureFormat, blend: createBlendState(for: blendMode))]
             ),
-            label: "Image Pipeline [MSAA \(sampleCount)x]"
+            label: "Image Pipeline (\(blendMode), clipped: \(clipped)) [MSAA \(sampleCount)x]"
         ))
     }
 

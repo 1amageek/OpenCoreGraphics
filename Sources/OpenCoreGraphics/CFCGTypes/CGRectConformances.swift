@@ -189,7 +189,9 @@ extension CGRect {
 
     /// Returns the intersection of two rectangles.
     ///
-    /// Returns `.null` if the rectangles do not intersect or only touch at edges (zero area).
+    /// Returns `.null` if the rectangles are strictly non-overlapping. When two
+    /// rectangles share only an edge, Apple's CoreGraphics returns a zero-area
+    /// rectangle at the touching edge rather than `.null`; match that behavior.
     @inlinable
     public func intersection(_ rect: CGRect) -> CGRect {
         if isNull || rect.isNull { return .null }
@@ -202,8 +204,9 @@ extension CGRect {
         let x2 = Swift.min(r1.origin.x + r1.size.width, r2.origin.x + r2.size.width)
         let y2 = Swift.min(r1.origin.y + r1.size.height, r2.origin.y + r2.size.height)
 
-        // Use >= to return null for zero-area intersections (touching edges only)
-        if x1 >= x2 || y1 >= y2 {
+        // Strict inequality: touching edges produce a zero-area rect, only
+        // truly disjoint rectangles produce `.null`.
+        if x1 > x2 || y1 > y2 {
             return .null
         }
 
@@ -211,9 +214,22 @@ extension CGRect {
     }
 
     /// Returns whether two rectangles intersect.
+    ///
+    /// Rectangles that share only a boundary (edge or point) are considered
+    /// non-intersecting, matching Apple's `CGRectIntersectsRect` semantics.
+    /// Note that `intersection(_:)` returns a zero-area rect for touching edges,
+    /// so a simple `!isNull` check would incorrectly report `true`; this
+    /// implementation also rejects empty (zero-area) intersections.
     @inlinable
     public func intersects(_ rect: CGRect) -> Bool {
-        return !intersection(rect).isNull
+        if isNull || rect.isNull { return false }
+        if isEmpty || rect.isEmpty { return false }
+        let r1 = self.standardized
+        let r2 = rect.standardized
+        return r1.origin.x < r2.origin.x + r2.size.width &&
+               r2.origin.x < r1.origin.x + r1.size.width &&
+               r1.origin.y < r2.origin.y + r2.size.height &&
+               r2.origin.y < r1.origin.y + r1.size.height
     }
 
     /// Returns whether a rectangle contains a specified point.

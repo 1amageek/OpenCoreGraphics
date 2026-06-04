@@ -819,7 +819,7 @@ struct CGContextTests {
 
             #expect(context.textPosition.x == 0) // Default value
             #expect(context.textPosition.y == 0)
-            context.setTextPosition(x: 10, y: 20)
+            context.textPosition = CGPoint(x: 10, y: 20)
             let pos = context.textPosition
             #expect(pos.x == 10)
             #expect(pos.y == 20)
@@ -834,7 +834,7 @@ struct CGContextTests {
 
             #expect(context.textMatrix.isIdentity) // Default value
             let matrix = CGAffineTransform(scaleX: 2, y: 2)
-            context.setTextMatrix(matrix)
+            context.textMatrix = matrix
             #expect(context.textMatrix.a == 2)
             #expect(context.textMatrix.d == 2)
         }
@@ -1287,9 +1287,9 @@ struct CGContextTests {
                 return
             }
 
-            context.setTextPosition(x: 10, y: 20)
+            context.textPosition = CGPoint(x: 10, y: 20)
             context.saveGState()
-            context.setTextPosition(x: 50, y: 60)
+            context.textPosition = CGPoint(x: 50, y: 60)
 
             #expect(context.textPosition.x == 50)
             #expect(context.textPosition.y == 60)
@@ -1309,11 +1309,11 @@ struct CGContextTests {
             }
 
             let matrix1 = CGAffineTransform(scaleX: 2, y: 2)
-            context.setTextMatrix(matrix1)
+            context.textMatrix = matrix1
             context.saveGState()
 
             let matrix2 = CGAffineTransform(rotationAngle: CGFloat.pi / 4)
-            context.setTextMatrix(matrix2)
+            context.textMatrix = matrix2
 
             #expect(isApproximatelyEqual(context.textMatrix.a, matrix2.a))
 
@@ -1379,6 +1379,84 @@ struct CGContextTests {
             context.restoreGState()
 
             #expect(context.lineWidth == 5.0)
+        }
+    }
+
+    // MARK: - AlphaOnly Bitmap Info Tests
+
+    @Suite("AlphaOnly Bitmap Info")
+    struct AlphaOnlyBitmapInfoTests {
+
+        @Test("alphaOnly context uses 1 component per pixel, ignoring color space")
+        func alphaOnly_singleComponentPerPixel() {
+            // deviceRGB has 3 color components; if the fix regresses, a naive
+            // formula would yield 4 components-per-pixel (3 + alpha) instead
+            // of the correct 1 for .alphaOnly.
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.alphaOnly.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: 100,
+                height: 50,
+                bitsPerComponent: 8,
+                bytesPerRow: 100,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                #expect(Bool(false), "Failed to create alphaOnly context")
+                return
+            }
+
+            // 8 bits per component * 1 component = 8 bits per pixel.
+            #expect(context.bitsPerPixel == 8)
+            #expect(context.alphaInfo == .alphaOnly)
+        }
+
+        @Test("alphaOnly context with auto bytesPerRow allocates one byte per pixel (aligned)")
+        func alphaOnly_autoBytesPerRow() {
+            // When bytesPerRow is 0, CGContext auto-calculates it from
+            // bitsPerPixel (1-byte-per-pixel for alphaOnly) with 16-byte
+            // alignment. For width=100 this yields (100 + 15) & ~15 = 112.
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.alphaOnly.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: 100,
+                height: 50,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                #expect(Bool(false), "Failed to create alphaOnly context")
+                return
+            }
+
+            #expect(context.bitsPerPixel == 8)
+            #expect(context.bytesPerRow == 112)
+        }
+
+        @Test("Non-alphaOnly context still uses colorSpace components + alpha")
+        func nonAlphaOnly_usesColorSpaceComponentCount() {
+            // Sanity check: the alphaOnly fix must not change the calculation
+            // for the common premultipliedLast RGBA case.
+            let colorSpace = CGColorSpace.deviceRGB
+            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard let context = CGContext(
+                data: nil,
+                width: 100,
+                height: 50,
+                bitsPerComponent: 8,
+                bytesPerRow: 400,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                #expect(Bool(false), "Failed to create RGBA context")
+                return
+            }
+
+            // 8 bits * (3 color + 1 alpha) = 32 bits per pixel.
+            #expect(context.bitsPerPixel == 32)
         }
     }
 

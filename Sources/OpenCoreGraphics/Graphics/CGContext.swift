@@ -74,15 +74,18 @@ public class CGContext: @unchecked Sendable {
     /// will call the corresponding delegate methods to perform actual rendering.
     /// This is configured internally based on the target architecture (e.g., WebGPU for WASM).
     ///
-    /// Note: This is a strong reference because CGContext owns the renderer on WASM.
-    /// The renderer is created internally and should live as long as the context.
+    /// On wasm32 this is always assigned in `init` to a stateful WebGPU renderer
+    /// (non-nil in practice). On other platforms it remains nil on the test path
+    /// because tests exercise bitmap state only, not GPU output. The type is
+    /// uniformly optional so that architecture-specific conditionals stay at the
+    /// init site and out of method bodies.
     var rendererDelegate: CGContextRendererDelegate?
 
     // MARK: - Graphics State Structure
 
     private struct GraphicsState {
         var ctm: CGAffineTransform = .identity
-        var clipPaths: [CGPath] = []
+        var clipPaths: [CGClipPath] = []
         var fillColor: CGColor = .black
         var strokeColor: CGColor = .black
         var lineWidth: CGFloat = 1.0
@@ -144,8 +147,15 @@ public class CGContext: @unchecked Sendable {
         self.colorSpace = space
         self.bitmapInfo = bitmapInfo
 
-        // Calculate bits per pixel based on color space and bitmap info
-        let componentsPerPixel = space.numberOfComponents + (bitmapInfo.alphaInfo != .none ? 1 : 0)
+        // Calculate bits per pixel based on color space and bitmap info.
+        // .alphaOnly contexts carry only the alpha channel, irrespective of the
+        // nominal color space — never add the color space's component count.
+        let componentsPerPixel: Int
+        if bitmapInfo.alphaInfo == .alphaOnly {
+            componentsPerPixel = 1
+        } else {
+            componentsPerPixel = space.numberOfComponents + (bitmapInfo.alphaInfo != .none ? 1 : 0)
+        }
         self.bitsPerPixel = bitsPerComponent * componentsPerPixel
 
         // Auto-calculate bytesPerRow when 0 is passed (16-byte aligned)
@@ -702,7 +712,7 @@ public class CGContext: @unchecked Sendable {
     /// intersected together. The renderer receives all clip paths and is responsible
     /// for applying them as an intersection (AND operation).
     public func clip(using rule: CGPathFillRule = .winding) {
-        guard let pathCopy = currentPath.copy() else {
+        guard !currentPath.isEmpty, let pathCopy = currentPath.copy() else {
             currentPath = CGMutablePath()
             return
         }
@@ -718,8 +728,9 @@ public class CGContext: @unchecked Sendable {
             }
         }
 
-        // Add to the clip paths array (intersection is handled by renderer)
-        currentState.clipPaths.append(transformedClipPath)
+        // Add to the clip paths array (intersection is handled by renderer).
+        // Preserve the fill rule so even-odd clips are not silently treated as winding.
+        currentState.clipPaths.append(CGClipPath(path: transformedClipPath, rule: rule))
         currentPath = CGMutablePath()
     }
 
@@ -732,6 +743,7 @@ public class CGContext: @unchecked Sendable {
 
     /// Modifies the current clipping path by intersecting it with the specified rectangles.
     public func clip(to rects: [CGRect]) {
+        guard !rects.isEmpty else { return }
         beginPath()
         addRects(rects)
         clip()
@@ -746,11 +758,11 @@ public class CGContext: @unchecked Sendable {
         }
 
         // Start with the first clip path's bounding box
-        var result = currentState.clipPaths[0].boundingBox
+        var result = currentState.clipPaths[0].path.boundingBox
 
         // Intersect with remaining clip paths' bounding boxes
         for i in 1..<currentState.clipPaths.count {
-            result = result.intersection(currentState.clipPaths[i].boundingBox)
+            result = result.intersection(currentState.clipPaths[i].path.boundingBox)
             if result.isNull {
                 return .zero
             }
@@ -765,7 +777,10 @@ public class CGContext: @unchecked Sendable {
     ///   - rect: The rectangle to map the mask into.
     ///   - mask: The image to use as a mask.
     public func clip(to rect: CGRect, mask: CGImage) {
-        // In a real implementation, this would intersect the mask with the current clip
+        // GPU-side image-mask clipping is not implemented yet. Applying the
+        // destination bounds preserves CoreGraphics's clipping direction and
+        // avoids turning a mask clip into a process-level trap.
+        clip(to: rect)
     }
 
     // MARK: - Transparency Layers
@@ -1324,24 +1339,16 @@ public class CGContext: @unchecked Sendable {
         currentState.textDrawingMode = mode
     }
 
-    /// Sets the current text position.
-    public func setTextPosition(x: CGFloat, y: CGFloat) {
-        _textPosition = CGPoint(x: x, y: y)
-    }
-
     /// The current text position.
     public var textPosition: CGPoint {
-        return _textPosition
-    }
-
-    /// Sets the text matrix.
-    public func setTextMatrix(_ transform: CGAffineTransform) {
-        _textMatrix = transform
+        get { _textPosition }
+        set { _textPosition = newValue }
     }
 
     /// The current text matrix.
     public var textMatrix: CGAffineTransform {
-        return _textMatrix
+        get { _textMatrix }
+        set { _textMatrix = newValue }
     }
 
     /// The current character spacing.
@@ -1668,4 +1675,3 @@ public let kCGPDFXInfo: String = "kCGPDFXInfo"
 
 /// The destination output profile.
 public let kCGPDFXDestinationOutputProfile: String = "kCGPDFXDestinationOutputProfile"
-

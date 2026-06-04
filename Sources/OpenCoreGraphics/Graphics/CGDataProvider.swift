@@ -150,14 +150,29 @@ public class CGDataProvider: @unchecked Sendable {
         case directCallbacks(info: UnsafeMutableRawPointer?, size: Int64, callbacks: CGDataProviderDirectCallbacks)
     }
 
+    /// A captured `releaseData` callback plus the caller-owned buffer it references.
+    ///
+    /// Stored verbatim at init time so that `deinit` can honour Apple's contract of
+    /// firing the callback exactly once when the provider is torn down — caller
+    /// ownership of the buffer is only released through this callback.
+    private struct DataReleaseHandle {
+        let info: UnsafeMutableRawPointer?
+        let data: UnsafeRawPointer
+        let size: Int
+        let callback: CGDataProviderReleaseDataCallback
+    }
+
     /// The provider type.
     private let providerType: ProviderType
+
+    /// Stored release callback for the `dataInfo:data:size:releaseData:` initializer.
+    private let directReleaseHandle: DataReleaseHandle?
 
     /// User-provided info pointer (for callback-based providers).
     public var info: UnsafeMutableRawPointer? {
         switch providerType {
         case .direct:
-            return nil
+            return directReleaseHandle?.info
         case .sequential(let info, _):
             return info
         case .directCallbacks(let info, _, _):
@@ -170,36 +185,76 @@ public class CGDataProvider: @unchecked Sendable {
     /// Creates a data provider from data.
     public init(data: Data) {
         self.providerType = .direct(data)
+        self.directReleaseHandle = nil
     }
 
     /// Creates a data provider from a URL.
     public init?(url: URL) {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            print("CGDataProvider: failed to read \(url): \(error)")
+            return nil
+        }
         self.providerType = .direct(data)
+        self.directReleaseHandle = nil
     }
 
     /// Creates a data provider from a file path.
     public init?(filename: String) {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: filename)) else { return nil }
+        let url = URL(fileURLWithPath: filename)
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            print("CGDataProvider: failed to read \(filename): \(error)")
+            return nil
+        }
         self.providerType = .direct(data)
+        self.directReleaseHandle = nil
     }
 
     /// Creates a data provider from a file path (C string).
     public init?(filename: UnsafePointer<CChar>) {
         let path = String(cString: filename)
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        let url = URL(fileURLWithPath: path)
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            print("CGDataProvider: failed to read \(path): \(error)")
+            return nil
+        }
         self.providerType = .direct(data)
+        self.directReleaseHandle = nil
     }
 
     /// Creates a direct-access data provider that uses data your program supplies.
+    ///
+    /// The caller retains ownership of `data`; the `releaseData` callback, if supplied,
+    /// is invoked exactly once when this provider is deallocated so the caller can free
+    /// the buffer. The buffer bytes are snapshotted into an internal `Data` copy so
+    /// readers can continue to access the contents through `data` even after
+    /// deallocation of the original buffer.
     public init?(dataInfo: UnsafeMutableRawPointer?,
                  data: UnsafeRawPointer,
                  size: Int,
                  releaseData: CGDataProviderReleaseDataCallback?) {
+        guard size >= 0 else { return nil }
         let buffer = UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: size)
         let dataCopy = Data(buffer: buffer)
         self.providerType = .direct(dataCopy)
-        // Note: In a full implementation, we would store releaseData and call it on deinit
+        if let releaseData {
+            self.directReleaseHandle = DataReleaseHandle(
+                info: dataInfo,
+                data: data,
+                size: size,
+                callback: releaseData
+            )
+        } else {
+            self.directReleaseHandle = nil
+        }
     }
 
     // MARK: - Sequential Access Initializer
@@ -209,6 +264,7 @@ public class CGDataProvider: @unchecked Sendable {
                  callbacks: UnsafePointer<CGDataProviderSequentialCallbacks>) {
         guard callbacks.pointee.getBytes != nil else { return nil }
         self.providerType = .sequential(info: sequentialInfo, callbacks: callbacks.pointee)
+        self.directReleaseHandle = nil
     }
 
     // MARK: - Direct Access Callback Initializer
@@ -217,10 +273,17 @@ public class CGDataProvider: @unchecked Sendable {
     public init?(directInfo: UnsafeMutableRawPointer?,
                  size: Int64,
                  callbacks: UnsafePointer<CGDataProviderDirectCallbacks>) {
-        self.providerType = .directCallbacks(info: directInfo, size: size, callbacks: callbacks.pointee)
+        guard size >= 0 else { return nil }
+        let cbks = callbacks.pointee
+        guard cbks.getBytePointer != nil || cbks.getBytesAtPosition != nil else { return nil }
+        self.providerType = .directCallbacks(info: directInfo, size: size, callbacks: cbks)
+        self.directReleaseHandle = nil
     }
 
     deinit {
+        if let handle = directReleaseHandle {
+            handle.callback(handle.info, handle.data, handle.size)
+        }
         switch providerType {
         case .direct:
             break
@@ -233,15 +296,21 @@ public class CGDataProvider: @unchecked Sendable {
 
     // MARK: - Properties
 
-    /// The underlying data.
-    public var data: Data? {
+    /// Returns a snapshot of the underlying data as a Swift `Data` value.
+    internal func copyData() -> Data? {
         switch providerType {
         case .direct(let data):
             return data
-        case .sequential, .directCallbacks:
-            // Would need to read all data from callbacks
-            return nil
+        case .sequential(let info, let callbacks):
+            return _drainSequentialProvider(info: info, callbacks: callbacks)
+        case .directCallbacks(let info, let size, let callbacks):
+            return _drainDirectCallbackProvider(info: info, size: size, callbacks: callbacks)
         }
+    }
+
+    /// Returns a copy of the provider's data.
+    public var data: Data? {
+        copyData()
     }
 
     /// The number of bytes of data.
@@ -254,6 +323,55 @@ public class CGDataProvider: @unchecked Sendable {
         case .directCallbacks(_, let size, _):
             return Int(size)
         }
+    }
+
+    // MARK: - Callback Drainers
+
+    private func _drainDirectCallbackProvider(info: UnsafeMutableRawPointer?,
+                                              size: Int64,
+                                              callbacks: CGDataProviderDirectCallbacks) -> Data? {
+        guard size <= Int64(Int.max) else { return nil }
+        let byteCount = Int(size)
+        guard byteCount > 0 else { return Data() }
+
+        if let getBytePointer = callbacks.getBytePointer,
+           let basePointer = getBytePointer(info) {
+            let buffer = UnsafeBufferPointer(
+                start: basePointer.assumingMemoryBound(to: UInt8.self),
+                count: byteCount
+            )
+            let copy = Data(buffer: buffer)
+            callbacks.releaseBytePointer?(info, basePointer)
+            return copy
+        }
+
+        guard let getBytesAt = callbacks.getBytesAtPosition else { return nil }
+        var buffer = [UInt8](repeating: 0, count: byteCount)
+        let read = buffer.withUnsafeMutableBufferPointer { raw -> Int in
+            guard let base = raw.baseAddress else { return 0 }
+            return getBytesAt(info, UnsafeMutableRawPointer(base), 0, byteCount)
+        }
+        guard read == byteCount else { return nil }
+        return Data(buffer)
+    }
+
+    private func _drainSequentialProvider(info: UnsafeMutableRawPointer?,
+                                          callbacks: CGDataProviderSequentialCallbacks) -> Data? {
+        guard let getBytes = callbacks.getBytes else { return nil }
+        callbacks.rewind?(info)
+        var accumulated = Data()
+        let chunkSize = 4096
+        var chunk = [UInt8](repeating: 0, count: chunkSize)
+        while true {
+            let read = chunk.withUnsafeMutableBufferPointer { raw -> Int in
+                guard let base = raw.baseAddress else { return 0 }
+                return getBytes(info, UnsafeMutableRawPointer(base), chunkSize)
+            }
+            if read <= 0 { break }
+            accumulated.append(contentsOf: chunk.prefix(read))
+            if read < chunkSize { break }
+        }
+        return accumulated
     }
 
     // MARK: - Type ID
@@ -279,5 +397,3 @@ extension CGDataProvider: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-
-

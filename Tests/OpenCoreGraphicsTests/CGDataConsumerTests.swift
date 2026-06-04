@@ -5,6 +5,7 @@
 //  Tests for CGDataConsumer
 //
 
+import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
@@ -327,6 +328,147 @@ struct CGDataConsumerTests {
             // Verify CGDataConsumerCallbacks can be used as Sendable
             let sendableCallbacks: any Sendable = callbacks
             #expect(type(of: sendableCallbacks) == CGDataConsumerCallbacks.self)
+        }
+    }
+
+    // MARK: - Finalize Tests
+
+    @Suite("Finalize")
+    struct FinalizeTests {
+
+        @Test("finalize on data-backed consumer does not throw and preserves data")
+        func finalize_dataBacked_isNoOpAndPreservesData() throws {
+            guard let consumer = CGDataConsumer(data: Data()) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let bytes: [UInt8] = [0xDE, 0xAD, 0xBE, 0xEF]
+            bytes.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            try consumer.finalize()
+
+            #expect(consumer.data == Data([0xDE, 0xAD, 0xBE, 0xEF]))
+        }
+
+        @Test("finalize twice on data-backed consumer is idempotent")
+        func finalize_calledTwice_idempotent() throws {
+            // For data-backed consumers `finalize()` is a documented no-op.
+            // Call it twice to confirm the second call does not throw and
+            // does not mutate the accumulated data.
+            guard let consumer = CGDataConsumer(data: Data()) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            let bytes: [UInt8] = [1, 2, 3]
+            bytes.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            try consumer.finalize()
+            try consumer.finalize()
+
+            #expect(consumer.data == Data([1, 2, 3]))
+        }
+
+        @Test("finalize on callback-backed consumer does not throw")
+        func finalize_callbackBacked_noThrow() throws {
+            // For callback consumers finalize() is a no-op (the callback
+            // sink receives bytes synchronously in putBytes).
+            var callbacks = CGDataConsumerCallbacks(
+                putBytes: { _, _, count in return count },
+                releaseConsumer: nil
+            )
+
+            guard let consumer = withUnsafePointer(to: &callbacks, { ptr in
+                CGDataConsumer(info: nil, cbks: ptr)
+            }) else {
+                #expect(Bool(false), "Failed to create consumer")
+                return
+            }
+
+            try consumer.finalize()
+        }
+
+        @Test("URL-backed consumer finalize writes accumulated data to disk")
+        func finalize_urlBacked_writesToDisk() throws {
+            // Pick a unique temp path so concurrent runs don't collide.
+            let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            let url = tmpDir.appendingPathComponent("cgdataconsumer-finalize-\(UUID().uuidString).bin")
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            guard let consumer = CGDataConsumer(url: url) else {
+                #expect(Bool(false), "Failed to create URL-backed consumer")
+                return
+            }
+
+            let bytes: [UInt8] = [0xCA, 0xFE]
+            bytes.withUnsafeBufferPointer { buffer in
+                _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+            }
+
+            try consumer.finalize()
+
+            #expect(FileManager.default.fileExists(atPath: url.path))
+            let written = try Data(contentsOf: url)
+            #expect(written == Data([0xCA, 0xFE]))
+        }
+
+        @Test("URL-backed consumer flushes to disk on deinit when finalize not called")
+        func urlBacked_deinitFlushes_bestEffort() throws {
+            // deinit performs a best-effort write when the caller never called
+            // finalize(). Confirm the file exists after the consumer scope ends.
+            let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            let url = tmpDir.appendingPathComponent("cgdataconsumer-deinit-\(UUID().uuidString).bin")
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            do {
+                guard let consumer = CGDataConsumer(url: url) else {
+                    #expect(Bool(false), "Failed to create URL-backed consumer")
+                    return
+                }
+                let bytes: [UInt8] = [0xAB, 0xCD]
+                bytes.withUnsafeBufferPointer { buffer in
+                    _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+                }
+                // Intentionally do not call finalize; let deinit flush.
+            }
+
+            #expect(FileManager.default.fileExists(atPath: url.path))
+            let written = try Data(contentsOf: url)
+            #expect(written == Data([0xAB, 0xCD]))
+        }
+
+        @Test("URL-backed consumer does not re-flush in deinit after finalize")
+        func urlBacked_finalizeThenDeinit_noDoubleWrite() throws {
+            // After finalize() sets the flag, deinit's best-effort write is
+            // skipped. Verify by deleting the file after finalize — deinit
+            // must not resurrect it.
+            let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            let url = tmpDir.appendingPathComponent("cgdataconsumer-noredo-\(UUID().uuidString).bin")
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            do {
+                guard let consumer = CGDataConsumer(url: url) else {
+                    #expect(Bool(false), "Failed to create URL-backed consumer")
+                    return
+                }
+                let bytes: [UInt8] = [0x01]
+                bytes.withUnsafeBufferPointer { buffer in
+                    _ = consumer.putBytes(buffer.baseAddress, count: buffer.count)
+                }
+                try consumer.finalize()
+                #expect(FileManager.default.fileExists(atPath: url.path))
+
+                try FileManager.default.removeItem(at: url)
+                #expect(!FileManager.default.fileExists(atPath: url.path))
+            }
+
+            // If deinit incorrectly re-wrote the file, it would exist here.
+            #expect(!FileManager.default.fileExists(atPath: url.path))
         }
     }
 

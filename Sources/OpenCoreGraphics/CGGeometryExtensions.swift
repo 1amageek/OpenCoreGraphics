@@ -8,6 +8,15 @@
 
 import Foundation
 
+// These `applying(_:)` methods are defined unconditionally because
+// OpenCoreGraphics does not `import CoreGraphics`: the Swift extension
+// surface of CoreGraphics is not automatically visible through Foundation
+// on Apple platforms, and this module's own sources depend on these methods.
+// Downstream code that imports both CoreGraphics and OpenCoreGraphics will
+// see CoreGraphics's implementations take precedence via visibility rules;
+// these are source-compatible (identical signature and semantics) with
+// Apple's CoreGraphics.
+
 // MARK: - CGPoint Extensions
 
 extension CGPoint {

@@ -5,10 +5,12 @@
 //  Tests for CGColorSpace, CGColorSpaceModel, and CGColorRenderingIntent types
 //
 
+import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGColorSpace = OpenCoreGraphics.CGColorSpace
 private typealias CGColorSpaceModel = OpenCoreGraphics.CGColorSpaceModel
 private typealias CGColorRenderingIntent = OpenCoreGraphics.CGColorRenderingIntent

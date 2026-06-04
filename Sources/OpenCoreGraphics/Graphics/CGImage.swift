@@ -58,8 +58,11 @@ public final class CGImage: @unchecked Sendable {
     /// The content average light level for HDR images.
     internal let _contentAverageLightLevel: Float?
 
-    /// Cached data provider.
-    private var _cachedDataProvider: CGDataProvider?
+    /// The original data provider supplied at initialization time, retained so
+    /// that `dataProvider` can return the caller's provider rather than fabricating
+    /// a fresh in-memory one — callers may rely on identity (e.g. comparing
+    /// providers) or on the provider's `info` / release callbacks staying alive.
+    private let _retainedProvider: CGDataProvider?
 
     // MARK: - Computed Properties
 
@@ -159,7 +162,8 @@ public final class CGImage: @unchecked Sendable {
         isMask: Bool,
         data: Data?,
         contentHeadroom: Float?,
-        contentAverageLightLevel: Float?
+        contentAverageLightLevel: Float?,
+        retainedProvider: CGDataProvider? = nil
     ) {
         self.width = width
         self.height = height
@@ -175,7 +179,7 @@ public final class CGImage: @unchecked Sendable {
         self.data = data
         self._contentHeadroom = contentHeadroom
         self._contentAverageLightLevel = contentAverageLightLevel
-        self._cachedDataProvider = nil
+        self._retainedProvider = retainedProvider
 
         // Allocate stable heap buffer for decode pointer access
         if let storage = decodeStorage, !storage.isEmpty {
@@ -238,7 +242,8 @@ public final class CGImage: @unchecked Sendable {
             isMask: false,
             data: provider.data,
             contentHeadroom: nil,
-            contentAverageLightLevel: nil
+            contentAverageLightLevel: nil,
+            retainedProvider: provider
         )
     }
 
@@ -294,7 +299,8 @@ public final class CGImage: @unchecked Sendable {
             isMask: false,
             data: provider.data,
             contentHeadroom: headroom,
-            contentAverageLightLevel: nil
+            contentAverageLightLevel: nil,
+            retainedProvider: provider
         )
     }
 
@@ -356,7 +362,8 @@ public final class CGImage: @unchecked Sendable {
             isMask: true,
             data: provider.data,
             contentHeadroom: nil,
-            contentAverageLightLevel: nil
+            contentAverageLightLevel: nil,
+            retainedProvider: provider
         )
     }
 
@@ -542,15 +549,17 @@ public final class CGImage: @unchecked Sendable {
     // MARK: - Getting the Data Provider
 
     /// Returns the data provider for the image.
+    ///
+    /// When this image was constructed from a provider, the original provider is
+    /// returned verbatim so callers see consistent identity and so any release
+    /// callbacks the provider holds stay alive for as long as the image does.
+    /// Otherwise a fresh in-memory provider is synthesized from the pixel data.
     public var dataProvider: CGDataProvider? {
-        if let cached = _cachedDataProvider {
-            return cached
+        if let retained = _retainedProvider {
+            return retained
         }
         guard let data = data else { return nil }
-        let provider = CGDataProvider(data: data)
-        // Note: Cannot cache here as properties are let-bound for Sendable
-        // In a real implementation, consider using a lock or making this computed
-        return provider
+        return CGDataProvider(data: data)
     }
 
     deinit {
@@ -582,5 +591,4 @@ extension CGImage: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-
 

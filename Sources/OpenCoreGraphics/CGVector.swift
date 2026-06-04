@@ -96,6 +96,12 @@ extension CGVector: CustomDebugStringConvertible {
 
 #else
 
+/// Bridges `OpenCoreGraphics.CGVector` to Foundation's definition on Apple
+/// platforms. Foundation (via CoreFoundation) already provides the struct; this
+/// typealias just re-exports it at this module's scope so tests can refer to
+/// `OpenCoreGraphics.CGVector` without ambiguity.
+public typealias CGVector = Foundation.CGVector
+
 extension CGVector {
 
     /// The vector whose components are both zero.

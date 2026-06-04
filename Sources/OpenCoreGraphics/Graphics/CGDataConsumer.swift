@@ -73,6 +73,13 @@ public class CGDataConsumer: @unchecked Sendable {
     /// Accumulated data for data-backed consumers.
     private var accumulatedData: Data?
 
+    /// Tracks whether `finalize()` has already written a URL-backed consumer to disk.
+    ///
+    /// Callers should prefer `finalize()` for URL-backed consumers so write
+    /// errors are surfaced explicitly. `deinit` only performs a best-effort
+    /// write when this flag is false, and errors there cannot be thrown.
+    private var finalized: Bool = false
+
     // MARK: - Initializers
 
     /// Creates a data consumer that uses callback functions to write data.
@@ -106,12 +113,41 @@ public class CGDataConsumer: @unchecked Sendable {
         case .callback(let info, let callbacks):
             callbacks.releaseConsumer?(info)
         case .url(let url):
-            // Write accumulated data to URL
-            if let data = accumulatedData {
-                try? data.write(to: url)
+            // Best-effort write at teardown when caller did not call `finalize()`.
+            // deinit can't throw, so failures are reported via stderr rather than
+            // swallowed silently.
+            if !finalized, let data = accumulatedData {
+                do {
+                    try data.write(to: url)
+                } catch {
+                    print("CGDataConsumer: fallback write failed in deinit: \(error)")
+                }
             }
         case .data:
             // Data is already written to the mutable data object
+            break
+        }
+    }
+
+    // MARK: - Finalizing
+
+    /// Writes the accumulated data of a URL-backed consumer to disk.
+    ///
+    /// Call this before the consumer is deallocated when you need explicit
+    /// write-error reporting. For data-backed or callback-based consumers,
+    /// `finalize()` is a no-op.
+    ///
+    /// - Throws: Any error produced by `Data.write(to:)`.
+    internal func finalize() throws {
+        switch consumerType {
+        case .url(let url):
+            guard !finalized else { return }
+            if let data = accumulatedData {
+                try data.write(to: url)
+            }
+            finalized = true
+        case .callback, .data:
+            // No explicit finalization is needed for these consumer kinds.
             break
         }
     }
@@ -178,4 +214,3 @@ extension CGDataConsumer: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-

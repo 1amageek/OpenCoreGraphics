@@ -6,6 +6,7 @@
 //
 
 import Testing
+import Foundation
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
@@ -51,6 +52,18 @@ struct CGDataProviderTests {
         @Test("Init with filename for non-existent file returns nil")
         func initWithNonExistentFilename() {
             let provider = CGDataProvider(filename: "/nonexistent/path/to/file.dat")
+
+            #expect(provider == nil)
+        }
+
+        @Test("Init with C-string filename for non-existent file returns nil")
+        func initWithNonExistentCStringFilename() {
+            // The `UnsafePointer<CChar>` overload must likewise fail-soft
+            // (returning nil) rather than crash when the path is missing.
+            let path = "/nonexistent/path/to/cstring.dat"
+            let provider = path.withCString { cString in
+                CGDataProvider(filename: cString)
+            }
 
             #expect(provider == nil)
         }
@@ -106,8 +119,8 @@ struct CGDataProviderTests {
             #expect(provider != nil)
         }
 
-        @Test("Init with direct callbacks")
-        func initWithDirectCallbacks() {
+        @Test("Init with direct callbacks without accessors returns nil")
+        func initWithDirectCallbacksWithoutAccessors() {
             var callbacks = CGDataProviderDirectCallbacks(
                 version: 0,
                 getBytePointer: nil,
@@ -120,8 +133,49 @@ struct CGDataProviderTests {
                 CGDataProvider(directInfo: nil, size: 100, callbacks: ptr)
             }
 
+            #expect(provider == nil)
+        }
+
+        @Test("Init with direct callbacks with getBytesAtPosition")
+        func initWithDirectCallbacksWithGetBytesAtPosition() {
+            final class DirectState {
+                let bytes: [UInt8]
+
+                init(bytes: [UInt8]) {
+                    self.bytes = bytes
+                }
+            }
+
+            let state = DirectState(bytes: [1, 2, 3, 4])
+            var callbacks = CGDataProviderDirectCallbacks(
+                version: 0,
+                getBytePointer: nil,
+                releaseBytePointer: nil,
+                getBytesAtPosition: { info, buffer, position, count in
+                    guard let info, let buffer, position >= 0 else { return 0 }
+                    let state = Unmanaged<DirectState>.fromOpaque(info).takeUnretainedValue()
+                    let start = Int(position)
+                    guard start < state.bytes.count else { return 0 }
+                    let byteCount = min(count, state.bytes.count - start)
+                    state.bytes.withUnsafeBufferPointer { source in
+                        guard let baseAddress = source.baseAddress else { return }
+                        buffer.copyMemory(
+                            from: UnsafeRawPointer(baseAddress.advanced(by: start)),
+                            byteCount: byteCount
+                        )
+                    }
+                    return byteCount
+                },
+                releaseInfo: nil
+            )
+
+            let info = Unmanaged.passUnretained(state).toOpaque()
+            let provider = withUnsafePointer(to: &callbacks) { ptr in
+                CGDataProvider(directInfo: info, size: Int64(state.bytes.count), callbacks: ptr)
+            }
+
             #expect(provider != nil)
-            #expect(provider?.size == 100)
+            #expect(provider?.size == 4)
         }
     }
 
@@ -136,6 +190,93 @@ struct CGDataProviderTests {
             let provider = CGDataProvider(data: testData)
 
             #expect(provider.data == testData)
+        }
+
+        @Test("Data property materializes direct callbacks")
+        func dataPropertyDirectCallbacks() {
+            final class DirectState {
+                let bytes: [UInt8]
+
+                init(bytes: [UInt8]) {
+                    self.bytes = bytes
+                }
+            }
+
+            let state = DirectState(bytes: [5, 6, 7, 8, 9])
+            var callbacks = CGDataProviderDirectCallbacks(
+                version: 0,
+                getBytePointer: nil,
+                releaseBytePointer: nil,
+                getBytesAtPosition: { info, buffer, position, count in
+                    guard let info, let buffer, position >= 0 else { return 0 }
+                    let state = Unmanaged<DirectState>.fromOpaque(info).takeUnretainedValue()
+                    let start = Int(position)
+                    guard start < state.bytes.count else { return 0 }
+                    let byteCount = min(count, state.bytes.count - start)
+                    state.bytes.withUnsafeBufferPointer { source in
+                        guard let baseAddress = source.baseAddress else { return }
+                        buffer.copyMemory(
+                            from: UnsafeRawPointer(baseAddress.advanced(by: start)),
+                            byteCount: byteCount
+                        )
+                    }
+                    return byteCount
+                },
+                releaseInfo: nil
+            )
+
+            let info = Unmanaged.passUnretained(state).toOpaque()
+            let provider = withUnsafePointer(to: &callbacks) { ptr in
+                CGDataProvider(directInfo: info, size: Int64(state.bytes.count), callbacks: ptr)
+            }
+
+            #expect(provider?.data == Data(state.bytes))
+        }
+
+        @Test("Data property materializes sequential callbacks")
+        func dataPropertySequentialCallbacks() {
+            final class SequentialState {
+                let bytes: [UInt8]
+                var offset: Int = 0
+
+                init(bytes: [UInt8]) {
+                    self.bytes = bytes
+                }
+            }
+
+            let state = SequentialState(bytes: [10, 11, 12, 13, 14, 15])
+            var callbacks = CGDataProviderSequentialCallbacks(
+                version: 0,
+                getBytes: { info, buffer, count in
+                    guard let info, let buffer else { return 0 }
+                    let state = Unmanaged<SequentialState>.fromOpaque(info).takeUnretainedValue()
+                    guard state.offset < state.bytes.count else { return 0 }
+                    let byteCount = min(count, state.bytes.count - state.offset)
+                    state.bytes.withUnsafeBufferPointer { source in
+                        guard let baseAddress = source.baseAddress else { return }
+                        buffer.copyMemory(
+                            from: UnsafeRawPointer(baseAddress.advanced(by: state.offset)),
+                            byteCount: byteCount
+                        )
+                    }
+                    state.offset += byteCount
+                    return byteCount
+                },
+                skipForward: nil,
+                rewind: { info in
+                    guard let info else { return }
+                    let state = Unmanaged<SequentialState>.fromOpaque(info).takeUnretainedValue()
+                    state.offset = 0
+                },
+                releaseInfo: nil
+            )
+
+            let info = Unmanaged.passUnretained(state).toOpaque()
+            let provider = withUnsafePointer(to: &callbacks) { ptr in
+                CGDataProvider(sequentialInfo: info, callbacks: ptr)
+            }
+
+            #expect(provider?.data == Data(state.bytes))
         }
 
         @Test("Size property")

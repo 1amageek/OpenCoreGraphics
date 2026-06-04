@@ -5,10 +5,12 @@
 //  Tests for CGShading
 //
 
+import Foundation
 import Testing
 @testable import OpenCoreGraphics
 
 // Type aliases to avoid ambiguity with CoreFoundation types on macOS
+private typealias CGFloat = Foundation.CGFloat
 private typealias CGShading = OpenCoreGraphics.CGShading
 private typealias CGFunction = OpenCoreGraphics.CGFunction
 private typealias CGFunctionCallbacks = OpenCoreGraphics.CGFunctionCallbacks

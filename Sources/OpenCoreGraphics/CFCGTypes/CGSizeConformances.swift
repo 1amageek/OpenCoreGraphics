@@ -8,6 +8,7 @@
 
 #if canImport(Darwin)
 import Foundation
+
 extension CGSize: @retroactive Equatable {
 
     public static func == (lhs: CGSize, rhs: CGSize) -> Bool {

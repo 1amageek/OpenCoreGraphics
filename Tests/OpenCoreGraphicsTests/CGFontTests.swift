@@ -132,7 +132,7 @@ struct CGFontTests {
 
     @Test("Init with font name returns nil")
     func initWithFontNameReturnsNil() {
-        let font = OpenCoreGraphics.CGFont("Helvetica" as CFString)
+        let font = OpenCoreGraphics.CGFont("Helvetica")
         #expect(font == nil)
     }
 
@@ -251,7 +251,7 @@ struct CGFontTests {
 
     @Test("CGFontCreateWithFontName returns nil")
     func createWithFontName() {
-        let font = CGFontCreateWithFontName("Helvetica" as CFString)
+        let font = CGFontCreateWithFontName("Helvetica")
         #expect(font == nil)
     }
 
@@ -275,7 +275,7 @@ struct CGFontTests {
         }
 
         let variations: [String: Double] = ["wght": 700]
-        let copy = font.copy(withVariations: variations as CFDictionary)
+        let copy = font.copy(withVariations: variations)
         #expect(copy == nil)
     }
 
@@ -333,5 +333,116 @@ struct CGFontTests {
         }
         #expect(font.hasColorGlyphs == false)
         #expect(font.numberOfColorPalettes == 0)
+    }
+
+    // MARK: - Table Getter Fault Tolerance Tests
+    //
+    // The private table getters for hhea / hmtx / post / OS/2 / name / loca /
+    // fvar / COLR / CPAL are wrapped in do-catch. A missing or malformed
+    // optional table must surface as a nil-safe fallback on the observable
+    // property rather than crashing or propagating the parser error.
+
+    @Test("Missing post table surfaces as italicAngle fallback (no crash)")
+    func missingPostTable_italicAngleFallback() {
+        // The minimal font has no `post` table. `italicAngle` exercises
+        // `getPostTable()`, whose do-catch must swallow `tableNotFound`.
+        let fontData = createMinimalFontData()
+        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
+        guard let font = OpenCoreGraphics.CGFont(provider) else {
+            #expect(Bool(false), "Failed to create font")
+            return
+        }
+
+        let expectedAngle: CGFloat = 0
+        #expect(font.italicAngle == expectedAngle)
+    }
+
+    @Test("Missing OS/2 table surfaces as capHeight/xHeight fallback (no crash)")
+    func missingOS2Table_capHeightXHeightFallback() {
+        // capHeight / xHeight fall back to a percentage of `ascent` (800)
+        // when the OS/2 table is missing. The do-catch protects against
+        // throws during `parseOS2Table`.
+        let fontData = createMinimalFontData()
+        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
+        guard let font = OpenCoreGraphics.CGFont(provider) else {
+            #expect(Bool(false), "Failed to create font")
+            return
+        }
+
+        #expect(font.capHeight == 800 * 70 / 100)
+        #expect(font.xHeight == 800 * 50 / 100)
+    }
+
+    @Test("Missing name table surfaces as nil fullName/postScriptName (no crash)")
+    func missingNameTable_nilNames() {
+        // `fullName` / `postScriptName` read through `getNameTable()`; a
+        // missing name table must yield nil rather than throwing out of the
+        // getter.
+        let fontData = createMinimalFontData()
+        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
+        guard let font = OpenCoreGraphics.CGFont(provider) else {
+            #expect(Bool(false), "Failed to create font")
+            return
+        }
+
+        #expect(font.fullName == nil)
+        #expect(font.postScriptName == nil)
+    }
+
+    @Test("Missing COLR/CPAL tables surface as no color glyph info (no crash)")
+    func missingColrCpalTables_noColorInfo() {
+        // hasColorGlyphs / numberOfColorPalettes call getColrTable() and
+        // getCpalTable(); both must return nil rather than trap.
+        let fontData = createMinimalFontData()
+        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
+        guard let font = OpenCoreGraphics.CGFont(provider) else {
+            #expect(Bool(false), "Failed to create font")
+            return
+        }
+
+        #expect(font.hasColorGlyphs == false)
+        #expect(font.numberOfColorPalettes == 0)
+    }
+
+    @Test("Missing fvar table surfaces as nil variations (no crash)")
+    func missingFvarTable_nilVariations() {
+        // variations / variationAxes call getFvarTable(); a missing fvar
+        // table must yield nil rather than crash.
+        let fontData = createMinimalFontData()
+        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
+        guard let font = OpenCoreGraphics.CGFont(provider) else {
+            #expect(Bool(false), "Failed to create font")
+            return
+        }
+
+        #expect(font.variations == nil)
+        #expect(font.variationAxes == nil)
+    }
+
+    @Test("Missing hmtx table surfaces as false from getGlyphAdvances (no crash)")
+    func missingHmtxTable_getGlyphAdvancesReturnsFalse() {
+        // The minimal font declares `numberOfHMetrics = 256` in its hhea
+        // but ships no hmtx table, so parseHmtxTable throws. getHmtxTable
+        // swallows that; getGlyphAdvances returns false without crashing.
+        let fontData = createMinimalFontData()
+        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
+        guard let font = OpenCoreGraphics.CGFont(provider) else {
+            #expect(Bool(false), "Failed to create font")
+            return
+        }
+
+        var glyphs: [CGGlyph] = [0, 1, 2]
+        var advances: [Int32] = [0, 0, 0]
+        let success = glyphs.withUnsafeBufferPointer { glyphBuf -> Bool in
+            advances.withUnsafeMutableBufferPointer { advBuf -> Bool in
+                font.getGlyphAdvances(
+                    glyphs: glyphBuf.baseAddress!,
+                    count: 3,
+                    advances: advBuf.baseAddress!
+                )
+            }
+        }
+
+        #expect(success == false)
     }
 }

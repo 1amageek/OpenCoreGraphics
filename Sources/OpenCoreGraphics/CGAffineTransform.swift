@@ -143,12 +143,13 @@ public struct CGAffineTransform: Sendable {
     /// Returns an affine transformation matrix constructed by inverting an existing one.
     ///
     /// If the transform is singular (non-invertible, i.e., determinant is zero),
-    /// returns the identity transform. This matches CoreGraphics behavior and
-    /// ensures `convertToUserSpace()` returns predictable results.
+    /// returns the original transform unchanged. This matches Apple's CoreGraphics
+    /// behavior — silently substituting `.identity` would corrupt `convertToUserSpace()`
+    /// results and mask genuine matrix-degeneracy bugs in caller code.
     @inlinable
     public func inverted() -> CGAffineTransform {
         let determinant = a * d - b * c
-        guard determinant != 0 else { return .identity }
+        guard determinant != 0 else { return self }
         let invDet = 1.0 / determinant
         return CGAffineTransform(
             a: d * invDet,
@@ -255,8 +256,14 @@ extension CGAffineTransform {
         // Extract rotation
         let rotation = atan2(b, a)
 
-        // Extract shear
-        let shear = (a * c + b * d) / determinant
+        // Extract shear. Singular matrices have no stable shear component, so
+        // keep decomposition finite instead of dividing by zero.
+        let shear: CGFloat
+        if abs(determinant) <= CGFloat.ulpOfOne {
+            shear = 0
+        } else {
+            shear = (a * c + b * d) / determinant
+        }
 
         return CGAffineTransformComponents(
             scale: scale,
@@ -269,7 +276,45 @@ extension CGAffineTransform {
 
 #else
 
+/// Bridges `OpenCoreGraphics.CGAffineTransform` to Foundation's definition on
+/// Apple platforms — the type is already defined in CoreFoundation, but tests
+/// that reference it via `OpenCoreGraphics.CGAffineTransform` for disambiguation
+/// need a symbol at this module's scope.
+public typealias CGAffineTransform = Foundation.CGAffineTransform
+
 extension CGAffineTransform {
+
+    /// Creates an affine transformation matrix with the specified values (positional).
+    @inlinable
+    public init(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat, _ tx: CGFloat, _ ty: CGFloat) {
+        self.init(a: a, b: b, c: c, d: d, tx: tx, ty: ty)
+    }
+
+    /// Creates an affine transformation matrix from a translation.
+    @inlinable
+    public init(translationX tx: CGFloat, y ty: CGFloat) {
+        self.init(a: 1, b: 0, c: 0, d: 1, tx: tx, ty: ty)
+    }
+
+    /// Creates an affine transformation matrix from scaling values.
+    @inlinable
+    public init(scaleX sx: CGFloat, y sy: CGFloat) {
+        self.init(a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0)
+    }
+
+    /// Creates an affine transformation matrix from a rotation value.
+    @inlinable
+    public init(rotationAngle angle: CGFloat) {
+        let cosAngle = cos(angle)
+        let sinAngle = sin(angle)
+        self.init(a: cosAngle, b: sinAngle, c: -sinAngle, d: cosAngle, tx: 0, ty: 0)
+    }
+
+    /// Creates an affine transformation matrix from components.
+    @inlinable
+    public init(_ components: CGAffineTransformComponents) {
+        self = components.transform
+    }
 
     /// The identity transform.
     public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
@@ -324,12 +369,13 @@ extension CGAffineTransform {
     /// Returns an affine transformation matrix constructed by inverting an existing one.
     ///
     /// If the transform is singular (non-invertible, i.e., determinant is zero),
-    /// returns the identity transform. This matches CoreGraphics behavior and
-    /// ensures `convertToUserSpace()` returns predictable results.
+    /// returns the original transform unchanged. This matches Apple's CoreGraphics
+    /// behavior — silently substituting `.identity` would corrupt `convertToUserSpace()`
+    /// results and mask genuine matrix-degeneracy bugs in caller code.
     @inlinable
     public func inverted() -> CGAffineTransform {
         let determinant = a * d - b * c
-        guard determinant != 0 else { return .identity }
+        guard determinant != 0 else { return self }
         let invDet = 1.0 / determinant
         return CGAffineTransform(
             a: d * invDet,
@@ -353,6 +399,91 @@ extension CGAffineTransform {
             ty: tx * t2.b + ty * t2.d + t2.ty
         )
     }
+
+    /// Decomposes this transform into its component parts.
+    public func decomposed() -> CGAffineTransformComponents {
+        let translation = CGVector(dx: tx, dy: ty)
+        let scaleX = sqrt(a * a + b * b)
+        let scaleY = sqrt(c * c + d * d)
+        let determinant = a * d - b * c
+        let signY: CGFloat = determinant < 0 ? -1 : 1
+        let scale = CGSize(width: scaleX, height: scaleY * signY)
+        let rotation = atan2(b, a)
+        let shear: CGFloat
+        if abs(determinant) <= CGFloat.ulpOfOne {
+            shear = 0
+        } else {
+            shear = (a * c + b * d) / determinant
+        }
+        return CGAffineTransformComponents(
+            scale: scale,
+            horizontalShear: shear,
+            rotation: rotation,
+            translation: translation
+        )
+    }
+}
+
+// MARK: - Equatable / Hashable
+//
+// Foundation's `CGAffineTransform` (from CoreFoundation/CFCGTypes.h) ships
+// without Swift protocol conformances; CoreGraphics normally layers them on.
+// Since OpenCoreGraphics must never `import CoreGraphics`, declare the
+// conformances retroactively so macOS test builds match the WASM API surface.
+
+extension CGAffineTransform: @retroactive Equatable {
+    @inlinable
+    public static func == (lhs: CGAffineTransform, rhs: CGAffineTransform) -> Bool {
+        return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c &&
+               lhs.d == rhs.d && lhs.tx == rhs.tx && lhs.ty == rhs.ty
+    }
+}
+
+extension CGAffineTransform: @retroactive Hashable {
+    @inlinable
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(a)
+        hasher.combine(b)
+        hasher.combine(c)
+        hasher.combine(d)
+        hasher.combine(tx)
+        hasher.combine(ty)
+    }
+}
+
+extension CGAffineTransform: @retroactive CustomDebugStringConvertible {
+    public var debugDescription: String {
+        return "CGAffineTransform(a: \(a), b: \(b), c: \(c), d: \(d), tx: \(tx), ty: \(ty))"
+    }
+}
+
+extension CGAffineTransform: @retroactive Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: _CGAffineTransformCodingKeys.self)
+        let a = try container.decode(CGFloat.self, forKey: .a)
+        let b = try container.decode(CGFloat.self, forKey: .b)
+        let c = try container.decode(CGFloat.self, forKey: .c)
+        let d = try container.decode(CGFloat.self, forKey: .d)
+        let tx = try container.decode(CGFloat.self, forKey: .tx)
+        let ty = try container.decode(CGFloat.self, forKey: .ty)
+        self.init(a: a, b: b, c: c, d: d, tx: tx, ty: ty)
+    }
+}
+
+extension CGAffineTransform: @retroactive Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: _CGAffineTransformCodingKeys.self)
+        try container.encode(a, forKey: .a)
+        try container.encode(b, forKey: .b)
+        try container.encode(c, forKey: .c)
+        try container.encode(d, forKey: .d)
+        try container.encode(tx, forKey: .tx)
+        try container.encode(ty, forKey: .ty)
+    }
+}
+
+private enum _CGAffineTransformCodingKeys: String, CodingKey {
+    case a, b, c, d, tx, ty
 }
 
 #endif

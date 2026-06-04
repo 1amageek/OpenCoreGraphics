@@ -6,7 +6,7 @@
 //  and CGExtensions for protocol conformances on Darwin platforms.
 //
 
-import Foundation
+@_exported import Foundation
 
 #if arch(wasm32)
 import SwiftWebGPU
