@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OpenCoreGraphics is a Swift library that provides **full API compatibility with Apple's CoreGraphics framework** for WebAssembly (WASM) environments.
+OpenCoreGraphics targets full CoreGraphics API compatibility for WebAssembly (WASM) environments. Current completion is measured per API and rendering path.
 
 ### Core Principle: Full Compatibility
 
-**The API must be 100% compatible with CoreGraphics.** This means:
+**The target API must be 100% compatible with CoreGraphics.** This means:
 - Identical type names, method signatures, and property names
-- Same behavior and semantics as CoreGraphics
-- Code written for CoreGraphics should compile and work without modification when using OpenCoreGraphics
+- Implemented behavior and semantics must be independently validated against CoreGraphics
+- Compatibility claims must identify the exercised surface and evidence
 
 ### How `canImport` Works
 
@@ -39,11 +39,13 @@ This library exists so that cross-platform Swift code can use CoreGraphics APIs 
 # Build the package (macOS)
 swift build
 
-# Run tests (macOS)
-swift test
+# Run focused tests (macOS) with a process timeout
+perl -e 'alarm 30; exec @ARGV' -- \
+  xcodebuild test -scheme OpenCoreGraphics -destination 'platform=macOS' \
+  -only-testing:OpenCoreGraphicsTests
 
 # Build for WASM
-swift build --swift-sdk swift-6.2.3-RELEASE_wasm
+swift build --swift-sdk swift-6.3.1-RELEASE_wasm
 ```
 
 ## Architecture
@@ -519,7 +521,7 @@ import Testing
 ### Building for WASM
 
 ```bash
-swift build --swift-sdk swift-6.2.3-RELEASE_wasm
+swift build --swift-sdk swift-6.3.1-RELEASE_wasm
 ```
 
 - Uses swift-corelibs-foundation (has protocol conformances)

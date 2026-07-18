@@ -1,10 +1,18 @@
 # OpenCoreGraphics
 
-A Swift library that provides **full API compatibility with Apple's CoreGraphics framework** for WebAssembly (WASM) environments.
+A Swift library implementing CoreGraphics-compatible APIs and WebGPU rendering for WebAssembly (WASM) environments.
 
 ## Overview
 
-OpenCoreGraphics enables cross-platform Swift code to use CoreGraphics APIs in WASM environments where Apple's CoreGraphics is not available. The API is designed to be 100% compatible with CoreGraphics, allowing code to compile and work without modification.
+OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-compatible surface where Apple's framework is unavailable. Compatibility remains a target contract and is validated per API and rendering path.
+
+## Verified Status
+
+| Evidence | Result |
+|---|---|
+| Native package | 855 tests passed |
+| Browser | Real WebGPU path rendering and pixel readback passed |
+| Remaining boundary | PDF and other unexercised API areas are not complete |
 
 ## Installation
 
@@ -198,14 +206,16 @@ WebGPU is required for WASM rendering. Supported browsers:
 # Build the package
 swift build
 
-# Run tests
-swift test
+# Run focused tests with a 30-second process timeout
+perl -e 'alarm 30; exec @ARGV' -- \
+  xcodebuild test -scheme OpenCoreGraphics -destination 'platform=macOS' \
+  -only-testing:OpenCoreGraphicsTests
 
 # Build for WASM (requires Swift SDK for WASM)
-swift build --swift-sdk <your-wasm-sdk>
+swift build --swift-sdk swift-6.3.1-RELEASE_wasm
 
-# Example with specific SDK
-swift build --swift-sdk swift-6.2.3-RELEASE_wasm
+# Run the real-browser WebGPU suite
+cd Tests/e2e && npm test
 ```
 
 ### Installing Swift WASM SDK
@@ -220,7 +230,7 @@ swift sdk list
 
 ## Requirements
 
-- Swift 6.0+
+- Swift 6.3.1+
 - For WASM builds: Swift WASM SDK
 
 ## WASM Compatibility
