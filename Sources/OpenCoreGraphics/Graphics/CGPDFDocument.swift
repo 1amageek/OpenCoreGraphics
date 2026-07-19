@@ -15,9 +15,9 @@ import Foundation
 // - CoreGraphics: Provides CGPDFDocument/CGPDFPage for PDF representation
 // - PDFKit: Provides PDFDocument/PDFPage with full parsing and rendering
 //
-// This implementation provides the type structure for API compatibility.
-// Properties like `catalog`, `fileIdentifier`, and `info` return nil because
-// actual PDF parsing requires a dedicated PDF parser implementation.
+// This package does not advertise a parsed document when no PDF parser exists.
+// Public failable initializers therefore return nil instead of constructing an
+// empty document that falsely appears valid.
 //
 // For WASM environments requiring full PDF functionality, implement OpenPDFKit
 // as a separate module.
@@ -67,10 +67,7 @@ public class CGPDFDocument: @unchecked Sendable {
     public init?(_ provider: CGDataProvider) {
         self.dataProvider = provider
         self.documentURL = nil
-
-        // In a full implementation, this would parse the PDF data
-        // For now, create a placeholder
-        guard provider.data != nil else { return nil }
+        return nil
     }
 
     /// Creates a Core Graphics PDF document using data specified by a URL.
@@ -78,26 +75,25 @@ public class CGPDFDocument: @unchecked Sendable {
     /// - Parameter url: The URL of the PDF file.
     public init?(_ url: URL) {
         self.documentURL = url
-        self.dataProvider = CGDataProvider(url: url)
-
-        guard dataProvider != nil else { return nil }
+        self.dataProvider = nil
+        return nil
     }
 
     // MARK: - Examining a PDF Document
 
     /// Returns the document catalog of a Core Graphics PDF document.
     public var catalog: CGPDFDictionaryRef? {
-        return nil // Placeholder
+        return nil
     }
 
     /// Gets the file identifier for a PDF document.
     public var fileIdentifier: CGPDFArrayRef? {
-        return nil // Placeholder
+        return nil
     }
 
     /// Gets the information dictionary for a PDF document.
     public var info: CGPDFDictionaryRef? {
-        return nil // Placeholder
+        return nil
     }
 
     /// Returns the number of pages in a PDF document.
@@ -127,7 +123,7 @@ public class CGPDFDocument: @unchecked Sendable {
 
     /// Gets the outline (table of contents) for a PDF document.
     public var outline: [String: Any]? {
-        return nil // Placeholder
+        return nil
     }
 
     // MARK: - Working with an Encrypted PDF Document
@@ -163,12 +159,9 @@ public class CGPDFDocument: @unchecked Sendable {
     /// - Returns: True if the document was unlocked, false otherwise.
     @discardableResult
     public func unlockWithPassword(_ password: UnsafePointer<CChar>) -> Bool {
-        // In a full implementation, this would verify the password
-        // For now, just return true if not encrypted or already unlocked
         if !_isEncrypted || _isUnlocked {
             return true
         }
-        // Password verification would go here
         return false
     }
 
@@ -176,7 +169,7 @@ public class CGPDFDocument: @unchecked Sendable {
 
     /// Returns the type identifier for Core Graphics PDF documents.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.pdfDocument
     }
 }
 
@@ -195,5 +188,3 @@ extension CGPDFDocument: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-
-

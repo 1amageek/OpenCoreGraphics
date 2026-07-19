@@ -33,7 +33,13 @@ import JavaScriptKit
 /// context.addRect(CGRect(x: 100, y: 100, width: 200, height: 150))
 /// context.fillPath()
 /// ```
-internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, @unchecked Sendable {
+internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, CGLayerRendererDelegate, @unchecked Sendable {
+
+    private struct PatternCell {
+        let pattern: CGPattern
+        let context: CGContext
+        let textureView: GPUTextureView
+    }
 
     // MARK: - Properties
 
@@ -71,6 +77,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     /// Sampler for texture operations
     private var linearSampler: GPUSampler?
+    private var nearestSampler: GPUSampler?
+
+    /// Callback-rendered pattern cells retained with their offscreen contexts.
+    private var patternCells: [ObjectIdentifier: PatternCell] = [:]
+
+    /// Prevents a pattern callback from recursively requesting its own cell.
+    private var activePatternCells: Set<ObjectIdentifier> = []
 
     // MARK: - Offscreen Textures
 
@@ -85,6 +98,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     /// Intermediate texture for blur passes
     private var blurIntermediateTexture: GPUTexture?
     private var blurIntermediateTextureView: GPUTextureView?
+
+    /// Device-sized texture containing the product of active image-mask clips.
+    private var imageMaskTexture: GPUTexture?
+    private var imageMaskTextureView: GPUTextureView?
+    private var cachedImageMaskClips: [CGImageMaskClip]?
 
     // MARK: - Internal Render Target (for makeImage support)
 
@@ -205,6 +223,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             minFilter: .linear,
             label: "CGWebGPU Linear Sampler"
         ))
+        nearestSampler = device.createSampler(descriptor: GPUSamplerDescriptor(
+            addressModeU: .clampToEdge,
+            addressModeV: .clampToEdge,
+            magFilter: .nearest,
+            minFilter: .nearest,
+            label: "CGWebGPU Nearest Sampler"
+        ))
 
         // Create initial offscreen textures
         recreateOffscreenTexturesIfNeeded()
@@ -257,6 +282,15 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         ))
         blurIntermediateTextureView = blurIntermediateTexture?.createView()
 
+        imageMaskTexture = device.createTexture(descriptor: GPUTextureDescriptor(
+            size: GPUExtent3D(width: width, height: height),
+            format: .rgba8unorm,
+            usage: [.textureBinding, .copyDst],
+            label: "CGWebGPU Image Mask Clip Texture"
+        ))
+        imageMaskTextureView = imageMaskTexture?.createView()
+        cachedImageMaskClips = nil
+
         // Create MSAA render texture (multisampled)
         msaaRenderTexture = device.createTexture(descriptor: GPUTextureDescriptor(
             size: GPUExtent3D(width: width, height: height),
@@ -276,6 +310,39 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "CGWebGPU MSAA Stencil Texture"
         ))
         msaaStencilTextureView = msaaStencilTexture?.createView()
+        clearInternalRenderTarget()
+    }
+
+    private func clearInternalRenderTarget() {
+        guard let target = internalRenderTextureView else { return }
+
+        let encoder = device.createCommandEncoder()
+        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [
+                GPURenderPassColorAttachment(
+                    view: target,
+                    clearValue: GPUColor.clear,
+                    loadOp: .clear,
+                    storeOp: .store
+                )
+            ]
+        ))
+        renderPass.end()
+
+        if let msaaTarget = msaaRenderTextureView {
+            let msaaPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+                colorAttachments: [
+                    GPURenderPassColorAttachment(
+                        view: msaaTarget,
+                        clearValue: GPUColor.clear,
+                        loadOp: .clear,
+                        storeOp: .store
+                    )
+                ]
+            ))
+            msaaPass.end()
+        }
+        queue.submit([encoder.finish()])
     }
 
     // MARK: - Pipeline Access (via PipelineRegistry)
@@ -290,6 +357,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         return pipelineRegistry.getClippedPipeline(for: blendMode)
     }
 
+    private func getMaskedPipeline(for blendMode: CGBlendMode, pathClipped: Bool) -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.maskedBlend(blendMode, pathClipped))
+    }
+
     /// Gets the stencil write pipeline.
     private func getStencilWritePipeline() -> GPURenderPipeline? {
         return pipelineRegistry.getPipeline(.stencilWrite)
@@ -300,9 +371,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         return pipelineRegistry.getPipeline(.image(blendMode, clipped))
     }
 
-    /// Gets the pattern pipeline.
-    private func getPatternPipeline() -> GPURenderPipeline? {
-        return pipelineRegistry.getPipeline(.pattern)
+    private func getMaskedImagePipeline(for blendMode: CGBlendMode, pathClipped: Bool) -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.maskedImage(blendMode, pathClipped))
+    }
+
+    /// Gets the pattern pipeline for the requested compositing and clip state.
+    private func getPatternPipeline(for blendMode: CGBlendMode, clipped: Bool) -> GPURenderPipeline? {
+        return pipelineRegistry.getPipeline(.pattern(blendMode, clipped))
     }
 
     /// Gets the blur horizontal pipeline.
@@ -437,21 +512,6 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     }
 
     /// Draws an image in the specified rectangle.
-    ///
-    /// - Important: Full texture-based image rendering requires additional infrastructure:
-    ///   - Texture pipeline with bind groups
-    ///   - Texture upload from CGImage pixel data
-    ///   - Sampler configuration based on interpolationQuality
-    ///
-    ///   Current implementation draws a placeholder rectangle representing the image bounds.
-    ///   The placeholder uses a checkerboard pattern to indicate image placement.
-    ///
-    /// - Parameters:
-    ///   - image: The image to draw.
-    ///   - rect: The destination rectangle.
-    ///   - alpha: The global alpha value.
-    ///   - blendMode: The blend mode for compositing.
-    ///   - interpolationQuality: The interpolation quality for scaling.
     func draw(
         image: CGImage,
         in rect: CGRect,
@@ -460,56 +520,18 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         interpolationQuality: CGInterpolationQuality
     ) {
         guard let target = effectiveRenderTarget,
-              let pipeline = getImagePipeline(for: blendMode),
-              let sampler = linearSampler else { return }
+              let textureView = getOrCreateTextureView(for: image) else { return }
 
-        // Get or create texture view for the image (via TextureManager)
-        guard let textureView = getOrCreateTextureView(for: image) else {
-            // Fall back to placeholder if texture creation fails
-            guard let fallbackPipeline = getPipeline(for: blendMode) else { return }
-            let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
-            guard !vertices.isEmpty else { return }
-            let batch = CGWebGPUVertexBatch(vertices: vertices)
-            renderBatch(batch, to: target, pipeline: fallbackPipeline)
-            return
-        }
-
-        // Create quad vertices with texture coordinates
-        let vertices = createImageQuadVertices(rect: rect)
-        let vertexBuffer = createImageVertexBuffer(from: vertices)
-
-        // Create uniform buffer for alpha
-        let uniformBuffer = createImageUniformBuffer(alpha: alpha)
-
-        // Create bind group
-        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(index: 0),
-            entries: [
-                GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
-                GPUBindGroupEntry(binding: 1, resource: .textureView(textureView)),
-                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
-            ]
-        ))
-
-        // Render
-        let encoder = device.createCommandEncoder()
-        let colorAttachment = GPURenderPassColorAttachment(
-            view: target,
-            loadOp: .load,
-            storeOp: .store
+        drawTexture(
+            textureView,
+            in: rect,
+            alpha: alpha,
+            blendMode: blendMode,
+            interpolationQuality: interpolationQuality,
+            target: target,
+            clipPaths: [],
+            shouldAntialias: false
         )
-
-        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
-            colorAttachments: [colorAttachment]
-        ))
-
-        renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup: bindGroup)
-        renderPass.setVertexBuffer(0, buffer: vertexBuffer)
-        renderPass.draw(vertexCount: 6)
-        renderPass.end()
-
-        queue.submit([encoder.finish()])
     }
 
     func drawLinearGradient(
@@ -587,40 +609,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
                 shadowColor: shadowColor,
                 shadowOffset: state.shadowOffset,
                 shadowBlur: state.shadowBlur,
-                clipPaths: state.hasClipping ? state.clipPaths : []
+                clipPaths: state.clipPaths,
+                shouldAntialias: state.shouldAntialias
             )
         }
-
-        // Check if anti-aliasing (MSAA) is requested
-        if state.shouldAntialias {
-            // Use MSAA pipeline
-            pipelineRegistry.setSampleCount(msaaSampleCount)
-
-            if state.hasClipping {
-                guard let clippedPipeline = getClippedPipeline(for: blendMode) else {
-                    pipelineRegistry.setSampleCount(1)
-                    return
-                }
-                renderBatchWithMSAAAndClipping(batch, to: target, clippedPipeline: clippedPipeline, clipPaths: state.clipPaths)
-            } else {
-                guard let pipeline = getPipeline(for: blendMode) else {
-                    pipelineRegistry.setSampleCount(1)
-                    return
-                }
-                renderBatchWithMSAA(batch, to: target, pipeline: pipeline)
-            }
-
-            pipelineRegistry.setSampleCount(1)
-        } else {
-            // Use non-MSAA pipeline
-            if state.hasClipping {
-                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
-                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-            } else {
-                guard let pipeline = getPipeline(for: blendMode) else { return }
-                renderBatch(batch, to: target, pipeline: pipeline)
-            }
-        }
+        renderStatefulBatch(batch, to: target, blendMode: blendMode, state: state)
     }
 
     func stroke(
@@ -664,40 +657,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
                 shadowColor: shadowColor,
                 shadowOffset: state.shadowOffset,
                 shadowBlur: state.shadowBlur,
-                clipPaths: state.hasClipping ? state.clipPaths : []
+                clipPaths: state.clipPaths,
+                shouldAntialias: state.shouldAntialias
             )
         }
-
-        // Check if anti-aliasing (MSAA) is requested
-        if state.shouldAntialias {
-            // Use MSAA pipeline
-            pipelineRegistry.setSampleCount(msaaSampleCount)
-
-            if state.hasClipping {
-                guard let clippedPipeline = getClippedPipeline(for: blendMode) else {
-                    pipelineRegistry.setSampleCount(1)
-                    return
-                }
-                renderBatchWithMSAAAndClipping(batch, to: target, clippedPipeline: clippedPipeline, clipPaths: state.clipPaths)
-            } else {
-                guard let pipeline = getPipeline(for: blendMode) else {
-                    pipelineRegistry.setSampleCount(1)
-                    return
-                }
-                renderBatchWithMSAA(batch, to: target, pipeline: pipeline)
-            }
-
-            pipelineRegistry.setSampleCount(1)
-        } else {
-            // Use non-MSAA pipeline
-            if state.hasClipping {
-                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
-                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-            } else {
-                guard let pipeline = getPipeline(for: blendMode) else { return }
-                renderBatch(batch, to: target, pipeline: pipeline)
-            }
-        }
+        renderStatefulBatch(batch, to: target, blendMode: blendMode, state: state)
     }
 
     func clear(rect: CGRect, state: CGDrawingState) {
@@ -711,19 +675,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         let batch = tessellator.tessellateFill(clearPath, color: transparentColor)
         guard !batch.vertices.isEmpty else { return }
 
-        // Check if clipping is needed
-        if state.hasClipping {
-            guard let clippedPipeline = getClippedPipeline(for: .copy) else { return }
-            renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-        } else {
-            guard let pipeline = getPipeline(for: .copy) else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
-        }
+        renderStatefulBatch(batch, to: target, blendMode: .copy, state: state)
     }
 
     /// Draws an image in the specified rectangle with full drawing state.
     ///
-    /// Supports texture-based rendering with clipping and shadow effects.
+    /// Supports texture-based rendering with clipping.
     func draw(
         image: CGImage,
         in rect: CGRect,
@@ -732,90 +689,48 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         interpolationQuality: CGInterpolationQuality,
         state: CGDrawingState
     ) {
-        guard let target = effectiveRenderTarget else { return }
+        guard let target = effectiveRenderTarget,
+              let textureView = getOrCreateTextureView(for: image) else { return }
 
-        // For shadow rendering, use placeholder approach for now
-        // (Shadow needs the shape's alpha mask, which is complex with textures)
-        if state.hasShadow, let shadowColor = state.shadowColor {
-            let shadowVertices = createImagePlaceholderVertices(rect: rect, alpha: 1.0)
-            if !shadowVertices.isEmpty {
-                let shadowBatch = CGWebGPUVertexBatch(vertices: shadowVertices)
-                renderShadow(
-                    batch: shadowBatch,
-                    to: target,
-                    shadowColor: shadowColor,
-                    shadowOffset: state.shadowOffset,
-                    shadowBlur: state.shadowBlur,
-                    clipPaths: state.hasClipping ? state.clipPaths : []
-                )
-            }
-        }
+        drawTexture(
+            textureView,
+            in: rect,
+            alpha: alpha,
+            blendMode: blendMode,
+            interpolationQuality: interpolationQuality,
+            target: target,
+            clipPaths: state.clipPaths,
+            imageMaskClips: state.imageMaskClips,
+            shouldAntialias: state.shouldAntialias
+        )
+    }
 
-        // Use texture-based rendering
-        let usesClipping = state.hasClipping
-        guard let pipeline = getImagePipeline(for: blendMode, clipped: usesClipping),
-              let sampler = linearSampler else {
-            // Fallback to placeholder
-            let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
-            guard !vertices.isEmpty else { return }
-            let batch = CGWebGPUVertexBatch(vertices: vertices)
-            if state.hasClipping {
-                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
-                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-            } else {
-                guard let p = getPipeline(for: blendMode) else { return }
-                renderBatch(batch, to: target, pipeline: p)
-            }
+    func draw(
+        layer: CGLayer,
+        in rect: CGRect,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        interpolationQuality: CGInterpolationQuality,
+        state: CGDrawingState
+    ) {
+        guard let target = effectiveRenderTarget,
+              let sourceRenderer = layer.context?.rendererDelegate as? CGWebGPUContextRenderer else {
             return
         }
+        sourceRenderer.resolveMSAAIfNeeded()
+        guard let sourceTextureView = sourceRenderer.effectiveRenderTarget else { return }
 
-        // Get or create texture view for the image (via TextureManager)
-        guard let textureView = getOrCreateTextureView(for: image) else {
-            // Fallback to placeholder
-            let vertices = createImagePlaceholderVertices(rect: rect, alpha: alpha)
-            guard !vertices.isEmpty else { return }
-            let batch = CGWebGPUVertexBatch(vertices: vertices)
-            if state.hasClipping {
-                guard let clippedPipeline = getClippedPipeline(for: blendMode) else { return }
-                renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-            } else if let p = getPipeline(for: blendMode) {
-                renderBatch(batch, to: target, pipeline: p)
-            }
-            return
-        }
-
-        // Create resources for texture rendering
-        let vertices = createImageQuadVertices(rect: rect)
-        let vertexBuffer = createImageVertexBuffer(from: vertices)
-        let uniformBuffer = createImageUniformBuffer(alpha: alpha)
-
-        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(index: 0),
-            entries: [
-                GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
-                GPUBindGroupEntry(binding: 1, resource: .textureView(textureView)),
-                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
-            ]
-        ))
-
-        if usesClipping {
-            renderImageWithClipping(
-                vertexBuffer: vertexBuffer,
-                bindGroup: bindGroup,
-                vertexCount: 6,
-                to: target,
-                pipeline: pipeline,
-                clipPaths: state.clipPaths
-            )
-        } else {
-            renderImage(
-                vertexBuffer: vertexBuffer,
-                bindGroup: bindGroup,
-                vertexCount: 6,
-                to: target,
-                pipeline: pipeline
-            )
-        }
+        drawTexture(
+            sourceTextureView,
+            in: rect,
+            alpha: alpha,
+            blendMode: blendMode,
+            interpolationQuality: interpolationQuality,
+            target: target,
+            clipPaths: state.clipPaths,
+            imageMaskClips: state.imageMaskClips,
+            shouldAntialias: state.shouldAntialias
+        )
     }
 
     func drawLinearGradient(
@@ -838,14 +753,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let batch = CGWebGPUVertexBatch(vertices: vertices)
 
-        // Check if clipping is needed
-        if state.hasClipping {
-            guard let clippedPipeline = getClippedPipeline(for: .normal) else { return }
-            renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-        } else {
-            guard let pipeline = getPipeline(for: .normal) else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
-        }
+        renderStatefulBatch(batch, to: target, blendMode: .normal, state: state)
     }
 
     func drawRadialGradient(
@@ -872,14 +780,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let batch = CGWebGPUVertexBatch(vertices: vertices)
 
-        // Check if clipping is needed
-        if state.hasClipping {
-            guard let clippedPipeline = getClippedPipeline(for: .normal) else { return }
-            renderBatchWithClipping(batch, to: target, pipeline: clippedPipeline, clipPaths: state.clipPaths)
-        } else {
-            guard let pipeline = getPipeline(for: .normal) else { return }
-            renderBatch(batch, to: target, pipeline: pipeline)
-        }
+        renderStatefulBatch(batch, to: target, blendMode: .normal, state: state)
     }
 
     // MARK: - Shading Drawing
@@ -889,8 +790,25 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         alpha: CGFloat,
         blendMode: CGBlendMode
     ) {
-        guard let target = effectiveRenderTarget,
-              let pipeline = getPipeline(for: blendMode) else { return }
+        renderShading(shading, alpha: alpha, blendMode: blendMode, state: CGDrawingState())
+    }
+
+    func drawShading(
+        _ shading: CGShading,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        renderShading(shading, alpha: alpha, blendMode: blendMode, state: state)
+    }
+
+    private func renderShading(
+        _ shading: CGShading,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        guard let target = effectiveRenderTarget else { return }
 
         // Generate color stops from the shading function
         let colorStops = shading.generateColorStops(steps: 64)
@@ -915,7 +833,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard !vertices.isEmpty else { return }
 
         let batch = CGWebGPUVertexBatch(vertices: vertices)
-        renderBatch(batch, to: target, pipeline: pipeline)
+        renderStatefulBatch(batch, to: target, blendMode: blendMode, state: state)
     }
 
     private func createAxialShadingVertices(
@@ -1351,18 +1269,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     // MARK: - Pattern Drawing
 
-    /// Fills a path with a pattern.
-    ///
-    /// - Important: This is a simplified implementation. Currently, pattern rendering
-    ///   is limited because `CGPattern.renderCell()` creates a CGContext without a
-    ///   rendererDelegate, so drawing operations in the pattern callback don't produce
-    ///   output. As a result:
-    ///   - For uncolored patterns: Uses the provided colorComponents as a solid fill
-    ///   - For colored patterns: Falls back to a default gray color
-    ///
-    ///   A full implementation would require either:
-    ///   1. A software rasterizer in CGContext
-    ///   2. GPU-based pattern tiling using the pattern's bounds, xStep, yStep properties
+    /// Fills a path with a callback-rendered pattern cell.
     func fillWithPattern(
         path: CGPath,
         pattern: CGPattern,
@@ -1373,45 +1280,39 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         blendMode: CGBlendMode,
         rule: CGPathFillRule
     ) {
-        guard let target = effectiveRenderTarget,
-              let pipeline = getPatternPipeline() else { return }
+        renderPatternFill(
+            path: path,
+            pattern: pattern,
+            colorComponents: colorComponents,
+            patternPhase: patternPhase,
+            alpha: alpha,
+            blendMode: blendMode,
+            rule: rule,
+            state: CGDrawingState()
+        )
+    }
 
-        // Determine the fill color based on pattern type
-        let patternColor: CGColor
-
-        if !pattern.isColored {
-            // Uncolored pattern: use provided color components
-            if let components = colorComponents, !components.isEmpty {
-                patternColor = CGColor(
-                    red: components.count > 0 ? components[0] : 0,
-                    green: components.count > 1 ? components[1] : 0,
-                    blue: components.count > 2 ? components[2] : 0,
-                    alpha: components.count > 3 ? components[3] : 1
-                )
-            } else {
-                patternColor = .black
-            }
-        } else {
-            patternColor = CGColor(gray: 0.5, alpha: 1.0)
-        }
-
-        let effectiveColor = applyAlpha(patternColor, alpha: alpha)
-        let batch = tessellator.tessellateFill(path, color: effectiveColor, rule: rule)
-        guard !batch.vertices.isEmpty else { return }
-
-        // Create pattern uniform buffer
-        let patternUniforms = createPatternUniformBuffer(pattern: pattern)
-
-        // Create bind group for pattern uniforms
-        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(index: 0),
-            entries: [
-                GPUBindGroupEntry(binding: 0, resource: .bufferBinding(GPUBufferBinding(buffer: patternUniforms)))
-            ]
-        ))
-
-        // Render with pattern pipeline
-        renderBatchWithPattern(batch, to: target, pipeline: pipeline, bindGroup: bindGroup)
+    func fillWithPattern(
+        path: CGPath,
+        pattern: CGPattern,
+        patternSpace: CGColorSpace,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        rule: CGPathFillRule,
+        state: CGDrawingState
+    ) {
+        renderPatternFill(
+            path: path,
+            pattern: pattern,
+            colorComponents: colorComponents,
+            patternPhase: patternPhase,
+            alpha: alpha,
+            blendMode: blendMode,
+            rule: rule,
+            state: state
+        )
     }
 
     /// Strokes a path with a pattern.
@@ -1432,58 +1333,334 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         alpha: CGFloat,
         blendMode: CGBlendMode
     ) {
-        guard let target = effectiveRenderTarget,
-              let pipeline = getPatternPipeline() else { return }
-
-        // Determine the stroke color based on pattern type
-        let patternColor: CGColor
-
-        if !pattern.isColored {
-            // Uncolored pattern: use provided color components
-            if let components = colorComponents, !components.isEmpty {
-                patternColor = CGColor(
-                    red: components.count > 0 ? components[0] : 0,
-                    green: components.count > 1 ? components[1] : 0,
-                    blue: components.count > 2 ? components[2] : 0,
-                    alpha: components.count > 3 ? components[3] : 1
-                )
-            } else {
-                patternColor = .black
-            }
-        } else {
-            patternColor = CGColor(gray: 0.5, alpha: 1.0)
-        }
-
-        let effectiveColor = applyAlpha(patternColor, alpha: alpha)
-        let cap = convertLineCap(lineCap)
-        let join = convertLineJoin(lineJoin)
-
-        let batch = tessellator.tessellateStroke(
-            path,
-            color: effectiveColor,
+        renderPatternStroke(
+            path: path,
+            pattern: pattern,
+            colorComponents: colorComponents,
+            patternPhase: patternPhase,
             lineWidth: lineWidth,
-            lineCap: cap,
-            lineJoin: join,
-            miterLimit: miterLimit
+            lineCap: lineCap,
+            lineJoin: lineJoin,
+            miterLimit: miterLimit,
+            alpha: alpha,
+            blendMode: blendMode,
+            state: CGDrawingState()
         )
-        guard !batch.vertices.isEmpty else { return }
+    }
 
-        // Create pattern uniform buffer
-        let patternUniforms = createPatternUniformBuffer(pattern: pattern)
-
-        // Create bind group for pattern uniforms
-        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
-            layout: pipeline.getBindGroupLayout(index: 0),
-            entries: [
-                GPUBindGroupEntry(binding: 0, resource: .bufferBinding(GPUBufferBinding(buffer: patternUniforms)))
-            ]
-        ))
-
-        // Render with pattern pipeline
-        renderBatchWithPattern(batch, to: target, pipeline: pipeline, bindGroup: bindGroup)
+    func strokeWithPattern(
+        path: CGPath,
+        pattern: CGPattern,
+        patternSpace: CGColorSpace,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        lineWidth: CGFloat,
+        lineCap: CGLineCap,
+        lineJoin: CGLineJoin,
+        miterLimit: CGFloat,
+        dashPhase: CGFloat,
+        dashLengths: [CGFloat],
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        renderPatternStroke(
+            path: path,
+            pattern: pattern,
+            colorComponents: colorComponents,
+            patternPhase: patternPhase,
+            lineWidth: lineWidth,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
+            miterLimit: miterLimit,
+            alpha: alpha,
+            blendMode: blendMode,
+            state: state
+        )
     }
 
     // MARK: - Private Helpers
+
+    private func renderStatefulBatch(
+        _ batch: CGWebGPUVertexBatch,
+        to target: GPUTextureView,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        let usesMSAA = state.shouldAntialias && renderTarget == nil
+        let sampleCount = usesMSAA ? msaaSampleCount : 1
+        pipelineRegistry.setSampleCount(sampleCount)
+        defer { pipelineRegistry.setSampleCount(1) }
+
+        let pipeline: GPURenderPipeline
+        let bindGroup: GPUBindGroup?
+        if state.hasImageMaskClipping {
+            guard let maskTextureView = imageMaskTextureView(for: state.imageMaskClips),
+                  let maskedPipeline = getMaskedPipeline(
+                      for: blendMode,
+                      pathClipped: state.hasPathClipping
+                  ) else {
+                return
+            }
+            pipeline = maskedPipeline
+            bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
+                layout: pipeline.getBindGroupLayout(index: 0),
+                entries: [
+                    GPUBindGroupEntry(binding: 0, resource: .textureView(maskTextureView))
+                ]
+            ))
+        } else {
+            let selectedPipeline = state.hasPathClipping
+                ? getClippedPipeline(for: blendMode)
+                : getPipeline(for: blendMode)
+            guard let selectedPipeline = selectedPipeline else { return }
+            pipeline = selectedPipeline
+            bindGroup = nil
+        }
+
+        if usesMSAA {
+            if state.hasPathClipping {
+                renderBatchWithMSAAAndClipping(
+                    batch,
+                    to: target,
+                    clippedPipeline: pipeline,
+                    clipPaths: state.clipPaths,
+                    bindGroup: bindGroup
+                )
+            } else {
+                renderBatchWithMSAA(batch, to: target, pipeline: pipeline, bindGroup: bindGroup)
+            }
+        } else if state.hasPathClipping {
+            renderBatchWithClipping(
+                batch,
+                to: target,
+                pipeline: pipeline,
+                clipPaths: state.clipPaths,
+                bindGroup: bindGroup
+            )
+        } else {
+            renderBatch(batch, to: target, pipeline: pipeline, bindGroup: bindGroup)
+        }
+    }
+
+    private func renderPatternFill(
+        path: CGPath,
+        pattern: CGPattern,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        rule: CGPathFillRule,
+        state: CGDrawingState
+    ) {
+        let color = patternTintColor(components: colorComponents)
+        let batch = tessellator.tessellateFill(path, color: color, rule: rule)
+        renderPatternBatch(
+            batch,
+            pattern: pattern,
+            patternPhase: patternPhase,
+            alpha: alpha,
+            blendMode: blendMode,
+            state: state
+        )
+    }
+
+    private func renderPatternStroke(
+        path: CGPath,
+        pattern: CGPattern,
+        colorComponents: [CGFloat]?,
+        patternPhase: CGSize,
+        lineWidth: CGFloat,
+        lineCap: CGLineCap,
+        lineJoin: CGLineJoin,
+        miterLimit: CGFloat,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        let batch = tessellator.tessellateStroke(
+            path,
+            color: patternTintColor(components: colorComponents),
+            lineWidth: lineWidth,
+            lineCap: convertLineCap(lineCap),
+            lineJoin: convertLineJoin(lineJoin),
+            miterLimit: miterLimit
+        )
+        renderPatternBatch(
+            batch,
+            pattern: pattern,
+            patternPhase: patternPhase,
+            alpha: alpha,
+            blendMode: blendMode,
+            state: state
+        )
+    }
+
+    private func renderPatternBatch(
+        _ batch: CGWebGPUVertexBatch,
+        pattern: CGPattern,
+        patternPhase: CGSize,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        let usesMSAA = state.shouldAntialias && renderTarget == nil
+        pipelineRegistry.setSampleCount(usesMSAA ? msaaSampleCount : 1)
+        defer { pipelineRegistry.setSampleCount(1) }
+
+        guard !batch.vertices.isEmpty,
+              let target = effectiveRenderTarget,
+              let sampler = pattern.tiling == .noDistortion ? nearestSampler : linearSampler,
+              let cell = patternCell(for: pattern),
+              let maskTextureView = imageMaskTextureView(for: state.imageMaskClips),
+              let uniforms = createPatternUniformBuffer(
+                  pattern: pattern,
+                  patternPhase: patternPhase,
+                  alpha: alpha,
+                  state: state
+              ) else {
+            return
+        }
+
+        let clipped = state.hasPathClipping
+        guard let pipeline = getPatternPipeline(for: blendMode, clipped: clipped) else { return }
+
+        let renderTargetView: GPUTextureView
+        let stencilView: GPUTextureView?
+        if usesMSAA, let msaaView = msaaRenderTextureView {
+            renderTargetView = msaaView
+            stencilView = msaaStencilTextureView
+        } else {
+            renderTargetView = target
+            stencilView = stencilTextureView
+        }
+
+        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
+            layout: pipeline.getBindGroupLayout(index: 0),
+            entries: [
+                GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
+                GPUBindGroupEntry(binding: 1, resource: .textureView(cell.textureView)),
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniforms)))
+            ]
+        ))
+        let maskBindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
+            layout: pipeline.getBindGroupLayout(index: 1),
+            entries: [
+                GPUBindGroupEntry(binding: 0, resource: .textureView(maskTextureView))
+            ]
+        ))
+
+        renderBatchWithPattern(
+            batch,
+            to: renderTargetView,
+            pipeline: pipeline,
+            bindGroup: bindGroup,
+            maskBindGroup: maskBindGroup,
+            clipPaths: state.clipPaths,
+            stencilView: stencilView
+        )
+        if usesMSAA {
+            needsMSAAResolve = true
+        }
+    }
+
+    private func patternTintColor(components: [CGFloat]?) -> CGColor {
+        guard let components = components, !components.isEmpty else { return .black }
+
+        if components.count == 2 {
+            return CGColor(gray: components[0], alpha: components[1])
+        }
+
+        return CGColor(
+            red: components[0],
+            green: components.count > 1 ? components[1] : components[0],
+            blue: components.count > 2 ? components[2] : components[0],
+            alpha: components.count > 3 ? components[3] : 1
+        )
+    }
+
+    private func patternCell(for pattern: CGPattern) -> PatternCell? {
+        let key = ObjectIdentifier(pattern)
+        if let cached = patternCells[key] {
+            return cached
+        }
+        guard !activePatternCells.contains(key),
+              pattern.bounds.width > 0,
+              pattern.bounds.height > 0 else {
+            return nil
+        }
+
+        activePatternCells.insert(key)
+        defer { activePatternCells.remove(key) }
+
+        let width = max(1, Int(ceil(pattern.bounds.width)))
+        let height = max(1, Int(ceil(pattern.bounds.height)))
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                  data: nil,
+                  width: width,
+                  height: height,
+                  bitsPerComponent: 8,
+                  bytesPerRow: width * 4,
+                  space: colorSpace,
+                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+              ),
+              let renderer = context.rendererDelegate as? CGWebGPUContextRenderer else {
+            return nil
+        }
+
+        context.scaleBy(
+            x: CGFloat(width) / pattern.bounds.width,
+            y: CGFloat(height) / pattern.bounds.height
+        )
+        context.translateBy(x: -pattern.bounds.minX, y: -pattern.bounds.minY)
+        context.clip(to: pattern.bounds)
+        pattern.draw(in: context)
+
+        renderer.resolveMSAAIfNeeded()
+        guard let textureView = renderer.effectiveRenderTarget else { return nil }
+
+        let cell = PatternCell(pattern: pattern, context: context, textureView: textureView)
+        patternCells[key] = cell
+        return cell
+    }
+
+    private func imageMaskTextureView(for clips: [CGImageMaskClip]) -> GPUTextureView? {
+        if cachedImageMaskClips == clips {
+            return imageMaskTextureView
+        }
+        guard let texture = imageMaskTexture,
+              let textureView = imageMaskTextureView else {
+            return nil
+        }
+
+        let width = Int(max(1, viewportWidth))
+        let height = Int(max(1, viewportHeight))
+        let pixelData: Data
+        if clips.isEmpty {
+            pixelData = Data(repeating: 255, count: width * height * 4)
+        } else {
+            guard let buffer = CGImageMaskBuffer(width: width, height: height, clips: clips) else {
+                return nil
+            }
+            pixelData = buffer.rgba8
+        }
+
+        let bytes = [UInt8](pixelData)
+        let typedArray = JSTypedArray<UInt8>(bytes)
+        queue.writeTexture(
+            destination: GPUImageCopyTexture(texture: texture),
+            data: typedArray.jsObject,
+            dataLayout: GPUImageDataLayout(
+                offset: 0,
+                bytesPerRow: UInt32(width * 4),
+                rowsPerImage: UInt32(height)
+            ),
+            size: GPUExtent3D(width: UInt32(width), height: UInt32(height))
+        )
+        cachedImageMaskClips = clips
+        return textureView
+    }
 
     /// Resolves MSAA content to the internal render texture if there's pending MSAA content.
     private func resolveMSAAIfNeeded() {
@@ -1513,7 +1690,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         needsMSAAResolve = false
     }
 
-    private func renderBatch(_ batch: CGWebGPUVertexBatch, to textureView: GPUTextureView, pipeline: GPURenderPipeline) {
+    private func renderBatch(
+        _ batch: CGWebGPUVertexBatch,
+        to textureView: GPUTextureView,
+        pipeline: GPURenderPipeline,
+        bindGroup: GPUBindGroup? = nil
+    ) {
         guard let allocation = createVertexBufferAllocation(from: batch) else { return }
 
         let encoder = device.createCommandEncoder()
@@ -1529,6 +1711,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         ))
 
         renderPass.setPipeline(pipeline)
+        if let bindGroup = bindGroup {
+            renderPass.setBindGroup(0, bindGroup: bindGroup)
+        }
         renderPass.setVertexBuffer(0, buffer: allocation.buffer, offset: allocation.offset)
         renderPass.draw(vertexCount: UInt32(batch.vertices.count))
         renderPass.end()
@@ -1541,7 +1726,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         bindGroup: GPUBindGroup,
         vertexCount: UInt32,
         to textureView: GPUTextureView,
-        pipeline: GPURenderPipeline
+        pipeline: GPURenderPipeline,
+        maskBindGroup: GPUBindGroup? = nil
     ) {
         let encoder = device.createCommandEncoder()
         let colorAttachment = GPURenderPassColorAttachment(
@@ -1556,6 +1742,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         renderPass.setPipeline(pipeline)
         renderPass.setBindGroup(0, bindGroup: bindGroup)
+        if let maskBindGroup = maskBindGroup {
+            renderPass.setBindGroup(1, bindGroup: maskBindGroup)
+        }
         renderPass.setVertexBuffer(0, buffer: vertexBuffer)
         renderPass.draw(vertexCount: vertexCount)
         renderPass.end()
@@ -1569,9 +1758,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         vertexCount: UInt32,
         to textureView: GPUTextureView,
         pipeline: GPURenderPipeline,
-        clipPaths: [CGClipPath]
+        clipPaths: [CGClipPath],
+        stencilView: GPUTextureView?,
+        maskBindGroup: GPUBindGroup? = nil
     ) {
-        guard let stencilView = stencilTextureView,
+        guard let stencilView = stencilView,
               let stencilPipeline = getStencilWritePipeline(),
               !clipPaths.isEmpty else {
             renderImage(
@@ -1579,7 +1770,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
                 bindGroup: bindGroup,
                 vertexCount: vertexCount,
                 to: textureView,
-                pipeline: pipeline
+                pipeline: pipeline,
+                maskBindGroup: maskBindGroup
             )
             return
         }
@@ -1633,6 +1825,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         contentPass.setPipeline(pipeline)
         contentPass.setBindGroup(0, bindGroup: bindGroup)
+        if let maskBindGroup = maskBindGroup {
+            contentPass.setBindGroup(1, bindGroup: maskBindGroup)
+        }
         contentPass.setVertexBuffer(0, buffer: vertexBuffer)
         contentPass.setStencilReference(UInt32(clipPaths.count))
         contentPass.draw(vertexCount: vertexCount)
@@ -1648,7 +1843,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     private func renderBatchWithMSAA(
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
-        pipeline: GPURenderPipeline
+        pipeline: GPURenderPipeline,
+        bindGroup: GPUBindGroup? = nil
     ) {
         guard let msaaView = msaaRenderTextureView,
               let allocation = createVertexBufferAllocation(from: batch) else {
@@ -1672,6 +1868,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         ))
 
         renderPass.setPipeline(pipeline)
+        if let bindGroup = bindGroup {
+            renderPass.setBindGroup(0, bindGroup: bindGroup)
+        }
         renderPass.setVertexBuffer(0, buffer: allocation.buffer, offset: allocation.offset)
         renderPass.draw(vertexCount: UInt32(batch.vertices.count))
         renderPass.end()
@@ -1690,14 +1889,21 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
         clippedPipeline: GPURenderPipeline,
-        clipPaths: [CGClipPath]
+        clipPaths: [CGClipPath],
+        bindGroup: GPUBindGroup? = nil
     ) {
         guard let msaaView = msaaRenderTextureView,
               let msaaStencilView = msaaStencilTextureView,
               let stencilPipeline = getStencilWritePipeline(),
               !clipPaths.isEmpty else {
             // Fall back to non-MSAA clipping if MSAA textures are not available
-            renderBatchWithClipping(batch, to: textureView, pipeline: clippedPipeline, clipPaths: clipPaths)
+            renderBatchWithClipping(
+                batch,
+                to: textureView,
+                pipeline: clippedPipeline,
+                clipPaths: clipPaths,
+                bindGroup: bindGroup
+            )
             return
         }
 
@@ -1764,6 +1970,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Use the passed clipped pipeline (already has correct blend mode and MSAA sample count)
         contentPass.setPipeline(clippedPipeline)
+        if let bindGroup = bindGroup {
+            contentPass.setBindGroup(0, bindGroup: bindGroup)
+        }
         contentPass.setVertexBuffer(0, buffer: contentBuffer)
         contentPass.setStencilReference(UInt32(clipPaths.count))
         contentPass.draw(vertexCount: UInt32(batch.vertices.count))
@@ -1785,13 +1994,14 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
         pipeline: GPURenderPipeline,
-        clipPaths: [CGClipPath]
+        clipPaths: [CGClipPath],
+        bindGroup: GPUBindGroup? = nil
     ) {
         guard let stencilView = stencilTextureView,
               let stencilPipeline = getStencilWritePipeline(),
               !clipPaths.isEmpty else {
             // Fall back to regular rendering if no stencil available
-            renderBatch(batch, to: textureView, pipeline: pipeline)
+            renderBatch(batch, to: textureView, pipeline: pipeline, bindGroup: bindGroup)
             return
         }
 
@@ -1851,6 +2061,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         ))
 
         contentPass.setPipeline(pipeline)
+        if let bindGroup = bindGroup {
+            contentPass.setBindGroup(0, bindGroup: bindGroup)
+        }
         contentPass.setVertexBuffer(0, buffer: contentBuffer)
         contentPass.setStencilReference(UInt32(clipPaths.count))
         contentPass.draw(vertexCount: UInt32(batch.vertices.count))
@@ -1872,15 +2085,22 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         shadowColor: CGColor,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
-        clipPaths: [CGClipPath]
+        clipPaths: [CGClipPath],
+        shouldAntialias: Bool
     ) {
+        pipelineRegistry.setSampleCount(1)
         guard let shadowMaskView = shadowMaskTextureView,
               let blurIntermediateView = blurIntermediateTextureView,
               let blurHPipeline = getBlurHorizontalPipeline(),
               let blurVPipeline = getBlurVerticalPipeline(),
-              let shadowPipeline = getShadowCompositePipeline(),
               let sampler = linearSampler,
               let normalPipeline = getPipeline(for: .copy) else { return }
+
+        let usesMSAA = shouldAntialias && renderTarget == nil
+        pipelineRegistry.setSampleCount(usesMSAA ? msaaSampleCount : 1)
+        defer { pipelineRegistry.setSampleCount(1) }
+        guard let shadowPipeline = getShadowCompositePipeline() else { return }
+        let compositeTarget = usesMSAA ? msaaRenderTextureView ?? textureView : textureView
 
         let encoder = device.createCommandEncoder()
 
@@ -1971,7 +2191,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         ))
 
         let compositeAttachment = GPURenderPassColorAttachment(
-            view: textureView,
+            view: compositeTarget,
             loadOp: .load,
             storeOp: .store
         )
@@ -1985,6 +2205,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         compositePass.end()
 
         queue.submit([encoder.finish()])
+        if usesMSAA {
+            needsMSAAResolve = true
+        }
     }
 
     /// Creates a uniform buffer for blur parameters.
@@ -2080,29 +2303,32 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         }
     }
 
-    /// Creates a uniform buffer for pattern parameters.
-    private func createPatternUniformBuffer(pattern: CGPattern) -> GPUBuffer {
-        // Convert to normalized device coordinates
-        let boundsX = Float(pattern.bounds.origin.x / viewportWidth * 2.0)
-        let boundsY = Float(pattern.bounds.origin.y / viewportHeight * 2.0)
-        let boundsW = Float(pattern.bounds.width / viewportWidth * 2.0)
-        let boundsH = Float(pattern.bounds.height / viewportHeight * 2.0)
-
-        // Convert step to NDC
-        let stepX = Float(pattern.xStep / viewportWidth * 2.0)
-        let stepY = Float(pattern.yStep / viewportHeight * 2.0)
-
-        let isColored: Float = pattern.isColored ? 1.0 : 0.0
-
-        // Determine pattern type based on bounds aspect ratio
-        // This is a heuristic - real patterns would need more info
-        let patternType: Float = 1.0  // Default to checkerboard
+    /// Creates uniforms that map device coordinates back into pattern space.
+    private func createPatternUniformBuffer(
+        pattern: CGPattern,
+        patternPhase: CGSize,
+        alpha: CGFloat,
+        state: CGDrawingState
+    ) -> GPUBuffer? {
+        let phaseTransform = CGAffineTransform(
+            translationX: patternPhase.width,
+            y: patternPhase.height
+        )
+        let patternToDevice = pattern.matrix
+            .concatenating(phaseTransform)
+            .concatenating(state.ctm)
+        let determinant = patternToDevice.a * patternToDevice.d - patternToDevice.b * patternToDevice.c
+        guard determinant != 0 else { return nil }
+        let inverse = patternToDevice.inverted()
 
         let data: [Float] = [
-            boundsX, boundsY, boundsW, boundsH,  // bounds
-            stepX, stepY,                          // step
-            isColored,                             // isColored
-            patternType                            // patternType
+            Float(inverse.a), Float(inverse.b), Float(inverse.c), Float(inverse.d),
+            Float(inverse.tx), Float(inverse.ty),
+            Float(viewportWidth), Float(viewportHeight),
+            Float(pattern.bounds.minX), Float(pattern.bounds.minY),
+            Float(pattern.bounds.width), Float(pattern.bounds.height),
+            Float(abs(pattern.xStep)), Float(abs(pattern.yStep)),
+            Float(alpha), pattern.isColored ? 1.0 : 0.0
         ]
 
         let buffer = device.createBuffer(descriptor: GPUBufferDescriptor(
@@ -2121,27 +2347,84 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         _ batch: CGWebGPUVertexBatch,
         to textureView: GPUTextureView,
         pipeline: GPURenderPipeline,
-        bindGroup: GPUBindGroup
+        bindGroup: GPUBindGroup,
+        maskBindGroup: GPUBindGroup,
+        clipPaths: [CGClipPath],
+        stencilView: GPUTextureView?
     ) {
         let buffer = createVertexBuffer(from: batch)
 
-        let encoder = device.createCommandEncoder()
+        guard !clipPaths.isEmpty else {
+            let encoder = device.createCommandEncoder()
+            let colorAttachment = GPURenderPassColorAttachment(
+                view: textureView,
+                loadOp: .load,
+                storeOp: .store
+            )
+            let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+                colorAttachments: [colorAttachment]
+            ))
+            renderPass.setPipeline(pipeline)
+            renderPass.setBindGroup(0, bindGroup: bindGroup)
+            renderPass.setBindGroup(1, bindGroup: maskBindGroup)
+            renderPass.setVertexBuffer(0, buffer: buffer)
+            renderPass.draw(vertexCount: UInt32(batch.vertices.count))
+            renderPass.end()
+            queue.submit([encoder.finish()])
+            return
+        }
 
+        guard let stencilView = stencilView,
+              let stencilPipeline = getStencilWritePipeline() else { return }
+
+        let encoder = device.createCommandEncoder()
         let colorAttachment = GPURenderPassColorAttachment(
             view: textureView,
             loadOp: .load,
             storeOp: .store
         )
 
-        let renderPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
-            colorAttachments: [colorAttachment]
+        let stencilPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment],
+            depthStencilAttachment: GPURenderPassDepthStencilAttachment(
+                view: stencilView,
+                depthClearValue: 1.0,
+                depthLoadOp: .clear,
+                depthStoreOp: .store,
+                stencilClearValue: 0,
+                stencilLoadOp: .clear,
+                stencilStoreOp: .store
+            )
         ))
 
-        renderPass.setPipeline(pipeline)
-        renderPass.setBindGroup(0, bindGroup: bindGroup)
-        renderPass.setVertexBuffer(0, buffer: buffer)
-        renderPass.draw(vertexCount: UInt32(batch.vertices.count))
-        renderPass.end()
+        stencilPass.setPipeline(stencilPipeline)
+        for (index, clipPath) in clipPaths.enumerated() {
+            let clipBatch = tessellator.tessellateFill(clipPath.path, color: .black, rule: clipPath.rule)
+            guard !clipBatch.vertices.isEmpty else { continue }
+            let clipBuffer = createVertexBuffer(from: clipBatch)
+            stencilPass.setVertexBuffer(0, buffer: clipBuffer)
+            stencilPass.setStencilReference(UInt32(index))
+            stencilPass.draw(vertexCount: UInt32(clipBatch.vertices.count))
+        }
+        stencilPass.end()
+
+        let contentPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
+            colorAttachments: [colorAttachment],
+            depthStencilAttachment: GPURenderPassDepthStencilAttachment(
+                view: stencilView,
+                depthLoadOp: .load,
+                depthStoreOp: .store,
+                stencilLoadOp: .load,
+                stencilStoreOp: .store
+            )
+        ))
+        contentPass.setPipeline(pipeline)
+        contentPass.setBindGroup(0, bindGroup: bindGroup)
+        contentPass.setBindGroup(1, bindGroup: maskBindGroup)
+        contentPass.setVertexBuffer(0, buffer: buffer)
+        contentPass.setStencilReference(UInt32(clipPaths.count))
+        contentPass.draw(vertexCount: UInt32(batch.vertices.count))
+        contentPass.end()
 
         queue.submit([encoder.finish()])
     }
@@ -2259,6 +2542,90 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         return result
     }
 
+    private func drawTexture(
+        _ textureView: GPUTextureView,
+        in rect: CGRect,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        interpolationQuality: CGInterpolationQuality,
+        target: GPUTextureView,
+        clipPaths: [CGClipPath],
+        imageMaskClips: [CGImageMaskClip] = [],
+        shouldAntialias: Bool
+    ) {
+        let usesMSAA = shouldAntialias && renderTarget == nil
+        pipelineRegistry.setSampleCount(usesMSAA ? msaaSampleCount : 1)
+        defer { pipelineRegistry.setSampleCount(1) }
+
+        let usesPathClipping = !clipPaths.isEmpty
+        let usesImageMaskClipping = !imageMaskClips.isEmpty
+        let selectedPipeline = usesImageMaskClipping
+            ? getMaskedImagePipeline(for: blendMode, pathClipped: usesPathClipping)
+            : getImagePipeline(for: blendMode, clipped: usesPathClipping)
+        guard let pipeline = selectedPipeline,
+              let sampler = interpolationQuality == .none ? nearestSampler : linearSampler else {
+            return
+        }
+
+        let vertexBuffer = createImageVertexBuffer(from: createImageQuadVertices(rect: rect))
+        let uniformBuffer = createImageUniformBuffer(alpha: alpha)
+        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
+            layout: pipeline.getBindGroupLayout(index: 0),
+            entries: [
+                GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
+                GPUBindGroupEntry(binding: 1, resource: .textureView(textureView)),
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
+            ]
+        ))
+        let maskBindGroup: GPUBindGroup?
+        if usesImageMaskClipping {
+            guard let maskTextureView = imageMaskTextureView(for: imageMaskClips) else { return }
+            maskBindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
+                layout: pipeline.getBindGroupLayout(index: 1),
+                entries: [
+                    GPUBindGroupEntry(binding: 0, resource: .textureView(maskTextureView))
+                ]
+            ))
+        } else {
+            maskBindGroup = nil
+        }
+
+        let renderTargetView: GPUTextureView
+        let stencilView: GPUTextureView?
+        if usesMSAA, let msaaView = msaaRenderTextureView {
+            renderTargetView = msaaView
+            stencilView = msaaStencilTextureView
+        } else {
+            renderTargetView = target
+            stencilView = stencilTextureView
+        }
+
+        if usesPathClipping {
+            renderImageWithClipping(
+                vertexBuffer: vertexBuffer,
+                bindGroup: bindGroup,
+                vertexCount: 6,
+                to: renderTargetView,
+                pipeline: pipeline,
+                clipPaths: clipPaths,
+                stencilView: stencilView,
+                maskBindGroup: maskBindGroup
+            )
+        } else {
+            renderImage(
+                vertexBuffer: vertexBuffer,
+                bindGroup: bindGroup,
+                vertexCount: 6,
+                to: renderTargetView,
+                pipeline: pipeline,
+                maskBindGroup: maskBindGroup
+            )
+        }
+        if usesMSAA {
+            needsMSAAResolve = true
+        }
+    }
+
     /// Creates quad vertices for image rendering with texture coordinates.
     private func createImageQuadVertices(rect: CGRect) -> [Float] {
         // Convert rect to NDC
@@ -2298,7 +2665,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     /// Creates a uniform buffer for image alpha.
     private func createImageUniformBuffer(alpha: CGFloat) -> GPUBuffer {
-        let data: [Float] = [Float(alpha), 0.0, 0.0, 0.0]  // alpha + padding
+        // WGSL aligns the vec3 field to 16 bytes, so ImageUniforms occupies
+        // 32 bytes even though the alpha itself is a single float.
+        let data: [Float] = [Float(alpha), 0, 0, 0, 0, 0, 0, 0]
 
         let buffer = device.createBuffer(descriptor: GPUBufferDescriptor(
             size: UInt64(data.count * MemoryLayout<Float>.stride),
@@ -2310,54 +2679,6 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         queue.writeBuffer(buffer, bufferOffset: 0, data: jsArray.jsObject)
 
         return buffer
-    }
-
-    // MARK: - Image Placeholder
-
-    /// Creates a checkerboard pattern as a placeholder for image rendering.
-    ///
-    /// This provides visual feedback that an image would be drawn at this location.
-    /// Full texture-based rendering requires additional infrastructure.
-    private func createImagePlaceholderVertices(
-        rect: CGRect,
-        alpha: CGFloat
-    ) -> [CGWebGPUVertex] {
-        var vertices: [CGWebGPUVertex] = []
-
-        // Checkerboard colors
-        let lightColor = applyAlpha(CGColor(gray: 0.8, alpha: 1.0), alpha: alpha)
-        let darkColor = applyAlpha(CGColor(gray: 0.6, alpha: 1.0), alpha: alpha)
-
-        // Create a checkerboard pattern with 4x4 cells
-        let cellWidth = rect.width / 4
-        let cellHeight = rect.height / 4
-
-        for row in 0..<4 {
-            for col in 0..<4 {
-                let isLight = (row + col) % 2 == 0
-                let color = isLight ? lightColor : darkColor
-
-                let x = rect.minX + CGFloat(col) * cellWidth
-                let y = rect.minY + CGFloat(row) * cellHeight
-
-                // Four corners of the cell
-                let v0 = CGPoint(x: x, y: y)
-                let v1 = CGPoint(x: x + cellWidth, y: y)
-                let v2 = CGPoint(x: x + cellWidth, y: y + cellHeight)
-                let v3 = CGPoint(x: x, y: y + cellHeight)
-
-                // Two triangles for the cell
-                vertices.append(createVertex(v0, color: color))
-                vertices.append(createVertex(v1, color: color))
-                vertices.append(createVertex(v2, color: color))
-
-                vertices.append(createVertex(v0, color: color))
-                vertices.append(createVertex(v2, color: color))
-                vertices.append(createVertex(v3, color: color))
-            }
-        }
-
-        return vertices
     }
 
     // MARK: - GPU Readback (makeImage)

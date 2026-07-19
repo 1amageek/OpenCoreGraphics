@@ -53,7 +53,7 @@ let image = await context.makeImageAsync()
 
 ---
 
-### #3 シャドウが機能しない
+### #3 シャドウ情報がレンダラーへ渡らない
 **状態**: 修正済み
 
 シャドウ情報が `CGDrawingState` に含まれるようになりました：
@@ -135,7 +135,7 @@ let transparentColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0)
 
 ---
 
-### #11 クリッピングが未実装
+### #11 パスクリッピングが未実装
 **状態**: 修正済み
 
 ステンシルバッファベースのクリッピングを実装：
@@ -144,10 +144,12 @@ let transparentColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0)
 - ステンシルテスト付きのレンダリングパイプライン
 - 複数のクリップパスの交差をサポート
 
+画像マスクによる連続 alpha クリッピングも実装済みであり、逆 alpha / DeviceGray alpha / decode / 補間 / 複数マスク合成を画素テストで検証する。
+
 ---
 
-### #12 シャドウが未実装
-**状態**: 修正済み
+### #12 パス形状のシャドウが未実装
+**状態**: 修正済み（画像は未完了）
 
 マルチパス Gaussian ブラーシャドウを実装：
 - 分離可能 Gaussian ブラー（水平パス + 垂直パス）
@@ -155,16 +157,7 @@ let transparentColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0)
 - シャドウコンポジットシェーダー（オフセットとカラー適用）
 - shadowOffset, shadowBlur, shadowColor のサポート
 
----
-
-### #13 パターンレンダリングが未実装
-**状態**: 修正済み
-
-GPU ベースのパターンタイリングを実装：
-- patternTiling シェーダー（チェッカーボード、ストライプ、ドット）
-- xStep/yStep に基づく手続き的タイリング
-- カラードパターンとアンカラードパターンのサポート
-- パターンフェーズとバウンディングボックスの適用
+画像の alpha をシャドウマスクへ反映する処理は未実装。矩形による代替描画は正しい結果ではないため削除済み。
 
 ---
 
@@ -181,15 +174,24 @@ GPU readback を実装：
 
 ## 今後の改善点
 
+### 正確性に関わる未解決項目
+
+- `CGContext.clip(to:mask:)`: image mask の逆 alpha、DeviceGray の通常 alpha、decode、補間、複数 mask の積算を実装済み。path・gradient・shading・image・layer・pattern の WebGPU pipeline に連続値を適用し、ブラウザ画素 readback で検証済み
+- `CGPattern`: callback を独立した GPU context の cell texture へ描画し、matrix / phase / step、colored / uncolored、path clip、image-mask clip を反映する tiling を実装済み。手続き的 checkerboard と非互換な `renderCell*` API は削除済み
+- 画像シャドウ: 画像 alpha texture から blur mask を生成する必要がある
+- ICC: profile data の保持だけで、profile に基づく色変換は未実装
+- HDR statistics: `copyWithCalculatedHDRStats()` の画素解析は未実装
+- PDF: package の責務境界上、parser / writer / renderer は実装していない
+
 ### パフォーマンス最適化
 - 頂点バッファのプーリング
 - ドローコールのバッチング
 - テクスチャアトラスの活用
 
 ### 追加機能
-- フォントレンダリング (CGFont)
+- TrueType `glyf` の単純・複合 glyph 描画は実装済み。CFF/CFF2 と variation outline は未実装
 - PDF 出力 (CGPDFContext)
-- レイヤー機能の完全実装 (CGLayer)
+- CGLayer の WASM GPU texture 直接合成は実装済み。全描画意味論との同等性検証は継続する
 
 ---
 
@@ -199,5 +201,5 @@ GPU readback を実装：
 - `Sources/OpenCoreGraphics/Graphics/CGContextRendererDelegate.swift`
 - `Sources/OpenCoreGraphics/Graphics/CGPattern.swift`
 - `Sources/OpenCoreGraphics/Graphics/CGShading.swift`
-- `Sources/CGWebGPU/CGWebGPUContextRenderer.swift`
-- `Sources/CGWebGPU/Shaders.swift`
+- `Sources/OpenCoreGraphics/Rendering/WebGPU/CGWebGPUContextRenderer.swift`
+- `Sources/OpenCoreGraphics/Rendering/WebGPU/Shaders.swift`

@@ -164,7 +164,7 @@ public class CGFunction: @unchecked Sendable {
 
     /// Returns the type identifier for Core Graphics function objects.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.function
     }
 }
 
@@ -183,5 +183,4 @@ extension CGFunction: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-
 

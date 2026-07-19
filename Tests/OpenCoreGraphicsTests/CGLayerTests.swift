@@ -257,6 +257,16 @@ struct CGLayerTests {
             #expect(layer?.size.height == 1)
         }
 
+        @Test("Fractional layer dimensions retain a usable backing context")
+        func fractionalLayerDimensions() throws {
+            let context = try #require(createTestContext())
+            let layer = try #require(CGLayer(context: context, size: CGSize(width: 0.5, height: 0.25)))
+
+            #expect(layer.size == CGSize(width: 0.5, height: 0.25))
+            #expect(layer.context?.width == 1)
+            #expect(layer.context?.height == 1)
+        }
+
         @Test("Large layer")
         func largeLayer() {
             guard let context = createTestContext() else {

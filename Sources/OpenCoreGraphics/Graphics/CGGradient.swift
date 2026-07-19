@@ -168,7 +168,7 @@ public class CGGradient: @unchecked Sendable {
 
     /// Returns the Core Foundation type identifier for CGGradient objects.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.gradient
     }
 
     // MARK: - Color Interpolation
@@ -234,5 +234,4 @@ public class CGGradient: @unchecked Sendable {
         return CGColor(space: colorSpace, componentArray: interpolated)
     }
 }
-
 

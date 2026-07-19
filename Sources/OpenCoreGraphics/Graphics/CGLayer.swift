@@ -24,9 +24,6 @@ public class CGLayer: @unchecked Sendable {
     /// The graphics context associated with the layer.
     public private(set) var context: CGContext?
 
-    /// Internal storage for the layer content
-    private var content: Data?
-
     // MARK: - Initializers
 
     /// Creates a layer object that is associated with a graphics context.
@@ -42,10 +39,10 @@ public class CGLayer: @unchecked Sendable {
         self.size = size
 
         // Create an internal context for the layer
-        let width = Int(size.width)
-        let height = Int(size.height)
+        let width = max(1, Int(ceil(size.width)))
+        let height = max(1, Int(ceil(size.height)))
         let bitsPerComponent = context.bitsPerComponent
-        let bytesPerRow = width * (context.bitsPerPixel / 8)
+        let bytesPerRow = width * ((context.bitsPerPixel + 7) / 8)
 
         if let colorSpace = context.colorSpace {
             self.context = CGContext(
@@ -71,11 +68,6 @@ public class CGLayer: @unchecked Sendable {
         }
     }
 
-    /// Internal initializer
-    private init(size: CGSize, context: CGContext?) {
-        self.size = size
-        self.context = context
-    }
 }
 
 // MARK: - Factory Functions
@@ -95,23 +87,3 @@ public func CGLayerGetContext(_ layer: CGLayer) -> CGContext? {
 public func CGLayerGetSize(_ layer: CGLayer) -> CGSize {
     return layer.size
 }
-
-// MARK: - CGContext Extension for Layer Drawing
-
-extension CGContext {
-    /// Draws the contents of a layer object at the specified point.
-    public func draw(_ layer: CGLayer, at point: CGPoint) {
-        draw(layer, in: CGRect(origin: point, size: layer.size))
-    }
-
-    /// Draws the contents of a layer object into the specified rectangle.
-    public func draw(_ layer: CGLayer, in rect: CGRect) {
-        // In a real implementation, this would composite the layer's content
-        // into this context at the specified rectangle
-        guard let layerContext = layer.context,
-              let layerImage = layerContext.makeImage() else { return }
-        draw(layerImage, in: rect)
-    }
-}
-
-

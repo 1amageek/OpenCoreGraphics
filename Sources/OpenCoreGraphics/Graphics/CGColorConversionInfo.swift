@@ -51,25 +51,39 @@ public struct CGColorBufferFormat: Sendable {
     public var version: UInt32
 
     /// The number of bits per component.
-    public var bitsPerComponent: UInt32
+    public var bitsPerComponent: Int
 
     /// The number of bits per pixel.
-    public var bitsPerPixel: UInt32
+    public var bitsPerPixel: Int
 
     /// The bytes per row.
-    public var bytesPerRow: UInt32
+    public var bytesPerRow: Int
 
     /// The bitmap info.
     public var bitmapInfo: CGBitmapInfo
 
+    /// Creates an empty color buffer format.
+    public init() {
+        self.version = 0
+        self.bitmapInfo = []
+        self.bitsPerComponent = 0
+        self.bitsPerPixel = 0
+        self.bytesPerRow = 0
+    }
+
     /// Creates a color buffer format.
-    public init(version: UInt32 = 0, bitsPerComponent: UInt32, bitsPerPixel: UInt32,
-                bytesPerRow: UInt32, bitmapInfo: CGBitmapInfo) {
+    public init(
+        version: UInt32,
+        bitmapInfo: CGBitmapInfo,
+        bitsPerComponent: Int,
+        bitsPerPixel: Int,
+        bytesPerRow: Int
+    ) {
         self.version = version
+        self.bitmapInfo = bitmapInfo
         self.bitsPerComponent = bitsPerComponent
         self.bitsPerPixel = bitsPerPixel
         self.bytesPerRow = bytesPerRow
-        self.bitmapInfo = bitmapInfo
     }
 }
 
@@ -101,6 +115,7 @@ public class CGColorConversionInfo: @unchecked Sendable {
     ///   - src: The source color space.
     ///   - dst: The destination color space.
     public init?(src: CGColorSpace, dst: CGColorSpace) {
+        guard Self.supportsConversion(from: src, to: dst) else { return nil }
         self.sourceColorSpace = src
         self.destinationColorSpace = dst
         self.intent = .defaultIntent
@@ -114,6 +129,7 @@ public class CGColorConversionInfo: @unchecked Sendable {
     ///   - dst: The destination color space.
     ///   - options: A dictionary of options for the conversion.
     public init?(optionsSrc: CGColorSpace, dst: CGColorSpace, options: [String: Any]?) {
+        guard Self.supportsConversion(from: optionsSrc, to: dst) else { return nil }
         self.sourceColorSpace = optionsSrc
         self.destinationColorSpace = dst
         self.intent = .defaultIntent
@@ -139,16 +155,42 @@ public class CGColorConversionInfo: @unchecked Sendable {
                        from srcBuffer: UnsafeRawPointer,
                        format srcFormat: CGColorBufferFormat,
                        options: [String: Any]?) -> Bool {
-        // In a full implementation, this would perform actual color conversion
-        // For now, return false to indicate not implemented
-        return false
+        CGColorBufferConverter.convert(
+            width: width,
+            height: height,
+            destinationBuffer: dstBuffer,
+            destinationFormat: dstFormat,
+            destinationColorSpace: destinationColorSpace,
+            sourceBuffer: srcBuffer,
+            sourceFormat: srcFormat,
+            sourceColorSpace: sourceColorSpace,
+            intent: intent,
+            options: options
+        )
+    }
+
+    private static func supportsConversion(from source: CGColorSpace, to destination: CGColorSpace) -> Bool {
+        let unsupportedModels: Set<CGColorSpaceModel> = [.unknown, .deviceN, .indexed, .pattern]
+        guard !unsupportedModels.contains(source.model),
+              !unsupportedModels.contains(destination.model),
+              destination.supportsOutput else {
+            return false
+        }
+
+        let deviceNames: Set<String> = ["DeviceGray", "DeviceRGB", "DeviceCMYK"]
+        guard !deviceNames.contains(source.name ?? ""),
+              !deviceNames.contains(destination.name ?? "") else {
+            return false
+        }
+
+        return true
     }
 
     // MARK: - Type ID
 
     /// Returns the Core Foundation type identifier for a color conversion info data type.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.colorConversionInfo
     }
 }
 
@@ -167,4 +209,3 @@ extension CGColorConversionInfo: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-

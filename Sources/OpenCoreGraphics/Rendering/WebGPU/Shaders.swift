@@ -79,6 +79,35 @@ public enum CGWebGPUShaders {
         }
         """
 
+    /// Per-vertex color shader with continuous image-mask clip coverage.
+    public static let maskedSimple2D: String = """
+        struct VertexInput {
+            @location(0) position: vec2f,
+            @location(1) color: vec4f,
+        }
+
+        struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) color: vec4f,
+        }
+
+        @group(0) @binding(0) var clipMask: texture_2d<f32>;
+
+        @vertex
+        fn vs_main(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+            output.position = vec4f(input.position, 0.0, 1.0);
+            output.color = input.color;
+            return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+            let coverage = textureLoad(clipMask, vec2i(input.position.xy), 0).r;
+            return vec4f(input.color.rgb, input.color.a * coverage);
+        }
+        """
+
     /// Gradient shader with linear interpolation
     public static let linearGradient: String = """
         struct VertexInput {
@@ -195,6 +224,44 @@ public enum CGWebGPUShaders {
         fn fs_main(input: VertexOutput) -> @location(0) vec4f {
             let color = textureSample(textureData, textureSampler, input.texCoord);
             return vec4f(color.rgb, color.a * uniforms.alpha);
+        }
+        """
+
+    /// Image shader with continuous image-mask clip coverage.
+    public static let maskedTexture2D: String = """
+        struct VertexInput {
+            @location(0) position: vec2f,
+            @location(1) texCoord: vec2f,
+        }
+
+        struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) texCoord: vec2f,
+        }
+
+        struct ImageUniforms {
+            alpha: f32,
+            _padding: vec3f,
+        }
+
+        @group(0) @binding(0) var textureSampler: sampler;
+        @group(0) @binding(1) var imageTexture: texture_2d<f32>;
+        @group(0) @binding(2) var<uniform> uniforms: ImageUniforms;
+        @group(1) @binding(0) var clipMask: texture_2d<f32>;
+
+        @vertex
+        fn vs_main(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+            output.position = vec4f(input.position, 0.0, 1.0);
+            output.texCoord = input.texCoord;
+            return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+            let color = textureSample(imageTexture, textureSampler, input.texCoord);
+            let coverage = textureLoad(clipMask, vec2i(input.position.xy), 0).r;
+            return vec4f(color.rgb, color.a * uniforms.alpha * coverage);
         }
         """
 
@@ -322,7 +389,7 @@ public enum CGWebGPUShaders {
         }
         """
 
-    /// Pattern tiling shader - repeats a pattern based on step values
+    /// Pattern tiling shader backed by the pattern callback's rendered cell.
     public static let patternTiling: String = """
         struct VertexInput {
             @location(0) position: vec2f,
@@ -331,80 +398,61 @@ public enum CGWebGPUShaders {
 
         struct VertexOutput {
             @builtin(position) position: vec4f,
-            @location(0) worldPos: vec2f,
+            @location(0) devicePosition: vec2f,
             @location(1) color: vec4f,
         }
 
         struct PatternUniforms {
-            bounds: vec4f,        // x, y, width, height
-            step: vec2f,          // xStep, yStep
-            isColored: f32,       // 1.0 if colored, 0.0 if uncolored
-            patternType: f32,     // 0=solid, 1=checkerboard, 2=stripes, 3=dots
+            inverseLinear: vec4f,
+            inverseTranslation: vec2f,
+            viewportSize: vec2f,
+            bounds: vec4f,
+            step: vec2f,
+            alpha: f32,
+            isColored: f32,
         }
 
-        @group(0) @binding(0) var<uniform> pattern: PatternUniforms;
+        @group(0) @binding(0) var patternSampler: sampler;
+        @group(0) @binding(1) var patternCell: texture_2d<f32>;
+        @group(0) @binding(2) var<uniform> pattern: PatternUniforms;
+        @group(1) @binding(0) var clipMask: texture_2d<f32>;
 
         @vertex
         fn vs_main(input: VertexInput) -> VertexOutput {
             var output: VertexOutput;
             output.position = vec4f(input.position, 0.0, 1.0);
-            output.worldPos = input.position;
+            output.devicePosition = vec2f(
+                (input.position.x + 1.0) * 0.5 * pattern.viewportSize.x,
+                (input.position.y + 1.0) * 0.5 * pattern.viewportSize.y
+            );
             output.color = input.color;
             return output;
         }
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4f {
-            // Calculate pattern cell coordinates
-            let cellX = input.worldPos.x / pattern.step.x;
-            let cellY = input.worldPos.y / pattern.step.y;
+            let devicePosition = input.devicePosition;
+            let patternPosition = vec2f(
+                pattern.inverseLinear.x * devicePosition.x + pattern.inverseLinear.z * devicePosition.y + pattern.inverseTranslation.x,
+                pattern.inverseLinear.y * devicePosition.x + pattern.inverseLinear.w * devicePosition.y + pattern.inverseTranslation.y
+            );
+            let cellIndex = floor((patternPosition - pattern.bounds.xy) / pattern.step);
+            let cellPosition = patternPosition - pattern.bounds.xy - cellIndex * pattern.step;
+            let normalizedCellPosition = cellPosition / pattern.bounds.zw;
 
-            // Get position within cell (0 to 1)
-            let inCellX = fract(cellX);
-            let inCellY = fract(cellY);
-
-            // Cell indices (for checkerboard pattern)
-            let cellIdxX = i32(floor(cellX));
-            let cellIdxY = i32(floor(cellY));
-
-            var alpha = 1.0;
-
-            // Pattern type processing
-            let patternType = i32(pattern.patternType);
-
-            if (patternType == 1) {
-                // Checkerboard pattern
-                if ((cellIdxX + cellIdxY) % 2 == 0) {
-                    alpha = 1.0;
-                } else {
-                    alpha = 0.3;
-                }
-            } else if (patternType == 2) {
-                // Horizontal stripes
-                if (inCellY < 0.5) {
-                    alpha = 1.0;
-                } else {
-                    alpha = 0.3;
-                }
-            } else if (patternType == 3) {
-                // Dots pattern
-                let center = vec2f(0.5, 0.5);
-                let dist = length(vec2f(inCellX, inCellY) - center);
-                if (dist < 0.3) {
-                    alpha = 1.0;
-                } else {
-                    alpha = 0.0;
-                }
+            if (normalizedCellPosition.x < 0.0 || normalizedCellPosition.x > 1.0 ||
+                normalizedCellPosition.y < 0.0 || normalizedCellPosition.y > 1.0) {
+                discard;
             }
-            // else: solid pattern (patternType == 0), alpha = 1.0
 
-            // Apply color
+            let textureCoordinate = vec2f(normalizedCellPosition.x, 1.0 - normalizedCellPosition.y);
+            let cellColor = textureSample(patternCell, patternSampler, textureCoordinate);
+            let coverage = textureLoad(clipMask, vec2i(input.position.xy), 0).r;
+
             if (pattern.isColored > 0.5) {
-                // Colored pattern - use pattern's own color (gray placeholder)
-                return vec4f(0.5, 0.5, 0.5, alpha);
+                return vec4f(cellColor.rgb, cellColor.a * pattern.alpha * coverage);
             } else {
-                // Uncolored pattern - use input color with pattern alpha
-                return vec4f(input.color.rgb, input.color.a * alpha);
+                return vec4f(input.color.rgb, input.color.a * cellColor.a * pattern.alpha * coverage);
             }
         }
         """

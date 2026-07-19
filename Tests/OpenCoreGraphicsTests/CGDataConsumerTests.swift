@@ -398,7 +398,15 @@ struct CGDataConsumerTests {
             // Pick a unique temp path so concurrent runs don't collide.
             let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             let url = tmpDir.appendingPathComponent("cgdataconsumer-finalize-\(UUID().uuidString).bin")
-            defer { try? FileManager.default.removeItem(at: url) }
+            defer {
+                do {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
+                } catch {
+                    Issue.record("Failed to remove temporary file: \(error)")
+                }
+            }
 
             guard let consumer = CGDataConsumer(url: url) else {
                 #expect(Bool(false), "Failed to create URL-backed consumer")
@@ -423,7 +431,15 @@ struct CGDataConsumerTests {
             // finalize(). Confirm the file exists after the consumer scope ends.
             let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             let url = tmpDir.appendingPathComponent("cgdataconsumer-deinit-\(UUID().uuidString).bin")
-            defer { try? FileManager.default.removeItem(at: url) }
+            defer {
+                do {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
+                } catch {
+                    Issue.record("Failed to remove temporary file: \(error)")
+                }
+            }
 
             do {
                 guard let consumer = CGDataConsumer(url: url) else {
@@ -449,7 +465,15 @@ struct CGDataConsumerTests {
             // must not resurrect it.
             let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             let url = tmpDir.appendingPathComponent("cgdataconsumer-noredo-\(UUID().uuidString).bin")
-            defer { try? FileManager.default.removeItem(at: url) }
+            defer {
+                do {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
+                } catch {
+                    Issue.record("Failed to remove temporary file: \(error)")
+                }
+            }
 
             do {
                 guard let consumer = CGDataConsumer(url: url) else {

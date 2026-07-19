@@ -178,7 +178,7 @@ public class CGShading: @unchecked Sendable {
 
     /// Returns the Core Foundation type identifier for Core Graphics shading objects.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.shading
     }
 }
 
@@ -334,5 +334,4 @@ extension CGShading {
         return nil
     }
 }
-
 

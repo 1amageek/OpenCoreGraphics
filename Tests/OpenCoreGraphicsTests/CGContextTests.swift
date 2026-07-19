@@ -414,6 +414,21 @@ struct CGContextTests {
             #expect(!context.pathContains(CGPoint(x: 75, y: 75)))
         }
 
+        @Test("Path stroke containment uses current line style")
+        func pathStrokeContainment() {
+            guard let context = createTestContext() else {
+                Issue.record("Failed to create context")
+                return
+            }
+
+            context.setLineWidth(10)
+            context.move(to: CGPoint(x: 10, y: 10))
+            context.addLine(to: CGPoint(x: 40, y: 10))
+
+            #expect(context.pathContains(CGPoint(x: 25, y: 14), mode: .stroke))
+            #expect(!context.pathContains(CGPoint(x: 25, y: 16), mode: .stroke))
+        }
+
         @Test("Bounding box of path")
         func boundingBoxOfPath() {
             guard let context = createTestContext() else {

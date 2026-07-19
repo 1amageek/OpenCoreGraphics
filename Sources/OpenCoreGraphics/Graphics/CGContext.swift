@@ -60,9 +60,6 @@ public class CGContext: @unchecked Sendable {
     /// The current path being constructed.
     private var currentPath: CGMutablePath = CGMutablePath()
 
-    /// The current text position (not part of graphics state per CoreGraphics spec).
-    private var _textPosition: CGPoint = .zero
-
     /// The current text matrix (not part of graphics state per CoreGraphics spec).
     private var _textMatrix: CGAffineTransform = .identity
 
@@ -86,6 +83,7 @@ public class CGContext: @unchecked Sendable {
     private struct GraphicsState {
         var ctm: CGAffineTransform = .identity
         var clipPaths: [CGClipPath] = []
+        var imageMaskClips: [CGImageMaskClip] = []
         var fillColor: CGColor = .black
         var strokeColor: CGColor = .black
         var lineWidth: CGFloat = 1.0
@@ -100,8 +98,15 @@ public class CGContext: @unchecked Sendable {
         var shouldAntialias: Bool = true
         var shouldSmoothFonts: Bool = true
         var allowsAntialiasing: Bool = true
+        var allowsFontSmoothing: Bool = true
+        var allowsFontSubpixelPositioning: Bool = true
+        var allowsFontSubpixelQuantization: Bool = true
+        var shouldSubpixelPositionFonts: Bool = true
+        var shouldSubpixelQuantizeFonts: Bool = true
         var textDrawingMode: CGTextDrawingMode = .fill
         var characterSpacing: CGFloat = 0.0
+        var font: CGFont?
+        var fontSize: CGFloat = 0
         var shadowOffset: CGSize = .zero
         var shadowBlur: CGFloat = 0.0
         var shadowColor: CGColor?
@@ -124,6 +129,7 @@ public class CGContext: @unchecked Sendable {
     private var currentDrawingState: CGDrawingState {
         return CGDrawingState(
             clipPaths: currentState.clipPaths,
+            imageMaskClips: currentState.imageMaskClips,
             ctm: currentState.ctm,
             shadowOffset: currentState.shadowOffset,
             shadowBlur: currentState.shadowBlur,
@@ -425,9 +431,12 @@ public class CGContext: @unchecked Sendable {
         case .eoFill, .eoFillStroke:
             return currentPath.contains(point, using: .evenOdd)
         case .stroke:
-            // For stroke mode, we'd need to check if point is within stroke width of path
-            // For now, return false as this requires complex implementation
-            return false
+            return currentPath.copy(
+                strokingWithWidth: currentState.lineWidth,
+                lineCap: currentState.lineCap,
+                lineJoin: currentState.lineJoin,
+                miterLimit: currentState.miterLimit
+            ).contains(point, using: .winding)
         }
     }
 
@@ -753,16 +762,19 @@ public class CGContext: @unchecked Sendable {
     ///
     /// When multiple clip paths are active, returns the intersection of all bounding boxes.
     public var boundingBoxOfClipPath: CGRect {
-        guard !currentState.clipPaths.isEmpty else {
+        guard !currentState.clipPaths.isEmpty || !currentState.imageMaskClips.isEmpty else {
             return CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         }
 
-        // Start with the first clip path's bounding box
-        var result = currentState.clipPaths[0].path.boundingBox
-
-        // Intersect with remaining clip paths' bounding boxes
-        for i in 1..<currentState.clipPaths.count {
-            result = result.intersection(currentState.clipPaths[i].path.boundingBox)
+        var result = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        for clipPath in currentState.clipPaths {
+            result = result.intersection(clipPath.path.boundingBox)
+            if result.isNull {
+                return .zero
+            }
+        }
+        for imageMaskClip in currentState.imageMaskClips {
+            result = result.intersection(imageMaskClip.boundingBox)
             if result.isNull {
                 return .zero
             }
@@ -777,10 +789,15 @@ public class CGContext: @unchecked Sendable {
     ///   - rect: The rectangle to map the mask into.
     ///   - mask: The image to use as a mask.
     public func clip(to rect: CGRect, mask: CGImage) {
-        // GPU-side image-mask clipping is not implemented yet. Applying the
-        // destination bounds preserves CoreGraphics's clipping direction and
-        // avoids turning a mask clip into a process-level trap.
-        clip(to: rect)
+        let isGrayImageWithoutAlpha = mask.colorSpace?.model == .monochrome
+            && mask.alphaInfo == .none
+        guard mask.isMask || isGrayImageWithoutAlpha else { return }
+
+        currentState.imageMaskClips.append(CGImageMaskClip(
+            rect: rect,
+            transform: currentState.ctm,
+            image: mask
+        ))
     }
 
     // MARK: - Transparency Layers
@@ -1138,27 +1155,27 @@ public class CGContext: @unchecked Sendable {
 
     /// Sets whether or not to allow font smoothing for a graphics context.
     public func setAllowsFontSmoothing(_ allowsFontSmoothing: Bool) {
-        // In a real implementation, this would control font smoothing permission
+        currentState.allowsFontSmoothing = allowsFontSmoothing
     }
 
     /// Sets whether or not to allow subpixel positioning for a graphics context.
     public func setAllowsFontSubpixelPositioning(_ allowsSubpixelPositioning: Bool) {
-        // In a real implementation, this would control subpixel positioning
+        currentState.allowsFontSubpixelPositioning = allowsSubpixelPositioning
     }
 
     /// Sets whether or not to allow subpixel quantization for a graphics context.
     public func setAllowsFontSubpixelQuantization(_ allowsSubpixelQuantization: Bool) {
-        // In a real implementation, this would control subpixel quantization
+        currentState.allowsFontSubpixelQuantization = allowsSubpixelQuantization
     }
 
     /// Enables or disables subpixel positioning in a graphics context.
     public func setShouldSubpixelPositionFonts(_ shouldSubpixelPositionFonts: Bool) {
-        // In a real implementation, this would enable/disable subpixel positioning
+        currentState.shouldSubpixelPositionFonts = shouldSubpixelPositionFonts
     }
 
     /// Enables or disables subpixel quantization in a graphics context.
     public func setShouldSubpixelQuantizeFonts(_ shouldSubpixelQuantizeFonts: Bool) {
-        // In a real implementation, this would enable/disable subpixel quantization
+        currentState.shouldSubpixelQuantizeFonts = shouldSubpixelQuantizeFonts
     }
 
     // MARK: - Shadow
@@ -1224,6 +1241,31 @@ public class CGContext: @unchecked Sendable {
         } else {
             draw(image, in: rect)
         }
+    }
+
+    /// Draws the contents of a layer at the specified point.
+    public func draw(_ layer: CGLayer, at point: CGPoint) {
+        draw(layer, in: CGRect(origin: point, size: layer.size))
+    }
+
+    /// Draws the contents of a layer into the specified rectangle.
+    public func draw(_ layer: CGLayer, in rect: CGRect) {
+        let transformedRect = rect.applying(currentState.ctm)
+        if let layerRenderer = rendererDelegate as? CGLayerRendererDelegate {
+            layerRenderer.draw(
+                layer: layer,
+                in: transformedRect,
+                alpha: currentState.alpha,
+                blendMode: currentState.blendMode,
+                interpolationQuality: currentState.interpolationQuality,
+                state: currentDrawingState
+            )
+            return
+        }
+
+        guard let layerContext = layer.context,
+              let layerImage = layerContext.makeImage() else { return }
+        draw(layerImage, in: rect)
     }
 
     // MARK: - Drawing Gradients
@@ -1329,6 +1371,89 @@ public class CGContext: @unchecked Sendable {
 
     // MARK: - Text Drawing
 
+    /// Sets the font for a graphics context.
+    public func setFont(_ font: CGFont) {
+        currentState.font = font
+    }
+
+    /// Sets the current font size in text-space units.
+    public func setFontSize(_ size: CGFloat) {
+        currentState.fontSize = size
+    }
+
+    /// Draws glyph outlines at corresponding positions in text space.
+    public func showGlyphs(_ glyphs: [CGGlyph], at positions: [CGPoint]) {
+        guard glyphs.count == positions.count,
+              let font = currentState.font,
+              currentState.fontSize > 0,
+              font.unitsPerEm > 0 else {
+            return
+        }
+
+        let scale = currentState.fontSize / CGFloat(font.unitsPerEm)
+        let textMatrix = _textMatrix
+        let textPath = CGMutablePath()
+        let usesSubpixelPositioning = currentState.allowsFontSubpixelPositioning
+            && currentState.shouldSubpixelPositionFonts
+
+        for (glyph, position) in zip(glyphs, positions) {
+            guard let glyphPath = font.path(for: glyph) else { continue }
+            let translatedX = position.x * textMatrix.a + position.y * textMatrix.c + textMatrix.tx
+            let translatedY = position.x * textMatrix.b + position.y * textMatrix.d + textMatrix.ty
+            let transform = CGAffineTransform(
+                a: scale * textMatrix.a,
+                b: scale * textMatrix.b,
+                c: scale * textMatrix.c,
+                d: scale * textMatrix.d,
+                tx: usesSubpixelPositioning ? translatedX : translatedX.rounded(),
+                ty: usesSubpixelPositioning ? translatedY : translatedY.rounded()
+            )
+            textPath.addPath(glyphPath, transform: transform)
+        }
+
+        guard !textPath.isEmpty else { return }
+        let savedPath = currentPath
+        let savedShouldAntialias = currentState.shouldAntialias
+        currentState.shouldAntialias = savedShouldAntialias
+            && currentState.allowsAntialiasing
+            && currentState.shouldSmoothFonts
+            && currentState.allowsFontSmoothing
+        currentPath = textPath
+        defer {
+            currentState.shouldAntialias = savedShouldAntialias
+            currentPath = savedPath
+        }
+
+        switch currentState.textDrawingMode {
+        case .fill:
+            fillPath()
+        case .stroke:
+            strokePath()
+        case .fillStroke:
+            drawPath(using: .fillStroke)
+        case .invisible:
+            currentPath = CGMutablePath()
+        case .fillClip:
+            let clippingPath = currentPath
+            fillPath()
+            currentPath = clippingPath
+            clip()
+        case .strokeClip:
+            let clippingPath = currentPath
+            strokePath()
+            currentPath = clippingPath
+            clip()
+        case .fillStrokeClip:
+            let clippingPath = currentPath
+            drawPath(using: .fillStroke)
+            currentPath = clippingPath
+            clip()
+        case .clip:
+            clip()
+        }
+
+    }
+
     /// The current text drawing mode.
     public var textDrawingMode: CGTextDrawingMode {
         return currentState.textDrawingMode
@@ -1341,8 +1466,11 @@ public class CGContext: @unchecked Sendable {
 
     /// The current text position.
     public var textPosition: CGPoint {
-        get { _textPosition }
-        set { _textPosition = newValue }
+        get { CGPoint(x: _textMatrix.tx, y: _textMatrix.ty) }
+        set {
+            _textMatrix.tx = newValue.x
+            _textMatrix.ty = newValue.y
+        }
     }
 
     /// The current text matrix.

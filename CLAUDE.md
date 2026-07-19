@@ -781,18 +781,18 @@ public struct CGDrawingState: Sendable {
 
 #### 実装状況 (WASM/WebGPU)
 
-WASMでもネイティブと同等の機能をサポートしています。
+以下は WASM/WebGPU で実装と画素検証が存在する範囲です。CoreGraphics 全体との同等性を示す表ではありません。
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Blend modes | ✅ 実装済み | 12+ Porter-Duff modes via `GPUBlendState` |
-| Gradients | ✅ 実装済み | Linear and radial gradients with extend options |
-| Shading | ✅ 実装済み | Axial and radial shading with `extendStart`/`extendEnd` |
-| Image rendering | ✅ 実装済み | `imagePipeline` with texture sampling |
-| Clipping | ✅ 実装済み | Stencil buffer with `depth24plusStencil8` format |
-| Shadows | ✅ 実装済み | Multi-pass Gaussian blur (separable) |
-| Pattern rendering | ✅ 実装済み | GPU-based procedural tiling shader |
-| `makeImage()` | ✅ 実装済み | GPU readback via `makeImageAsync()` |
+| Blend modes | 部分実装 | 13 modes have dedicated `GPUBlendState`; remaining modes require semantic validation |
+| Gradients | 実装済み範囲あり | Linear and radial paths with extend options are exercised |
+| Shading | 部分実装 | Axial/radial tessellation exists; full function semantics remain open |
+| Image rendering | 実装済み範囲あり | Texture sampling and image-mask clipping have browser pixel proof |
+| Clipping | 実装済み範囲あり | Path intersection uses stencil; image masks use continuous alpha textures |
+| Shadows | 部分実装 | Path blur/composite exists; image-alpha shadows remain open |
+| Pattern rendering | 実装済み範囲あり | Callback cell texture with matrix/phase/step and mask clipping has browser pixel proof |
+| `makeImageAsync()` | 実装済み範囲あり | GPU readback is covered by browser tests |
 
 #### makeImage() の使用方法
 

@@ -24,6 +24,10 @@ nonisolated(unsafe) var statusText: String = "initializing"
 nonisolated(unsafe) var pixelData: Data?
 nonisolated(unsafe) var imageWidth: Int = 0
 nonisolated(unsafe) var imageHeight: Int = 0
+nonisolated(unsafe) var maskPixelData: Data?
+nonisolated(unsafe) var patternPixelData: Data?
+nonisolated(unsafe) var maskedImagePixelData: Data?
+nonisolated(unsafe) var mixedDrawingPixelData: Data?
 
 @_cdecl("setup")
 public func setup() {
@@ -33,6 +37,10 @@ public func setup() {
             pixelData = nil
             imageWidth = 0
             imageHeight = 0
+            maskPixelData = nil
+            patternPixelData = nil
+            maskedImagePixelData = nil
+            mixedDrawingPixelData = nil
         },
         then: {
             await performSetup()
@@ -93,8 +101,234 @@ func performSetup() async {
     pixelData = data
     imageWidth = image.width
     imageHeight = image.height
+
+    guard let capturedMask = await captureImageMask(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: image-mask capture failed"
+        return
+    }
+    maskPixelData = capturedMask
+
+    guard let capturedPattern = await captureCallbackPattern(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: callback-pattern capture failed"
+        return
+    }
+    patternPixelData = capturedPattern
+
+    guard let capturedImage = await captureMaskedImage(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: masked-image capture failed"
+        return
+    }
+    maskedImagePixelData = capturedImage
+
+    guard let mixedDrawing = await captureMixedDrawing(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: mixed-drawing capture failed"
+        return
+    }
+    mixedDrawingPixelData = mixedDrawing
+
     statusText = "ready"
     print("OCGSmoke ready: \(image.width)x\(image.height), \(data.count) bytes")
+}
+
+@MainActor
+private func captureImageMask(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let context = CGContext(
+        data: nil,
+        width: 4,
+        height: 1,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: space,
+        bitmapInfo: bitmapInfo
+    ) else {
+        return nil
+    }
+
+    let maskData = Data([0, 85, 170, 255])
+    guard let mask = CGImage(
+        maskWidth: 4,
+        height: 1,
+        bitsPerComponent: 8,
+        bitsPerPixel: 8,
+        bytesPerRow: 4,
+        provider: CGDataProvider(data: maskData),
+        decode: nil,
+        shouldInterpolate: false
+    ) else {
+        return nil
+    }
+
+    context.clip(to: CGRect(x: 0, y: 0, width: 4, height: 1), mask: mask)
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 4, height: 1))
+    return await context.makeImageAsync()?.data
+}
+
+@MainActor
+private func captureCallbackPattern(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let context = CGContext(
+        data: nil,
+        width: 8,
+        height: 2,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: space,
+        bitmapInfo: bitmapInfo
+    ), let patternSpace = CGColorSpace(patternBaseSpace: nil) else {
+        return nil
+    }
+
+    var callbacks = CGPatternCallbacks(
+        drawPattern: { _, cellContext in
+            guard let cellContext = cellContext else { return }
+            cellContext.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+            cellContext.fill(CGRect(x: 0, y: 0, width: 1, height: 2))
+            cellContext.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+            cellContext.fill(CGRect(x: 1, y: 0, width: 1, height: 2))
+        },
+        releaseInfo: nil
+    )
+    let pattern = withUnsafePointer(to: &callbacks) { pointer in
+        CGPattern(
+            info: nil,
+            bounds: CGRect(x: 0, y: 0, width: 2, height: 2),
+            matrix: .identity,
+            xStep: 2,
+            yStep: 2,
+            tiling: .constantSpacing,
+            isColored: true,
+            callbacks: pointer
+        )
+    }
+    guard let pattern = pattern else { return nil }
+
+    guard let mask = CGImage(
+        maskWidth: 8,
+        height: 1,
+        bitsPerComponent: 8,
+        bitsPerPixel: 8,
+        bytesPerRow: 8,
+        provider: CGDataProvider(data: Data([0, 0, 0, 0, 255, 255, 255, 255])),
+        decode: nil,
+        shouldInterpolate: false
+    ) else {
+        return nil
+    }
+
+    context.setShouldAntialias(false)
+    context.clip(to: CGRect(x: 0, y: 0, width: 8, height: 2), mask: mask)
+    context.setFillColorSpace(patternSpace)
+    let components: [CGFloat] = [1]
+    components.withUnsafeBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress else { return }
+        context.setFillPattern(pattern, colorComponents: baseAddress)
+    }
+    context.fill(CGRect(x: 0, y: 0, width: 8, height: 2))
+    return await context.makeImageAsync()?.data
+}
+
+@MainActor
+private func captureMaskedImage(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let context = CGContext(
+        data: nil,
+        width: 4,
+        height: 1,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: space,
+        bitmapInfo: bitmapInfo
+    ), let source = CGImage(
+        width: 2,
+        height: 1,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: 8,
+        space: space,
+        bitmapInfo: bitmapInfo,
+        provider: CGDataProvider(data: Data([255, 0, 0, 255, 0, 0, 255, 255])),
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+    ), let mask = CGImage(
+        maskWidth: 4,
+        height: 1,
+        bitsPerComponent: 8,
+        bitsPerPixel: 8,
+        bytesPerRow: 4,
+        provider: CGDataProvider(data: Data([0, 85, 170, 255])),
+        decode: nil,
+        shouldInterpolate: false
+    ) else {
+        return nil
+    }
+
+    context.setInterpolationQuality(.none)
+    context.clip(to: CGRect(x: 0, y: 0, width: 4, height: 1), mask: mask)
+    context.draw(source, in: CGRect(x: 0, y: 0, width: 4, height: 1))
+    return await context.makeImageAsync()?.data
+}
+
+@MainActor
+private func captureMixedDrawing(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let context = CGContext(
+        data: nil,
+        width: 8,
+        height: 2,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: space,
+        bitmapInfo: bitmapInfo
+    ), let source = CGImage(
+        width: 1,
+        height: 1,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: 4,
+        space: space,
+        bitmapInfo: bitmapInfo,
+        provider: CGDataProvider(data: Data([0, 0, 255, 255])),
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+    ), let patternSpace = CGColorSpace(patternBaseSpace: nil) else {
+        return nil
+    }
+
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 8, height: 2))
+    context.setInterpolationQuality(.none)
+    context.draw(source, in: CGRect(x: 2, y: 0, width: 2, height: 2))
+
+    var callbacks = CGPatternCallbacks(
+        drawPattern: { _, cellContext in
+            guard let cellContext = cellContext else { return }
+            cellContext.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+            cellContext.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        },
+        releaseInfo: nil
+    )
+    let pattern = withUnsafePointer(to: &callbacks) { pointer in
+        CGPattern(
+            info: nil,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+            matrix: .identity,
+            xStep: 1,
+            yStep: 1,
+            tiling: .constantSpacing,
+            isColored: true,
+            callbacks: pointer
+        )
+    }
+    guard let pattern = pattern else { return nil }
+
+    context.setFillColorSpace(patternSpace)
+    let components: [CGFloat] = [1]
+    components.withUnsafeBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress else { return }
+        context.setFillPattern(pattern, colorComponents: baseAddress)
+    }
+    context.fill(CGRect(x: 4, y: 0, width: 4, height: 2))
+    return await context.makeImageAsync()?.data
 }
 
 @inline(__always)
@@ -138,6 +372,10 @@ struct OCGSmokeTests {
             "performSetup did not complete cleanly: \(statusText)"
         )
         try #require(pixelData != nil, "pixelData is nil after capture")
+        try #require(maskPixelData != nil, "maskPixelData is nil after capture")
+        try #require(patternPixelData != nil, "patternPixelData is nil after capture")
+        try #require(maskedImagePixelData != nil, "maskedImagePixelData is nil after capture")
+        try #require(mixedDrawingPixelData != nil, "mixedDrawingPixelData is nil after capture")
     }
 
     @Test func imageHasExpectedDimensions() {
@@ -163,5 +401,65 @@ struct OCGSmokeTests {
         #expect(red > 1000, "red pixels (got \(red))")
         #expect(green > 100, "green pixels (got \(green))")
         #expect(blue > 100, "blue pixels (got \(blue))")
+    }
+
+    @Test func imageMaskUsesContinuousInverseAlpha() throws {
+        let data = try #require(maskPixelData)
+        let alpha = stride(from: 3, to: data.count, by: 4).map { data[$0] }
+        #expect(alpha.count == 4)
+        #expect(absDiff(alpha[0], 255) <= 3)
+        #expect(absDiff(alpha[1], 170) <= 3)
+        #expect(absDiff(alpha[2], 85) <= 3)
+        #expect(absDiff(alpha[3], 0) <= 3)
+    }
+
+    @Test func callbackPatternUsesRenderedCellColors() throws {
+        let data = try #require(patternPixelData)
+        var red = 0
+        var blue = 0
+        var offset = 0
+        while offset + 3 < data.count {
+            if data[offset] > 240, data[offset + 1] < 12, data[offset + 2] < 12 {
+                red += 1
+            }
+            if data[offset] < 12, data[offset + 1] < 12, data[offset + 2] > 240 {
+                blue += 1
+            }
+            offset += 4
+        }
+        #expect(red >= 4, "callback red pixels (got \(red))")
+        #expect(blue >= 2, "callback blue pixels (got \(blue))")
+        let transparent = stride(from: 3, to: data.count, by: 4).filter { data[$0] < 3 }.count
+        #expect(transparent >= 8, "pattern mask transparent pixels (got \(transparent))")
+    }
+
+    @Test func imageDrawingUsesImageMaskCoverage() throws {
+        let data = try #require(maskedImagePixelData)
+        let alpha = stride(from: 3, to: data.count, by: 4).map { data[$0] }
+        #expect(alpha.count == 4)
+        #expect(absDiff(alpha[0], 255) <= 3)
+        #expect(absDiff(alpha[1], 170) <= 3)
+        #expect(absDiff(alpha[2], 85) <= 3)
+        #expect(absDiff(alpha[3], 0) <= 3)
+    }
+
+    @Test func antialiasedPathsImagesAndPatternsPreserveDrawingOrder() throws {
+        let data = try #require(mixedDrawingPixelData)
+        var red = 0
+        var green = 0
+        var blue = 0
+        var offset = 0
+        while offset + 3 < data.count {
+            let r = data[offset]
+            let g = data[offset + 1]
+            let b = data[offset + 2]
+            if r > 240, g < 12, b < 12 { red += 1 }
+            if r < 12, g > 240, b < 12 { green += 1 }
+            if r < 12, g < 12, b > 240 { blue += 1 }
+            offset += 4
+        }
+        #expect(red >= 4, "mixed red pixels (got \(red))")
+        #expect(green >= 6, "mixed green pixels (got \(green))")
+        #expect(blue >= 2, "mixed blue pixels (got \(blue))")
     }
 }

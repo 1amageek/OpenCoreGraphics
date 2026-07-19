@@ -88,7 +88,7 @@ public class CGPDFPage: @unchecked Sendable {
 
     /// Returns the dictionary of a PDF page.
     public var dictionary: CGPDFDictionaryRef? {
-        return nil // Placeholder
+        return nil
     }
 
     /// Returns the affine transform that maps a box to a given rectangle on a PDF page.
@@ -143,7 +143,7 @@ public class CGPDFPage: @unchecked Sendable {
 
     /// Returns the CFType ID for PDF page objects.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.pdfPage
     }
 }
 
@@ -162,5 +162,3 @@ extension CGPDFPage: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-
-

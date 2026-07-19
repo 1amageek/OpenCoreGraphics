@@ -27,6 +27,9 @@ internal struct CGDrawingState: Sendable {
     /// - Use stencil test to restrict drawing to the intersection
     var clipPaths: [CGClipPath]
 
+    /// Image masks composed multiplicatively with the path clipping region.
+    var imageMaskClips: [CGImageMaskClip]
+
     /// Convenience property returning the first clip path, or nil if no
     /// clipping is active.
     var clipPath: CGPath? {
@@ -35,7 +38,15 @@ internal struct CGDrawingState: Sendable {
 
     /// Returns whether any clipping is active.
     var hasClipping: Bool {
+        return !clipPaths.isEmpty || !imageMaskClips.isEmpty
+    }
+
+    var hasPathClipping: Bool {
         return !clipPaths.isEmpty
+    }
+
+    var hasImageMaskClipping: Bool {
+        return !imageMaskClips.isEmpty
     }
 
     /// The current transformation matrix.
@@ -59,6 +70,7 @@ internal struct CGDrawingState: Sendable {
     /// Creates a drawing state with default values (no clipping, no shadow, identity CTM).
     init() {
         self.clipPaths = []
+        self.imageMaskClips = []
         self.ctm = .identity
         self.shadowOffset = .zero
         self.shadowBlur = 0
@@ -69,6 +81,7 @@ internal struct CGDrawingState: Sendable {
     /// Creates a drawing state with the specified values.
     init(
         clipPaths: [CGClipPath],
+        imageMaskClips: [CGImageMaskClip] = [],
         ctm: CGAffineTransform,
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
@@ -76,6 +89,7 @@ internal struct CGDrawingState: Sendable {
         shouldAntialias: Bool = true
     ) {
         self.clipPaths = clipPaths
+        self.imageMaskClips = imageMaskClips
         self.ctm = ctm
         self.shadowOffset = shadowOffset
         self.shadowBlur = shadowBlur
@@ -94,6 +108,7 @@ internal struct CGDrawingState: Sendable {
         shouldAntialias: Bool = true
     ) {
         self.clipPaths = clipPath.map { [CGClipPath(path: $0, rule: clipRule)] } ?? []
+        self.imageMaskClips = []
         self.ctm = ctm
         self.shadowOffset = shadowOffset
         self.shadowBlur = shadowBlur
@@ -373,6 +388,18 @@ internal protocol CGContextRendererDelegate: AnyObject, Sendable {
     ///   - colorSpace: The color space for the resulting image.
     /// - Returns: A CGImage containing the rendered content, or nil if readback fails.
     func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage?
+}
+
+/// Renderer capability for drawing a CGLayer without a CPU readback.
+internal protocol CGLayerRendererDelegate: AnyObject, Sendable {
+    func draw(
+        layer: CGLayer,
+        in rect: CGRect,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        interpolationQuality: CGInterpolationQuality,
+        state: CGDrawingState
+    )
 }
 
 // MARK: - Default Implementations
@@ -871,4 +898,3 @@ extension CGContextStatefulRendererDelegate {
         )
     }
 }
-

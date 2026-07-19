@@ -202,173 +202,16 @@ struct CGPDFAccessPermissionsTests {
 
 @Suite("CGPDFDocument Tests")
 struct CGPDFDocumentTests {
-
-    @Suite("Initialization")
-    struct InitializationTests {
-
-        @Test("Init with data provider")
-        func initWithDataProvider() {
-            let data = Data([0x25, 0x50, 0x44, 0x46]) // %PDF
-            let provider = CGDataProvider(data: data)
-            let document = CGPDFDocument(provider)
-            #expect(document != nil)
-        }
+    @Test("Unsupported PDF parsing fails instead of returning an empty document")
+    func unsupportedParsingFails() {
+        let provider = CGDataProvider(data: Data([0x25, 0x50, 0x44, 0x46]))
+        #expect(CGPDFDocument(provider) == nil)
     }
 
-    @Suite("Properties")
-    struct PropertiesTests {
-
-        @Test("Number of pages for empty document")
-        func numberOfPagesEmpty() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.numberOfPages == 0)
-            }
-        }
-
-        @Test("Is encrypted default")
-        func isEncryptedDefault() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.isEncrypted == false)
-            }
-        }
-
-        @Test("Is unlocked default")
-        func isUnlockedDefault() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.isUnlocked == true)
-            }
-        }
-
-        @Test("Allows copying default")
-        func allowsCopyingDefault() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.allowsCopying == true)
-            }
-        }
-
-        @Test("Allows printing default")
-        func allowsPrintingDefault() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.allowsPrinting == true)
-            }
-        }
-
-        @Test("Access permissions default")
-        func accessPermissionsDefault() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.accessPermissions.rawValue == 0)
-            }
-        }
-
-        @Test("Type ID")
-        func typeID() {
-            let typeID = CGPDFDocument.typeID
-            #expect(typeID >= 0)
-        }
-    }
-
-    @Suite("Version")
-    struct VersionTests {
-
-        @Test("Get version")
-        func getVersion() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                var major: Int32 = 0
-                var minor: Int32 = 0
-                document.getVersion(majorVersion: &major, minorVersion: &minor)
-                #expect(major == 1)
-                #expect(minor == 4)
-            }
-        }
-    }
-
-    @Suite("Page Access")
-    struct PageAccessTests {
-
-        @Test("Page at invalid index returns nil")
-        func pageAtInvalidIndex() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document.page(at: 0) == nil)
-                #expect(document.page(at: 1) == nil)
-                #expect(document.page(at: -1) == nil)
-            }
-        }
-    }
-
-    @Suite("Unlock")
-    struct UnlockTests {
-
-        @Test("Unlock unencrypted document")
-        func unlockUnencrypted() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                let result = "password".withCString { password in
-                    document.unlockWithPassword(password)
-                }
-                #expect(result == true)
-            }
-        }
-    }
-
-    @Suite("Equatable Conformance")
-    struct EquatableTests {
-
-        @Test("Same instance is equal")
-        func sameInstanceEqual() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                #expect(document == document)
-            }
-        }
-
-        @Test("Different instances are not equal")
-        func differentInstancesNotEqual() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider1 = CGDataProvider(data: data)
-            let provider2 = CGDataProvider(data: data)
-            if let document1 = CGPDFDocument(provider1),
-               let document2 = CGPDFDocument(provider2) {
-                #expect(document1 != document2)
-            }
-        }
-    }
-
-    @Suite("Hashable Conformance")
-    struct HashableTests {
-
-        @Test("Can be used in Set")
-        func setUsage() {
-            var set = Set<CGPDFDocument>()
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-
-            let provider1 = CGDataProvider(data: data)
-            let provider2 = CGDataProvider(data: data)
-            if let doc1 = CGPDFDocument(provider1),
-               let doc2 = CGPDFDocument(provider2) {
-                set.insert(doc1)
-                set.insert(doc2)
-                set.insert(doc1)
-                #expect(set.count == 2)
-            }
-        }
+    @Test("Type ID is stable and nonzero")
+    func typeID() {
+        #expect(CGPDFDocument.typeID != 0)
+        #expect(CGPDFDocument.typeID == CGPDFDocument.typeID)
     }
 }
 
@@ -380,25 +223,20 @@ struct CGPDFPageTests {
     @Suite("Properties")
     struct PropertiesTests {
 
-        @Test("Type ID")
+        @Test("Type ID is stable and nonzero")
         func typeID() {
             let typeID = CGPDFPage.typeID
-            #expect(typeID >= 0)
+            #expect(typeID != 0)
         }
     }
 
     @Suite("Equatable Conformance")
     struct EquatableTests {
 
-        @Test("Page from document")
+        @Test("Document parser does not fabricate pages")
         func pageFromDocument() {
-            let data = Data([0x25, 0x50, 0x44, 0x46])
-            let provider = CGDataProvider(data: data)
-            if let document = CGPDFDocument(provider) {
-                // Document has no pages, so page(at:) returns nil
-                let page = document.page(at: 1)
-                #expect(page == nil)
-            }
+            let provider = CGDataProvider(data: Data([0x25, 0x50, 0x44, 0x46]))
+            #expect(CGPDFDocument(provider) == nil)
         }
     }
 }

@@ -93,13 +93,25 @@ struct CGColorBufferFormatTests {
     @Suite("Initialization")
     struct InitializationTests {
 
+        @Test("Empty initialization")
+        func emptyInitialization() {
+            let format = CGColorBufferFormat()
+
+            #expect(format.version == 0)
+            #expect(format.bitmapInfo.isEmpty)
+            #expect(format.bitsPerComponent == 0)
+            #expect(format.bitsPerPixel == 0)
+            #expect(format.bytesPerRow == 0)
+        }
+
         @Test("Default version initialization")
         func defaultVersionInit() {
             let format = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: CGBitmapInfo.byteOrder32Little,
                 bitsPerComponent: 8,
                 bitsPerPixel: 32,
-                bytesPerRow: 1024,
-                bitmapInfo: CGBitmapInfo.byteOrder32Little
+                bytesPerRow: 1024
             )
 
             #expect(format.version == 0)
@@ -112,10 +124,10 @@ struct CGColorBufferFormatTests {
         func fullInit() {
             let format = CGColorBufferFormat(
                 version: 1,
+                bitmapInfo: [.byteOrder32Big, .floatComponents],
                 bitsPerComponent: 16,
                 bitsPerPixel: 64,
-                bytesPerRow: 2048,
-                bitmapInfo: [.byteOrder32Big, .floatComponents]
+                bytesPerRow: 2048
             )
 
             #expect(format.version == 1)
@@ -131,10 +143,11 @@ struct CGColorBufferFormatTests {
         @Test("Bitmap info contains options")
         func bitmapInfoContainsOptions() {
             let format = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: [.byteOrder32Little, .floatComponents],
                 bitsPerComponent: 32,
                 bitsPerPixel: 128,
-                bytesPerRow: 4096,
-                bitmapInfo: [.byteOrder32Little, .floatComponents]
+                bytesPerRow: 4096
             )
 
             #expect(format.bitmapInfo.contains(.byteOrder32Little))
@@ -144,10 +157,11 @@ struct CGColorBufferFormatTests {
         @Test("Common 8-bit RGBA format")
         func common8BitRGBAFormat() {
             let format = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: .byteOrder32Little,
                 bitsPerComponent: 8,
                 bitsPerPixel: 32,
-                bytesPerRow: 256 * 4,
-                bitmapInfo: .byteOrder32Little
+                bytesPerRow: 256 * 4
             )
 
             #expect(format.bitsPerComponent == 8)
@@ -159,10 +173,11 @@ struct CGColorBufferFormatTests {
     @Test("Sendable conformance")
     func sendableConformance() async {
         let format = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: .byteOrderDefault,
             bitsPerComponent: 8,
             bitsPerPixel: 32,
-            bytesPerRow: 1024,
-            bitmapInfo: .byteOrderDefault
+            bytesPerRow: 1024
         )
 
         let task = Task {
@@ -183,8 +198,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Init with source and destination color spaces")
         func initWithSrcDst() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
 
             let info = CGColorConversionInfo(src: src, dst: dst)
 
@@ -196,8 +211,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Init with options")
         func initWithOptions() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceCMYK
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericCMYK)!
             let options: [String: Any] = ["key": "value"]
 
             let info = CGColorConversionInfo(optionsSrc: src, dst: dst, options: options)
@@ -209,8 +224,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Init with nil options")
         func initWithNilOptions() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
 
             let info = CGColorConversionInfo(optionsSrc: src, dst: dst, options: nil)
 
@@ -223,8 +238,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Source color space property")
         func sourceColorSpace() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info?.sourceColorSpace == src)
@@ -232,8 +247,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Destination color space property")
         func destinationColorSpace() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info?.destinationColorSpace == dst)
@@ -241,19 +256,13 @@ struct CGColorConversionInfoTests {
 
         @Test("Intent property")
         func intentProperty() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info?.intent == .defaultIntent)
         }
 
-        @Test("Type ID")
-        func typeID() {
-            // Just verify typeID is accessible
-            let typeID = CGColorConversionInfo.typeID
-            #expect(typeID >= 0)
-        }
     }
 
     @Suite("Equatable Conformance")
@@ -261,8 +270,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Same instance is equal")
         func sameInstanceEqual() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
             let info = CGColorConversionInfo(src: src, dst: dst)
 
             #expect(info == info)
@@ -270,8 +279,8 @@ struct CGColorConversionInfoTests {
 
         @Test("Different instances are not equal")
         func differentInstancesNotEqual() {
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
             let info1 = CGColorConversionInfo(src: src, dst: dst)
             let info2 = CGColorConversionInfo(src: src, dst: dst)
 
@@ -285,8 +294,8 @@ struct CGColorConversionInfoTests {
         @Test("Can be used in Set")
         func setUsage() {
             var set = Set<CGColorConversionInfo>()
-            let src = CGColorSpace.deviceRGB
-            let dst = CGColorSpace.deviceGray
+            let src = CGColorSpace(name: CGColorSpace.sRGB)!
+            let dst = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
 
             if let info1 = CGColorConversionInfo(src: src, dst: dst),
                let info2 = CGColorConversionInfo(src: src, dst: dst) {
@@ -295,6 +304,120 @@ struct CGColorConversionInfoTests {
                 set.insert(info1)
                 #expect(set.count == 2)
             }
+        }
+    }
+
+    @Suite("Color buffer conversion")
+    struct ConversionTests {
+        private static let rgba8 = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 8
+        )
+
+        private static let grayAlpha8 = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            bitsPerComponent: 8,
+            bitsPerPixel: 16,
+            bytesPerRow: 4
+        )
+
+        @Test("Converts two RGBA pixels to gray and preserves alpha")
+        func rgbaToGray() throws {
+            let sourceSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let destinationSpace = try #require(CGColorSpace(name: CGColorSpace.genericGrayGamma2_2))
+            let conversion = try #require(CGColorConversionInfo(src: sourceSpace, dst: destinationSpace))
+            let source: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 128]
+            var destination = [UInt8](repeating: 0, count: 4)
+
+            let succeeded = source.withUnsafeBytes { sourceBytes in
+                destination.withUnsafeMutableBytes { destinationBytes in
+                    conversion.convert(
+                        width: 2,
+                        height: 1,
+                        to: destinationBytes.baseAddress!,
+                        format: Self.grayAlpha8,
+                        from: sourceBytes.baseAddress!,
+                        format: Self.rgba8,
+                        options: nil
+                    )
+                }
+            }
+
+            #expect(succeeded)
+            #expect(destination == [76, 255, 150, 128])
+        }
+
+        @Test("Unpremultiplies source and premultiplies destination")
+        func premultipliedAlphaRoundTrip() throws {
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let conversion = try #require(CGColorConversionInfo(src: colorSpace, dst: colorSpace))
+            let format = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: 4
+            )
+            let source: [UInt8] = [64, 32, 16, 128]
+            var destination = [UInt8](repeating: 0, count: 4)
+
+            let succeeded = source.withUnsafeBytes { sourceBytes in
+                destination.withUnsafeMutableBytes { destinationBytes in
+                    conversion.convert(
+                        width: 1,
+                        height: 1,
+                        to: destinationBytes.baseAddress!,
+                        format: format,
+                        from: sourceBytes.baseAddress!,
+                        format: format,
+                        options: nil
+                    )
+                }
+            }
+
+            #expect(succeeded)
+            #expect(destination == source)
+        }
+
+        @Test("Rejects invalid row stride without modifying output")
+        func invalidStride() throws {
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let conversion = try #require(CGColorConversionInfo(src: colorSpace, dst: colorSpace))
+            let invalidFormat = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: 3
+            )
+            let source: [UInt8] = [1, 2, 3, 4]
+            var destination: [UInt8] = [9, 9, 9, 9]
+
+            let succeeded = source.withUnsafeBytes { sourceBytes in
+                destination.withUnsafeMutableBytes { destinationBytes in
+                    conversion.convert(
+                        width: 1,
+                        height: 1,
+                        to: destinationBytes.baseAddress!,
+                        format: invalidFormat,
+                        from: sourceBytes.baseAddress!,
+                        format: invalidFormat,
+                        options: nil
+                    )
+                }
+            }
+
+            #expect(!succeeded)
+            #expect(destination == [9, 9, 9, 9])
+        }
+
+        @Test("Rejects device color spaces")
+        func rejectsDeviceColorSpaces() {
+            #expect(CGColorConversionInfo(src: .deviceRGB, dst: .deviceGray) == nil)
         }
     }
 }

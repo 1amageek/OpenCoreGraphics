@@ -38,9 +38,10 @@ struct CGContextRendererContractTests {
         case clear(rect: CGRect, clipRules: [CGPathFillRule], shouldAntialias: Bool)
         case linearGradient(start: CGPoint, end: CGPoint, options: CGGradientDrawingOptions)
         case radialGradient(startCenter: CGPoint, startRadius: CGFloat, endCenter: CGPoint, endRadius: CGFloat, options: CGGradientDrawingOptions)
+        case layer(rect: CGRect, alpha: CGFloat, blendMode: CGBlendMode, interpolationQuality: CGInterpolationQuality, clipRules: [CGPathFillRule])
     }
 
-    private final class RecordingRenderer: CGContextStatefulRendererDelegate {
+    private final class RecordingRenderer: CGContextStatefulRendererDelegate, CGLayerRendererDelegate {
         private let operations = Mutex<[Operation]>([])
 
         func snapshot() -> [Operation] {
@@ -87,6 +88,27 @@ struct CGContextRendererContractTests {
             endRadius: CGFloat,
             options: CGGradientDrawingOptions
         ) {}
+
+        func draw(
+            layer: CGLayer,
+            in rect: CGRect,
+            alpha: CGFloat,
+            blendMode: CGBlendMode,
+            interpolationQuality: CGInterpolationQuality,
+            state: CGDrawingState
+        ) {
+            operations.withLock {
+                $0.append(
+                    .layer(
+                        rect: rect,
+                        alpha: alpha,
+                        blendMode: blendMode,
+                        interpolationQuality: interpolationQuality,
+                        clipRules: state.clipPaths.map(\.rule)
+                    )
+                )
+            }
+        }
 
         func drawShading(_ shading: CGShading, alpha: CGFloat, blendMode: CGBlendMode) {}
 
@@ -262,6 +284,34 @@ struct CGContextRendererContractTests {
 
     private func expectApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, tolerance: CGFloat = 0.001) {
         #expect(abs(lhs - rhs) < tolerance)
+    }
+
+    @Test("CGLayer drawing stays on the renderer path and preserves graphics state")
+    func layerDrawingPreservesState() throws {
+        let context = try #require(createContext())
+        let layer = try #require(CGLayer(context: context, size: CGSize(width: 8, height: 6)))
+        let renderer = RecordingRenderer()
+        context.rendererDelegate = renderer
+        context.translateBy(x: 10, y: 20)
+        context.setAlpha(0.4)
+        context.setBlendMode(.multiply)
+        context.setInterpolationQuality(.none)
+        context.addRect(CGRect(x: 0, y: 0, width: 50, height: 50))
+        context.clip()
+
+        context.draw(layer, in: CGRect(x: 2, y: 3, width: 8, height: 6))
+
+        let operations = renderer.snapshot()
+        #expect(operations.count == 1)
+        guard case let .layer(rect, alpha, blendMode, interpolationQuality, clipRules) = operations[0] else {
+            Issue.record("Expected a layer operation")
+            return
+        }
+        #expect(rect == CGRect(x: 12, y: 23, width: 8, height: 6))
+        #expect(alpha == 0.4)
+        #expect(blendMode == .multiply)
+        #expect(interpolationQuality == .none)
+        #expect(clipRules == [.winding])
     }
 
     @Test("Aggregated drawing operations preserve transformed parameters and state")

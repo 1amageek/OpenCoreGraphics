@@ -195,7 +195,7 @@ public class CGDataConsumer: @unchecked Sendable {
 
     /// Returns the Core Foundation type identifier for Core Graphics data consumers.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.dataConsumer
     }
 }
 

@@ -221,8 +221,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     /// Returns the type identifier for Quartz color spaces.
     public static var typeID: UInt {
-        // In a real implementation, this would return the actual type ID
-        return 0
+        return CGTypeIdentifier.colorSpace
     }
 
     // MARK: - Device Color Spaces
@@ -441,12 +440,55 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     /// Creates an ICC-based color space using the ICC profile contained in the specified data.
     public convenience init?(iccData: Data) {
-        // Parse ICC profile header to determine color space type
-        // For now, default to RGB
+        guard iccData.count >= 128 else { return nil }
+        let header = [UInt8](iccData.prefix(40))
+        let declaredSize = Int(header[0]) << 24
+            | Int(header[1]) << 16
+            | Int(header[2]) << 8
+            | Int(header[3])
+        guard declaredSize >= 128,
+              declaredSize <= iccData.count,
+              header[36] == 0x61,
+              header[37] == 0x63,
+              header[38] == 0x73,
+              header[39] == 0x70 else {
+            return nil
+        }
+
+        let signature = String(bytes: header[16..<20], encoding: .ascii)
+        let model: CGColorSpaceModel
+        let componentCount: Int
+        switch signature {
+        case "GRAY":
+            model = .monochrome
+            componentCount = 1
+        case "RGB ":
+            model = .rgb
+            componentCount = 3
+        case "CMYK":
+            model = .cmyk
+            componentCount = 4
+        case "Lab ":
+            model = .lab
+            componentCount = 3
+        case "XYZ ":
+            model = .XYZ
+            componentCount = 3
+        default:
+            guard let signature = signature,
+                  signature.hasSuffix("CLR"),
+                  let digit = signature.first?.hexDigitValue,
+                  (2...15).contains(digit) else {
+                return nil
+            }
+            model = .deviceN
+            componentCount = digit
+        }
+
         self.init(
-            model: .rgb,
+            model: model,
             name: nil,
-            numberOfComponents: 3,
+            numberOfComponents: componentCount,
             iccProfileData: iccData
         )
     }
@@ -533,4 +575,3 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         hasher.combine(numberOfComponents)
     }
 }
-

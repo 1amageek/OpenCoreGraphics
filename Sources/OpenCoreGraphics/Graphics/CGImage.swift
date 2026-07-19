@@ -394,20 +394,57 @@ public final class CGImage: @unchecked Sendable {
     /// - Parameter colorSpace: The destination color space.
     /// - Returns: A new image with the specified color space, or nil if the image is a mask.
     public func copy(colorSpace: CGColorSpace) -> CGImage? {
-        guard !isMask else { return nil }
+        guard !isMask,
+              let sourceColorSpace = self.colorSpace,
+              let sourceData = data ?? dataProvider?.data else {
+            return nil
+        }
+
+        let componentCount = colorSpace.numberOfComponents + 1
+        let destinationBitmapInfo = CGBitmapInfo(
+            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        let destinationFormat = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: destinationBitmapInfo,
+            bitsPerComponent: 8,
+            bitsPerPixel: componentCount * 8,
+            bytesPerRow: width * componentCount
+        )
+        var convertedData = Data(count: destinationFormat.bytesPerRow * height)
+        let converted = sourceData.withUnsafeBytes { sourceBuffer -> Bool in
+            guard let sourceBase = sourceBuffer.baseAddress else { return false }
+            return convertedData.withUnsafeMutableBytes { destinationBuffer -> Bool in
+                guard let destinationBase = destinationBuffer.baseAddress else { return false }
+                return CGColorBufferConverter.convert(
+                    width: width,
+                    height: height,
+                    destinationBuffer: destinationBase,
+                    destinationFormat: destinationFormat,
+                    destinationColorSpace: colorSpace,
+                    sourceBuffer: sourceBase,
+                    sourceFormat: colorBufferFormat,
+                    sourceColorSpace: sourceColorSpace,
+                    intent: renderingIntent,
+                    options: nil
+                )
+            }
+        }
+        guard converted else { return nil }
+
         return CGImage(
             width: width,
             height: height,
-            bitsPerComponent: bitsPerComponent,
-            bitsPerPixel: bitsPerPixel,
-            bytesPerRow: bytesPerRow,
+            bitsPerComponent: destinationFormat.bitsPerComponent,
+            bitsPerPixel: destinationFormat.bitsPerPixel,
+            bytesPerRow: destinationFormat.bytesPerRow,
             colorSpace: colorSpace,
-            bitmapInfo: bitmapInfo,
-            decodeStorage: decodeStorage,
+            bitmapInfo: destinationBitmapInfo,
+            decodeStorage: nil,
             shouldInterpolate: shouldInterpolate,
             renderingIntent: renderingIntent,
             isMask: false,
-            data: data,
+            data: convertedData,
             contentHeadroom: _contentHeadroom,
             contentAverageLightLevel: _contentAverageLightLevel
         )
@@ -440,9 +477,7 @@ public final class CGImage: @unchecked Sendable {
     ///
     /// - Returns: A new image with calculated HDR statistics.
     public func copyWithCalculatedHDRStats() -> CGImage? {
-        // In a full implementation, this would analyze the image data
-        // to calculate actual HDR statistics
-        copy()
+        return nil
     }
 
     // MARK: - Creating Images by Modifying
@@ -531,9 +566,45 @@ public final class CGImage: @unchecked Sendable {
     /// - Parameter mask: The image mask.
     /// - Returns: A new masked image, or nil if the mask is invalid.
     public func masking(_ mask: CGImage) -> CGImage? {
-        guard mask.isMask else { return nil }
-        // In a full implementation, this would apply the mask
-        return copy()
+        guard !isMask,
+              mask.isMask || Self.isValidGrayMaskImage(mask),
+              let source = rgba8Data(),
+              let maskBuffer = CGImageMaskBuffer(
+                width: width,
+                height: height,
+                clips: [
+                    CGImageMaskClip(
+                        rect: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)),
+                        transform: .identity,
+                        image: mask
+                    )
+                ]
+              ) else {
+            return nil
+        }
+
+        var result = source
+        let applied = result.withUnsafeMutableBytes { resultBuffer -> Bool in
+            guard let resultBytes = resultBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return false
+            }
+            return maskBuffer.rgba8.withUnsafeBytes { maskBuffer -> Bool in
+                guard let maskBytes = maskBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return false
+                }
+                for pixel in 0..<(width * height) {
+                    let offset = pixel * 4
+                    let coverage = UInt16(maskBytes[offset])
+                    for component in 0..<4 {
+                        let value = UInt16(resultBytes[offset + component])
+                        resultBytes[offset + component] = UInt8((value * coverage + 127) / 255)
+                    }
+                }
+                return true
+            }
+        }
+        guard applied else { return nil }
+        return makeRGBA8Image(data: result)
     }
 
     /// Creates a copy of the image with the specified color values masked.
@@ -541,9 +612,144 @@ public final class CGImage: @unchecked Sendable {
     /// - Parameter components: The color components to mask.
     /// - Returns: A new image with the specified colors masked.
     public func copy(maskingColorComponents components: [CGFloat]) -> CGImage? {
-        guard !isMask else { return nil }
-        // In a full implementation, this would mask specific color components
-        return copy()
+        guard !isMask,
+              let sourceColorSpace = colorSpace,
+              components.count == sourceColorSpace.numberOfComponents * 2,
+              let sourceData = data ?? dataProvider?.data,
+              let sourceLayout = CGColorBufferConverter.Layout(
+                format: colorBufferFormat,
+                colorSpace: sourceColorSpace,
+                width: width
+              ),
+              sourceData.count >= sourceLayout.bytesPerRow * height,
+              let rgba8 = rgba8Data() else {
+            return nil
+        }
+
+        for index in stride(from: 0, to: components.count, by: 2) {
+            guard components[index] <= components[index + 1] else { return nil }
+        }
+
+        var result = rgba8
+        let applied = sourceData.withUnsafeBytes { sourceBuffer -> Bool in
+            guard let sourceBytes = sourceBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return false
+            }
+            return result.withUnsafeMutableBytes { resultBuffer -> Bool in
+                guard let resultBytes = resultBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return false
+                }
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let sourceOffset = y * sourceLayout.bytesPerRow + x * sourceLayout.bytesPerPixel
+                        guard let pixel = CGColorBufferConverter.decodePixel(
+                            sourceBytes,
+                            offset: sourceOffset,
+                            layout: sourceLayout
+                        ) else {
+                            return false
+                        }
+
+                        let matches = pixel.components.enumerated().allSatisfy { index, value in
+                            let decodedValue: CGFloat
+                            if let decodeStorage = decodeStorage {
+                                let lower = decodeStorage[index * 2]
+                                let upper = decodeStorage[index * 2 + 1]
+                                decodedValue = lower + value * (upper - lower)
+                            } else {
+                                decodedValue = value
+                            }
+                            return decodedValue >= components[index * 2]
+                                && decodedValue <= components[index * 2 + 1]
+                        }
+                        if matches {
+                            let resultOffset = (y * width + x) * 4
+                            resultBytes[resultOffset] = 0
+                            resultBytes[resultOffset + 1] = 0
+                            resultBytes[resultOffset + 2] = 0
+                            resultBytes[resultOffset + 3] = 0
+                        }
+                    }
+                }
+                return true
+            }
+        }
+        guard applied else { return nil }
+        return makeRGBA8Image(data: result)
+    }
+
+    private var colorBufferFormat: CGColorBufferFormat {
+        CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: bitmapInfo,
+            bitsPerComponent: bitsPerComponent,
+            bitsPerPixel: bitsPerPixel,
+            bytesPerRow: bytesPerRow
+        )
+    }
+
+    private func rgba8Data() -> Data? {
+        guard let sourceColorSpace = colorSpace,
+              let destinationColorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let sourceData = data ?? dataProvider?.data,
+              sourceData.count >= bytesPerRow * height else {
+            return nil
+        }
+
+        let destinationFormat = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4
+        )
+        var result = Data(count: width * height * 4)
+        let converted = sourceData.withUnsafeBytes { sourceBuffer -> Bool in
+            guard let sourceBase = sourceBuffer.baseAddress else { return false }
+            return result.withUnsafeMutableBytes { resultBuffer -> Bool in
+                guard let resultBase = resultBuffer.baseAddress else { return false }
+                return CGColorBufferConverter.convert(
+                    width: width,
+                    height: height,
+                    destinationBuffer: resultBase,
+                    destinationFormat: destinationFormat,
+                    destinationColorSpace: destinationColorSpace,
+                    sourceBuffer: sourceBase,
+                    sourceFormat: colorBufferFormat,
+                    sourceColorSpace: sourceColorSpace,
+                    intent: renderingIntent,
+                    options: nil
+                )
+            }
+        }
+        return converted ? result : nil
+    }
+
+    private func makeRGBA8Image(data: Data) -> CGImage? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: space,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: CGDataProvider(data: data),
+            decode: nil,
+            shouldInterpolate: shouldInterpolate,
+            intent: renderingIntent
+        )
+    }
+
+    private static func isValidGrayMaskImage(_ image: CGImage) -> Bool {
+        guard image.colorSpace?.model == .monochrome else { return false }
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            return true
+        case .premultipliedFirst, .premultipliedLast, .first, .last, .alphaOnly:
+            return false
+        }
     }
 
     // MARK: - Getting the Data Provider
@@ -570,7 +776,7 @@ public final class CGImage: @unchecked Sendable {
 
     /// Returns the type identifier for CGImage objects.
     public class var typeID: UInt {
-        0 // Placeholder for type ID
+        CGTypeIdentifier.image
     }
 }
 
@@ -591,4 +797,3 @@ extension CGImage: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-

@@ -398,6 +398,16 @@ public class CGFont: @unchecked Sendable {
         return true
     }
 
+    /// Returns a glyph outline in font design units.
+    internal func path(for glyph: CGGlyph) -> CGPath? {
+        guard Int(glyph) < numberOfGlyphs,
+              let loca = getLocaTable(),
+              let parser else {
+            return nil
+        }
+        return parser.parseGlyphPath(glyphIndex: Int(glyph), loca: loca)
+    }
+
     // MARK: - Glyph Names
 
     /// Returns the glyph name of the specified glyph in the specified font.
@@ -546,7 +556,7 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns a type identifier for CGFont.
     public class var typeID: UInt {
-        return 0
+        return CGTypeIdentifier.font
     }
 }
 
@@ -591,26 +601,4 @@ public func CGFontCreateWithFontName(_ name: String) -> CGFont? {
 /// Creates a copy of a font with variations.
 public func CGFontCreateCopyWithVariations(_ font: CGFont, _ variations: [String: Any]?) -> CGFont? {
     return font.copy(withVariations: variations)
-}
-
-// MARK: - CGContext Font Extension
-
-extension CGContext {
-
-    /// Sets the font for a graphics context.
-    public func setFont(_ font: CGFont) {
-        // Store font in graphics state
-        // Implementation depends on how graphics state is managed
-    }
-
-    /// Sets the current font size.
-    public func setFontSize(_ size: CGFloat) {
-        // Store font size in graphics state
-    }
-
-    /// Draws glyphs at the specified positions.
-    public func showGlyphs(_ glyphs: [CGGlyph], at positions: [CGPoint]) {
-        // Glyph rendering requires CoreText-level functionality
-        // This is a placeholder for future OpenCoreText integration
-    }
 }

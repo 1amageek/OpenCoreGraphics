@@ -383,6 +383,10 @@ struct CGImageTests {
 
             #expect(copy != nil)
             #expect(copy?.colorSpace?.model == .monochrome)
+            #expect(copy?.bitsPerComponent == 8)
+            #expect(copy?.bitsPerPixel == 16)
+            #expect(copy?.bytesPerRow == 200)
+            #expect(copy?.data != original?.data)
         }
 
         @Test("Copy mask with color space returns nil")
@@ -415,6 +419,11 @@ struct CGImageTests {
 
             #expect(copy != nil)
             #expect(copy?.contentAverageLightLevel == 150.0)
+        }
+
+        @Test("Calculated HDR stats do not fabricate metadata")
+        func calculatedHDRStatsDoNotFabricateMetadata() {
+            #expect(createTestImage()?.copyWithCalculatedHDRStats() == nil)
         }
     }
 

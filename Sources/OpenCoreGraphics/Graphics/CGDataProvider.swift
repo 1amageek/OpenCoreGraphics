@@ -378,7 +378,7 @@ public class CGDataProvider: @unchecked Sendable {
 
     /// Returns the Core Foundation type identifier for data providers.
     public class var typeID: UInt {
-        return 0 // Placeholder
+        return CGTypeIdentifier.dataProvider
     }
 }
 
