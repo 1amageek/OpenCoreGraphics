@@ -98,7 +98,10 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         state: CGDrawingState
     ) {
         guard lineWidth > 0 else { return }
-        let strokedPath = path.copy(
+        let sourcePath = dashLengths.isEmpty
+            ? path
+            : path.copy(dashingWithPhase: dashPhase, lengths: dashLengths)
+        let strokedPath = sourcePath.copy(
             strokingWithWidth: lineWidth,
             lineCap: lineCap,
             lineJoin: lineJoin,

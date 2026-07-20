@@ -82,6 +82,31 @@ struct CGSoftwareContextRendererTests {
         #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 3, y: 0) == [0, 255, 0, 255])
     }
 
+    @Test("Dashed stroke leaves gap pixels untouched")
+    func dashedStroke() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 12,
+            height: 5,
+            bitsPerComponent: 8,
+            bytesPerRow: 48,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ))
+        context.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.setLineWidth(2)
+        context.setLineDash(phase: 0, lengths: [3, 3])
+        context.move(to: CGPoint(x: 1, y: 2.5))
+        context.addLine(to: CGPoint(x: 11, y: 2.5))
+        context.strokePath()
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data ?? image.dataProvider?.data)
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 2, y: 2) == [255, 0, 0, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 5, y: 2) == [0, 0, 0, 0])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 8, y: 2) == [255, 0, 0, 255])
+    }
+
     private func pixel(_ data: Data, bytesPerRow: Int, x: Int, y: Int) -> [UInt8] {
         let offset = y * bytesPerRow + x * 4
         return Array(data[offset..<(offset + 4)])

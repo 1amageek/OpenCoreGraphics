@@ -145,6 +145,7 @@ Sources/OpenCoreGraphics/
 ├── Graphics/                    # 全プラットフォーム共通
 │   ├── CGContext.swift          # #if arch(wasm32) で自動的にWebGPUを設定
 │   ├── CGPath.swift
+│   ├── CGPath+Stroking.swift    # Software/WebGPU共通ストローク形状
 │   ├── CGColor.swift
 │   ├── CGImage.swift
 │   └── ...
@@ -154,7 +155,6 @@ Sources/OpenCoreGraphics/
         ├── CGWebGPUContextRenderer.swift  # WebGPUレンダラー実装
         ├── PathTessellator.swift
         ├── EarClipping.swift
-        ├── StrokeGenerator.swift
         ├── Shaders.swift
         └── Internal/
             ├── BufferPool.swift

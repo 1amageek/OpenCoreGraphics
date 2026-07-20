@@ -23,9 +23,6 @@ public struct PathTessellator: Sendable {
     /// Triangulator for polygon tessellation
     private let triangulator = EarClippingTriangulator()
 
-    /// Stroke generator for line caps and joins
-    private var strokeGenerator = StrokeGenerator()
-
     public init(flatness: CGFloat = 0.5, viewportWidth: CGFloat = 800, viewportHeight: CGFloat = 600) {
         self.flatness = flatness
         self.viewportWidth = viewportWidth
@@ -212,85 +209,6 @@ public struct PathTessellator: Sendable {
         return hypot(point.x - projX, point.y - projY)
     }
 
-    /// Calculate miter offset for stroke corners
-    /// - Parameters:
-    ///   - n1: Normal of incoming segment (unit vector)
-    ///   - n2: Normal of outgoing segment (unit vector)
-    ///   - halfWidth: Half of line width
-    ///   - miterLimit: Maximum miter length ratio
-    /// - Returns: Offsets for v0 (+normal side) and v1 (-normal side), or nil if segments are parallel
-    private func calculateMiterOffset(
-        n1: (CGFloat, CGFloat),
-        n2: (CGFloat, CGFloat),
-        halfWidth: CGFloat,
-        miterLimit: CGFloat
-    ) -> (forV0: CGVector, forV1: CGVector)? {
-        // Calculate the bisector of the two normals
-        let bisectorX = n1.0 + n2.0
-        let bisectorY = n1.1 + n2.1
-        let bisectorLen = hypot(bisectorX, bisectorY)
-
-        // If normals are opposite (180° turn), use simple offset
-        if bisectorLen < 0.001 {
-            return (
-                forV0: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
-                forV1: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
-            )
-        }
-
-        // Normalized bisector (points in average normal direction)
-        let bx = bisectorX / bisectorLen
-        let by = bisectorY / bisectorLen
-
-        // Calculate the dot product to find the angle between normals
-        let dot = n1.0 * n2.0 + n1.1 * n2.1  // cos(angle between normals)
-
-        // Miter length = halfWidth / cos(halfAngle)
-        // cos(halfAngle) = sqrt((1 + cos(angle)) / 2)
-        let cosHalfAngle = sqrt((1 + dot) / 2)
-
-        if cosHalfAngle < 0.001 {
-            // Very sharp angle, fallback to simple offset
-            return (
-                forV0: CGVector(dx: n1.0 * halfWidth, dy: n1.1 * halfWidth),
-                forV1: CGVector(dx: -n1.0 * halfWidth, dy: -n1.1 * halfWidth)
-            )
-        }
-
-        var miterLen = halfWidth / cosHalfAngle
-
-        // Apply miter limit
-        if miterLen > halfWidth * miterLimit {
-            miterLen = halfWidth * miterLimit
-        }
-
-        // Cross product determines turn direction
-        // cross(n1, n2) > 0: clockwise turn (right turn in screen coords Y-down)
-        // cross(n1, n2) < 0: counter-clockwise turn (left turn in screen coords Y-down)
-        let cross = n1.0 * n2.1 - n1.1 * n2.0
-
-        // The bisector points in the average direction of the normals
-        // For a CW turn: the outer edge of stroke is on -normal side (v1), needs miter extension
-        // For a CCW turn: the outer edge of stroke is on +normal side (v0), needs miter extension
-
-        if cross >= 0 {
-            // Clockwise turn (right turn):
-            // - v0 (+normal side) is inner, gets simple offset along +bisector
-            // - v1 (-normal side) is outer, gets miter along -bisector
-            return (
-                forV0: CGVector(dx: bx * halfWidth, dy: by * halfWidth),
-                forV1: CGVector(dx: -bx * miterLen, dy: -by * miterLen)
-            )
-        } else {
-            // Counter-clockwise turn (left turn):
-            // - v0 (+normal side) is outer, gets miter along +bisector
-            // - v1 (-normal side) is inner, gets simple offset along -bisector
-            return (
-                forV0: CGVector(dx: bx * miterLen, dy: by * miterLen),
-                forV1: CGVector(dx: -bx * halfWidth, dy: -by * halfWidth)
-            )
-        }
-    }
 
     // MARK: - Triangulation
 
@@ -359,172 +277,23 @@ public struct PathTessellator: Sendable {
         _ path: CGPath,
         color: CGColor,
         lineWidth: CGFloat,
-        lineCap: StrokeGenerator.LineCap = .butt,
-        lineJoin: StrokeGenerator.LineJoin = .miter,
+        lineCap: CGLineCap = .butt,
+        lineJoin: CGLineJoin = .miter,
         miterLimit: CGFloat = 10
     ) -> CGWebGPUVertexBatch {
-        let flattenedSubpaths = flattenPathWithInfo(path)
         var vertices: [CGWebGPUVertex] = []
-
         let (r, g, b, a) = extractColorComponents(color)
-        let halfWidth = lineWidth / 2
-
-        for flattenedSubpath in flattenedSubpaths {
-            let subpath = flattenedSubpath.points
-            guard subpath.count >= 2 else { continue }
-
-            // Use the explicit closure information from flattenPathWithInfo
-            let isClosed = flattenedSubpath.isClosed
-
-            // For closed paths, the points array includes start point at the end: [p0, p1, p2, p3, p0]
-            // So we draw subpath.count - 1 segments (same as open paths)
-            let segmentCount = subpath.count - 1
-
-            // Pre-calculate normals for each segment
-            var segmentNormals: [(nx: CGFloat, ny: CGFloat, length: CGFloat)] = []
-            for i in 0..<segmentCount {
-                let p0 = subpath[i]
-                let p1 = subpath[i + 1]
-                let dx = p1.x - p0.x
-                let dy = p1.y - p0.y
-                let length = hypot(dx, dy)
-                if length > 0 {
-                    let nx = -dy / length
-                    let ny = dx / length
-                    segmentNormals.append((nx, ny, length))
-                } else {
-                    segmentNormals.append((0, 0, 0))
-                }
-            }
-
-            for i in 0..<segmentCount {
-                guard segmentNormals[i].length > 0 else { continue }
-
-                let p0 = subpath[i]
-                let p1 = subpath[i + 1]
-                let nx = segmentNormals[i].nx * halfWidth
-                let ny = segmentNormals[i].ny * halfWidth
-
-                // Calculate adjusted corner vertices for proper miter joins
-                // Start point (p0) adjustments
-                var v0 = CGPoint(x: p0.x + nx, y: p0.y + ny)  // outer at start
-                var v1 = CGPoint(x: p0.x - nx, y: p0.y - ny)  // inner at start
-
-                // End point (p1) adjustments
-                var v2 = CGPoint(x: p1.x + nx, y: p1.y + ny)  // outer at end
-                var v3 = CGPoint(x: p1.x - nx, y: p1.y - ny)  // inner at end
-
-                // For closed paths or intermediate points, adjust vertices at joins
-                // Adjust start vertices based on previous segment
-                let hasPrevSegment = isClosed || i > 0
-                if hasPrevSegment {
-                    let prevIdx = isClosed ? (i - 1 + segmentCount) % segmentCount : i - 1
-                    if prevIdx >= 0 && segmentNormals[prevIdx].length > 0 {
-                        let prevNx = segmentNormals[prevIdx].nx
-                        let prevNy = segmentNormals[prevIdx].ny
-                        let currNx = segmentNormals[i].nx
-                        let currNy = segmentNormals[i].ny
-
-                        // Calculate miter at start point
-                        if let miter = calculateMiterOffset(
-                            n1: (prevNx, prevNy),
-                            n2: (currNx, currNy),
-                            halfWidth: halfWidth,
-                            miterLimit: miterLimit
-                        ) {
-                            v0 = CGPoint(x: p0.x + miter.forV0.dx, y: p0.y + miter.forV0.dy)
-                            v1 = CGPoint(x: p0.x + miter.forV1.dx, y: p0.y + miter.forV1.dy)
-                        }
-                    }
-                }
-
-                // Adjust end vertices based on next segment
-                let hasNextSegment = isClosed || i < segmentCount - 1
-                if hasNextSegment {
-                    let nextIdx = (i + 1) % segmentCount
-                    if segmentNormals[nextIdx].length > 0 {
-                        let currNx = segmentNormals[i].nx
-                        let currNy = segmentNormals[i].ny
-                        let nextNx = segmentNormals[nextIdx].nx
-                        let nextNy = segmentNormals[nextIdx].ny
-
-                        // Calculate miter at end point
-                        if let miter = calculateMiterOffset(
-                            n1: (currNx, currNy),
-                            n2: (nextNx, nextNy),
-                            halfWidth: halfWidth,
-                            miterLimit: miterLimit
-                        ) {
-                            v2 = CGPoint(x: p1.x + miter.forV0.dx, y: p1.y + miter.forV0.dy)
-                            v3 = CGPoint(x: p1.x + miter.forV1.dx, y: p1.y + miter.forV1.dy)
-                        }
-                    }
-                }
-
-                // Triangle 1: v0, v1, v2
-                let (x0, y0) = toNDC(v0)
-                let (x1, y1) = toNDC(v1)
-                let (x2, y2) = toNDC(v2)
-                let (x3, y3) = toNDC(v3)
-
-                vertices.append(CGWebGPUVertex(x: x0, y: y0, r: r, g: g, b: b, a: a))
-                vertices.append(CGWebGPUVertex(x: x1, y: y1, r: r, g: g, b: b, a: a))
-                vertices.append(CGWebGPUVertex(x: x2, y: y2, r: r, g: g, b: b, a: a))
-
-                // Triangle 2: v1, v3, v2
-                vertices.append(CGWebGPUVertex(x: x1, y: y1, r: r, g: g, b: b, a: a))
-                vertices.append(CGWebGPUVertex(x: x3, y: y3, r: r, g: g, b: b, a: a))
-                vertices.append(CGWebGPUVertex(x: x2, y: y2, r: r, g: g, b: b, a: a))
-            }
-
-            // Generate line caps (only for open paths)
-            if !isClosed {
-                // Start cap
-                if subpath.count >= 2 {
-                    let p0 = subpath[0]
-                    let p1 = subpath[1]
-                    let dx = p0.x - p1.x
-                    let dy = p0.y - p1.y
-                    let len = hypot(dx, dy)
-                    if len > 0 {
-                        let direction = CGVector(dx: dx / len, dy: dy / len)
-                        let capPoints = strokeGenerator.generateCap(
-                            at: p0,
-                            direction: direction,
-                            halfWidth: halfWidth,
-                            style: lineCap
-                        )
-                        for point in capPoints {
-                            let (px, py) = toNDC(point)
-                            vertices.append(CGWebGPUVertex(x: px, y: py, r: r, g: g, b: b, a: a))
-                        }
-                    }
-                }
-
-                // End cap
-                if subpath.count >= 2 {
-                    let p0 = subpath[subpath.count - 2]
-                    let p1 = subpath[subpath.count - 1]
-                    let dx = p1.x - p0.x
-                    let dy = p1.y - p0.y
-                    let len = hypot(dx, dy)
-                    if len > 0 {
-                        let direction = CGVector(dx: dx / len, dy: dy / len)
-                        let capPoints = strokeGenerator.generateCap(
-                            at: p1,
-                            direction: direction,
-                            halfWidth: halfWidth,
-                            style: lineCap
-                        )
-                        for point in capPoints {
-                            let (px, py) = toNDC(point)
-                            vertices.append(CGWebGPUVertex(x: px, y: py, r: r, g: g, b: b, a: a))
-                        }
-                    }
-                }
-            }
+        let geometry = CGStrokeGeometry.make(
+            path: path,
+            lineWidth: lineWidth,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
+            miterLimit: miterLimit
+        )
+        for point in geometry.triangles {
+            let (x, y) = toNDC(point)
+            vertices.append(CGWebGPUVertex(x: x, y: y, r: r, g: g, b: b, a: a))
         }
-
         return CGWebGPUVertexBatch(vertices: vertices)
     }
 

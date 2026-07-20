@@ -30,6 +30,7 @@ nonisolated(unsafe) var maskedImagePixelData: Data?
 nonisolated(unsafe) var mixedDrawingPixelData: Data?
 nonisolated(unsafe) var imageShadowPixelData: Data?
 nonisolated(unsafe) var toneMappedPixelData: Data?
+nonisolated(unsafe) var strokeGeometryPixelData: Data?
 
 @_cdecl("setup")
 public func setup() {
@@ -45,6 +46,7 @@ public func setup() {
             mixedDrawingPixelData = nil
             imageShadowPixelData = nil
             toneMappedPixelData = nil
+            strokeGeometryPixelData = nil
         },
         then: {
             await performSetup()
@@ -141,6 +143,12 @@ func performSetup() async {
         return
     }
     toneMappedPixelData = toneMapped
+
+    guard let strokeGeometry = await captureStrokeGeometry(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: stroke-geometry capture failed"
+        return
+    }
+    strokeGeometryPixelData = strokeGeometry
 
     statusText = "ready"
     print("OCGSmoke ready: \(image.width)x\(image.height), \(data.count) bytes")
@@ -429,6 +437,59 @@ private func captureToneMappedImage(space: CGColorSpace, bitmapInfo: CGBitmapInf
     return await context.makeImageAsync()?.data
 }
 
+@MainActor
+private func captureStrokeGeometry(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let context = CGContext(
+        data: nil,
+        width: 64,
+        height: 64,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: space,
+        bitmapInfo: bitmapInfo
+    ) else {
+        return nil
+    }
+
+    context.setShouldAntialias(false)
+
+    context.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(6)
+    context.setLineCap(.round)
+    context.setLineJoin(.round)
+    context.move(to: CGPoint(x: 6, y: 8))
+    context.addLine(to: CGPoint(x: 24, y: 8))
+    context.addLine(to: CGPoint(x: 15, y: 18))
+    context.strokePath()
+
+    context.setStrokeColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+    context.setLineWidth(6)
+    context.setLineCap(.square)
+    context.move(to: CGPoint(x: 36, y: 10))
+    context.addLine(to: CGPoint(x: 54, y: 10))
+    context.strokePath()
+
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+    context.setLineWidth(6)
+    context.setLineCap(.butt)
+    context.setLineDash(phase: 0, lengths: [6, 6])
+    context.move(to: CGPoint(x: 8, y: 34))
+    context.addLine(to: CGPoint(x: 56, y: 34))
+    context.strokePath()
+    context.setLineDash(phase: 0, lengths: [])
+
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 0, alpha: 1))
+    context.setLineWidth(6)
+    context.setLineJoin(.miter)
+    context.setMiterLimit(10)
+    context.move(to: CGPoint(x: 14, y: 56))
+    context.addLine(to: CGPoint(x: 32, y: 42))
+    context.addLine(to: CGPoint(x: 50, y: 56))
+    context.strokePath()
+
+    return await context.makeImageAsync()?.data
+}
+
 @inline(__always)
 private func absDiff(_ a: UInt8, _ b: UInt8) -> UInt8 {
     return a >= b ? a - b : b - a
@@ -476,6 +537,7 @@ struct OCGSmokeTests {
         try #require(mixedDrawingPixelData != nil, "mixedDrawingPixelData is nil after capture")
         try #require(imageShadowPixelData != nil, "imageShadowPixelData is nil after capture")
         try #require(toneMappedPixelData != nil, "toneMappedPixelData is nil after capture")
+        try #require(strokeGeometryPixelData != nil, "strokeGeometryPixelData is nil after capture")
     }
 
     @Test func imageHasExpectedDimensions() {
@@ -590,5 +652,29 @@ struct OCGSmokeTests {
             #expect(absDiff(data[offset + 2], expected[pixel]) <= 7)
             #expect(data[offset + 3] > 247)
         }
+    }
+
+    @Test func strokeCapsJoinsAndDashesReachWebGPUReadback() throws {
+        let data = try #require(strokeGeometryPixelData)
+        var red = 0
+        var green = 0
+        var blue = 0
+        var yellow = 0
+        var offset = 0
+        while offset + 3 < data.count {
+            let r = data[offset]
+            let g = data[offset + 1]
+            let b = data[offset + 2]
+            if r > 240, g < 12, b < 12 { red += 1 }
+            if r < 12, g > 240, b < 12 { green += 1 }
+            if r < 12, g < 12, b > 240 { blue += 1 }
+            if r > 240, g > 240, b < 12 { yellow += 1 }
+            offset += 4
+        }
+        #expect(red > 100, "round cap/join pixels (got \(red))")
+        #expect(green > 100, "square cap pixels (got \(green))")
+        #expect(blue > 80, "dashed stroke pixels (got \(blue))")
+        #expect(blue < 220, "dashed stroke unexpectedly became solid (got \(blue))")
+        #expect(yellow > 100, "miter join pixels (got \(yellow))")
     }
 }

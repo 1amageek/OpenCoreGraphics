@@ -1,16 +1,17 @@
 # OpenCoreGraphics E2E tests
 
 Browser-based end-to-end tests that exercise the full CGContext → WebGPU
-readback pipeline inside real headless Chromium. The smoke-test draws a
-small known pattern, rounds the image through the GPU, and asserts the
-pixel bytes come back through the Swift-side harness.
+readback pipeline inside real headless Chromium. The smoke-test draws known
+fills, images, patterns, masks, shadows, tone-mapped pixels, and strokes,
+routes them through the GPU, and asserts the pixel bytes through Swift Testing.
 
 ## What is covered
 
 | Spec | Signal validated | Layers exercised |
 |---|---|---|
-| `boot.spec.ts` (boot) | `__ocg_test` installs; `getStatus()` reaches `ready` within 30 s | JavaScriptKit bridge, WASI reactor ABI, `setupGraphicsContext`, `CGContext.init`, `makeImageAsync` |
-| `boot.spec.ts` (readback) | Drawn RGB fills show up as expected pixel counts with tolerance ±12 | `setFillColor`, `fill(CGRect)`, WebGPU render pass, GPU→CPU readback |
+| `wasm_tests.spec.ts` | All 10 Swift `@Test` functions complete without issues | JavaScriptKit bridge, WASI reactor ABI, `setupGraphicsContext`, `CGContext`, `makeImageAsync` |
+| Fill and resource readback | RGB fills, image masks, callback patterns, image drawing, shadows, and HDR tone mapping produce the expected pixels | WebGPU render passes, textures, masks, GPU→CPU readback |
+| Stroke geometry | Round and square caps, round and miter joins, and dashed strokes produce distinct expected color coverage | `CGPath` dashing, shared stroke geometry, WebGPU tessellation, GPU→CPU readback |
 
 ## Prerequisites
 
@@ -51,13 +52,8 @@ most browsers — the `GPUCanvasContext` swap texture is destroyed after
 present, so anything read back via the DOM is blank. OCG already performs
 its own GPU→CPU readback inside `makeImageAsync()`, so the smoke-test
 captures those bytes Swift-side and exposes them through
-`window.__ocg_test`:
-
-- `getStatus()` — lifecycle (`initializing`, `ready`, `error: …`)
-- `getWidth()` / `getHeight()` — CGImage dimensions
-- `getByteLength()` — raw buffer size
-- `getPixel(x, y)` — `[r, g, b, a]` for a single pixel
-- `countColor(r, g, b, tolerance)` — pixel count within a colour band
+the Swift Testing runner. Structured test events are exposed through
+`window.__wasm_tests`, which the Playwright spec waits for and validates.
 
 This decouples the test from browser-specific canvas readback limitations
 and makes assertions deterministic.

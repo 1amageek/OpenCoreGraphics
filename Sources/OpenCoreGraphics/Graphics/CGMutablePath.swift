@@ -32,6 +32,7 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
 
     /// Appends a straight line segment from the current point to the specified point.
     public func addLine(to point: CGPoint, transform: CGAffineTransform = .identity) {
+        guard !commands.isEmpty else { return }
         commands.append(.lineTo(point.applying(transform)))
     }
 
@@ -305,6 +306,7 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
     /// Adds a cubic Bézier curve to the path, with the specified end point and control points.
     public func addCurve(to end: CGPoint, control1: CGPoint, control2: CGPoint,
                          transform: CGAffineTransform = .identity) {
+        guard !commands.isEmpty else { return }
         commands.append(.curveTo(
             control1: control1.applying(transform),
             control2: control2.applying(transform),
@@ -315,6 +317,7 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
     /// Adds a quadratic Bézier curve to the path, with the specified end point and control point.
     public func addQuadCurve(to end: CGPoint, control: CGPoint,
                              transform: CGAffineTransform = .identity) {
+        guard !commands.isEmpty else { return }
         commands.append(.quadCurveTo(
             control: control.applying(transform),
             end: end.applying(transform)
@@ -330,8 +333,8 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
 
     /// Closes and completes a subpath in a mutable graphics path.
     public func closeSubpath() {
+        guard !commands.isEmpty else { return }
         commands.append(.closeSubpath)
     }
 }
-
 

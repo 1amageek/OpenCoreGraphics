@@ -445,7 +445,10 @@ public class CGContext: @unchecked Sendable {
         case .eoFill, .eoFillStroke:
             return currentPath.contains(point, using: .evenOdd)
         case .stroke:
-            return currentPath.copy(
+            let sourcePath = currentState.lineDash.map {
+                currentPath.copy(dashingWithPhase: $0.phase, lengths: $0.lengths)
+            } ?? currentPath
+            return sourcePath.copy(
                 strokingWithWidth: currentState.lineWidth,
                 lineCap: currentState.lineCap,
                 lineJoin: currentState.lineJoin,
@@ -463,7 +466,10 @@ public class CGContext: @unchecked Sendable {
     public func replacePathWithStrokedPath() {
         guard !currentPath.isEmpty else { return }
 
-        let strokedPath = currentPath.copy(
+        let sourcePath = currentState.lineDash.map {
+            currentPath.copy(dashingWithPhase: $0.phase, lengths: $0.lengths)
+        } ?? currentPath
+        let strokedPath = sourcePath.copy(
             strokingWithWidth: currentState.lineWidth,
             lineCap: currentState.lineCap,
             lineJoin: currentState.lineJoin,

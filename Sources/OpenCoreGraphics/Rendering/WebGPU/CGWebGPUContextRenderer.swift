@@ -476,18 +476,17 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
               let pipeline = getPipeline(for: blendMode),
               let convertedColor = state.convertedColor(color),
               let effectiveColor = applyAlpha(convertedColor, alpha: alpha) else { return }
-
-        // Convert line cap/join types
-        let cap = convertLineCap(lineCap)
-        let join = convertLineJoin(lineJoin)
+        let strokePath = dashLengths.isEmpty
+            ? path
+            : path.copy(dashingWithPhase: dashPhase, lengths: dashLengths)
 
         // Tessellate the stroke
         let batch = tessellator.tessellateStroke(
-            path,
+            strokePath,
             color: effectiveColor,
             lineWidth: lineWidth,
-            lineCap: cap,
-            lineJoin: join,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
             miterLimit: miterLimit
         )
         guard !batch.vertices.isEmpty else { return }
@@ -639,18 +638,17 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard let target = effectiveRenderTarget,
               let convertedColor = state.convertedColor(color),
               let effectiveColor = applyAlpha(convertedColor, alpha: alpha) else { return }
-
-        // Convert line cap/join types
-        let cap = convertLineCap(lineCap)
-        let join = convertLineJoin(lineJoin)
+        let strokePath = dashLengths.isEmpty
+            ? path
+            : path.copy(dashingWithPhase: dashPhase, lengths: dashLengths)
 
         // Tessellate the stroke
         let batch = tessellator.tessellateStroke(
-            path,
+            strokePath,
             color: effectiveColor,
             lineWidth: lineWidth,
-            lineCap: cap,
-            lineJoin: join,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
             miterLimit: miterLimit
         )
         guard !batch.vertices.isEmpty else { return }
@@ -1386,6 +1384,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             lineCap: lineCap,
             lineJoin: lineJoin,
             miterLimit: miterLimit,
+            dashPhase: dashPhase,
+            dashLengths: dashLengths,
             alpha: alpha,
             blendMode: blendMode,
             state: CGDrawingState()
@@ -1418,6 +1418,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             lineCap: lineCap,
             lineJoin: lineJoin,
             miterLimit: miterLimit,
+            dashPhase: dashPhase,
+            dashLengths: dashLengths,
             alpha: alpha,
             blendMode: blendMode,
             state: state
@@ -1528,6 +1530,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         lineCap: CGLineCap,
         lineJoin: CGLineJoin,
         miterLimit: CGFloat,
+        dashPhase: CGFloat,
+        dashLengths: [CGFloat],
         alpha: CGFloat,
         blendMode: CGBlendMode,
         state: CGDrawingState
@@ -1540,12 +1544,15 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         ) else {
             return
         }
+        let strokePath = dashLengths.isEmpty
+            ? path
+            : path.copy(dashingWithPhase: dashPhase, lengths: dashLengths)
         let batch = tessellator.tessellateStroke(
-            path,
+            strokePath,
             color: tint,
             lineWidth: lineWidth,
-            lineCap: convertLineCap(lineCap),
-            lineJoin: convertLineJoin(lineJoin),
+            lineCap: lineCap,
+            lineJoin: lineJoin,
             miterLimit: miterLimit
         )
         renderPatternBatch(
@@ -2551,22 +2558,6 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         contentPass.end()
 
         queue.submit([encoder.finish()])
-    }
-
-    private func convertLineCap(_ cap: CGLineCap) -> StrokeGenerator.LineCap {
-        switch cap {
-        case .butt: return .butt
-        case .round: return .round
-        case .square: return .square
-        }
-    }
-
-    private func convertLineJoin(_ join: CGLineJoin) -> StrokeGenerator.LineJoin {
-        switch join {
-        case .miter: return .miter
-        case .round: return .round
-        case .bevel: return .bevel
-        }
     }
 
     // MARK: - Image Rendering Helpers (via TextureManager)

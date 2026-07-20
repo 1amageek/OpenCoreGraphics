@@ -1261,8 +1261,8 @@ struct CGPathTests {
             #expect(elements.map { $0.1.x } == [0, 2, 3, 5, 6, 8, 9, 10])
         }
 
-        @Test("Transform is applied before phase and lengths")
-        func transformBeforeDashing() {
+        @Test("Dash pattern is resolved before the result transform")
+        func transformAfterDashing() {
             let path = CGMutablePath()
             path.move(to: CGPoint(x: 1, y: 1))
             path.addLine(to: CGPoint(x: 5, y: 1))
@@ -1279,9 +1279,8 @@ struct CGPathTests {
             }
 
             #expect(points == [
-                CGPoint(x: 2, y: 3), CGPoint(x: 3, y: 3),
-                CGPoint(x: 5, y: 3), CGPoint(x: 7, y: 3),
-                CGPoint(x: 9, y: 3), CGPoint(x: 10, y: 3)
+                CGPoint(x: 2, y: 3), CGPoint(x: 4, y: 3),
+                CGPoint(x: 8, y: 3), CGPoint(x: 10, y: 3)
             ])
         }
 

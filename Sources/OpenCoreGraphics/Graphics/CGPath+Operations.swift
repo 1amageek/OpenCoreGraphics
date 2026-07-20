@@ -20,18 +20,12 @@ extension CGPath {
         lengths: [CGFloat],
         transform: CGAffineTransform = .identity
     ) -> CGPath {
-        let transformedPath: CGPath
-        if transform.isIdentity {
-            transformedPath = self
-        } else {
+        guard !lengths.isEmpty else {
+            guard !transform.isIdentity else { return copy() ?? CGPath() }
             var transform = transform
-            transformedPath = withUnsafePointer(to: &transform) { pointer in
+            return withUnsafePointer(to: &transform) { pointer in
                 copy(using: pointer) ?? CGPath()
             }
-        }
-
-        guard !lengths.isEmpty else {
-            return transformedPath.copy() ?? CGPath()
         }
         guard lengths.allSatisfy({ $0.isFinite && $0 > 0 }) else {
             return CGPath()
@@ -41,7 +35,18 @@ extension CGPath {
         let patternLength = pattern.reduce(0, +)
         guard patternLength.isFinite, patternLength > 0 else { return CGPath() }
 
-        let subpaths = transformedPath._flattenToSubpaths(threshold: 0.25)
+        let bounds = boundingBox
+        let coordinateScale = bounds.isNull
+            ? CGFloat(1)
+            : max(1, max(abs(bounds.width), abs(bounds.height)))
+        let tolerance = min(
+            0.01,
+            max(
+                coordinateScale * CGFloat.ulpOfOne * 64,
+                (pattern.min() ?? patternLength) / 2048
+            )
+        )
+        let subpaths = _flattenToSubpaths(threshold: tolerance)
         let result = CGMutablePath()
         for subpath in subpaths {
             appendDashedSubpath(
@@ -52,7 +57,11 @@ extension CGPath {
                 to: result
             )
         }
-        return result.copy() ?? CGPath()
+        guard !transform.isIdentity else { return result.copy() ?? CGPath() }
+        var transform = transform
+        return withUnsafePointer(to: &transform) { pointer in
+            result.copy(using: pointer) ?? CGPath()
+        }
     }
 
     // MARK: - Flattening
@@ -312,7 +321,8 @@ private func appendDashedSubpath(
 
     let segmentCount = subpath.isClosed ? subpath.points.count : subpath.points.count - 1
     var isDrawing = patternIndex.isMultiple(of: 2)
-    var hasOpenDash = false
+    var currentDash: [CGPoint]? = nil
+    var dashes: [[CGPoint]] = []
     let epsilon: CGFloat = 0.000_001
 
     for segmentIndex in 0..<segmentCount {
@@ -332,13 +342,15 @@ private func appendDashedSubpath(
             let next = CGPoint(x: start.x + unitX * step, y: start.y + unitY * step)
 
             if isDrawing {
-                if !hasOpenDash {
-                    result.move(to: start)
-                    hasOpenDash = true
+                if currentDash == nil {
+                    currentDash = [start]
                 }
-                result.addLine(to: next)
+                currentDash?.append(next)
             } else {
-                hasOpenDash = false
+                if let currentDash, currentDash.count >= 2 {
+                    dashes.append(currentDash)
+                }
+                currentDash = nil
             }
 
             start = next
@@ -349,8 +361,38 @@ private func appendDashedSubpath(
                 patternIndex = (patternIndex + 1) % pattern.count
                 remaining = pattern[patternIndex]
                 isDrawing = patternIndex.isMultiple(of: 2)
-                if !isDrawing { hasOpenDash = false }
+                if !isDrawing {
+                    if let finishedDash = currentDash, finishedDash.count >= 2 {
+                        dashes.append(finishedDash)
+                    }
+                    currentDash = nil
+                }
             }
+        }
+    }
+
+    if let currentDash, currentDash.count >= 2 {
+        dashes.append(currentDash)
+    }
+
+    if subpath.isClosed,
+       dashes.count >= 2,
+       let seam = subpath.points.first,
+       let firstStart = dashes.first?.first,
+       let lastEnd = dashes.last?.last,
+       _pointsEqual(firstStart, seam),
+       _pointsEqual(lastEnd, seam) {
+        let first = dashes.removeFirst()
+        var last = dashes.removeLast()
+        last.append(contentsOf: first.dropFirst())
+        dashes.insert(last, at: 0)
+    }
+
+    for dash in dashes {
+        guard let first = dash.first else { continue }
+        result.move(to: first)
+        for point in dash.dropFirst() {
+            result.addLine(to: point)
         }
     }
 }
