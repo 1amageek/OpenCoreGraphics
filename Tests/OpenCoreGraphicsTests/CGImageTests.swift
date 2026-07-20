@@ -199,17 +199,22 @@ struct CGImageTests {
 
         @Test("Init with HDR headroom")
         func initWithHDRHeadroom() {
-            let colorSpace = CGColorSpace.deviceRGB
-            let provider = createTestDataProvider(width: 100, height: 100)
-            let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+            let provider = CGDataProvider(data: Data(repeating: 0, count: 100 * 100 * 8))
+            let bitmapInfo = CGBitmapInfo(rawValue:
+                CGImageAlphaInfo.premultipliedLast.rawValue
+                | CGBitmapInfo.floatComponents.rawValue
+                | CGBitmapInfo.byteOrder16Little.rawValue)
+            #expect(colorSpace != nil)
+            guard let colorSpace else { return }
 
             let image = CGImage(
                 headroom: 2.0,
                 width: 100,
                 height: 100,
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: 400,
+                bitsPerComponent: 16,
+                bitsPerPixel: 64,
+                bytesPerRow: 800,
                 space: colorSpace,
                 bitmapInfo: bitmapInfo,
                 provider: provider,
@@ -421,9 +426,39 @@ struct CGImageTests {
             #expect(copy?.contentAverageLightLevel == 150.0)
         }
 
-        @Test("Calculated HDR stats do not fabricate metadata")
-        func calculatedHDRStatsDoNotFabricateMetadata() {
-            #expect(createTestImage()?.copyWithCalculatedHDRStats() == nil)
+        @Test("Calculated HDR stats analyze source pixels")
+        func calculatedHDRStatsAnalyzePixels() {
+            let data = Data([128, 128, 128, 255, 255, 255, 255, 255])
+            let image = CGImage(
+                width: 2,
+                height: 1,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: 8,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                provider: CGDataProvider(data: data),
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+            )
+            #expect(image != nil)
+            guard let image else { return }
+
+            #expect(abs(image.calculatedContentHeadroom - 1) < 0.001)
+            #expect(abs(image.calculatedContentAverageLightLevel - 0.608) < 0.01)
+
+            let copy = image.copyWithCalculatedHDRStats()
+            #expect(copy != nil)
+            #expect(copy?.contentHeadroom == 1)
+            #expect(abs((copy?.contentAverageLightLevel ?? 0) - 0.608) < 0.01)
+        }
+
+        @Test("Average light level rejects invalid contracts")
+        func contentAverageLightLevelValidation() {
+            let image = createTestImage()
+            #expect(image?.copy(contentAverageLightLevel: -1) == nil)
+            #expect(image?.copy(contentAverageLightLevel: .nan) == nil)
         }
     }
 

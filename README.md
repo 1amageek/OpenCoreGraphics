@@ -10,9 +10,9 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 875 tests passed |
-| Browser | Real WebGPU path, image-mask, callback-pattern, image rendering, and pixel readback passed |
-| Remaining boundary | ICC profile transforms, HDR-stat analysis, CFF/CFF2 and variable glyph outlines, and PDF are not complete |
+| Native package | 882 tests passed |
+| Browser | Real WebGPU path, image-mask, callback-pattern, HDR tone mapping, image rendering, and pixel readback passed |
+| Remaining boundary | ICC profile transforms, CFF/CFF2 and variable glyph outlines, and PDF are not complete |
 
 ## Installation
 

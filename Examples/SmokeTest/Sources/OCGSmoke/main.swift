@@ -29,6 +29,7 @@ nonisolated(unsafe) var patternPixelData: Data?
 nonisolated(unsafe) var maskedImagePixelData: Data?
 nonisolated(unsafe) var mixedDrawingPixelData: Data?
 nonisolated(unsafe) var imageShadowPixelData: Data?
+nonisolated(unsafe) var toneMappedPixelData: Data?
 
 @_cdecl("setup")
 public func setup() {
@@ -43,6 +44,7 @@ public func setup() {
             maskedImagePixelData = nil
             mixedDrawingPixelData = nil
             imageShadowPixelData = nil
+            toneMappedPixelData = nil
         },
         then: {
             await performSetup()
@@ -133,6 +135,12 @@ func performSetup() async {
         return
     }
     imageShadowPixelData = imageShadow
+
+    guard let toneMapped = await captureToneMappedImage(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: tone-mapped image capture failed"
+        return
+    }
+    toneMappedPixelData = toneMapped
 
     statusText = "ready"
     print("OCGSmoke ready: \(image.width)x\(image.height), \(data.count) bytes")
@@ -372,6 +380,55 @@ private func captureImageShadow(space: CGColorSpace, bitmapInfo: CGBitmapInfo) a
     return await context.makeImageAsync()?.data
 }
 
+@MainActor
+private func captureToneMappedImage(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let extendedSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
+          let context = CGContext(
+            data: nil,
+            width: 4,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: space,
+            bitmapInfo: bitmapInfo
+          ) else {
+        return nil
+    }
+
+    var sourceData = Data()
+    for value in [Float16(0.5), Float16(1), Float16(2), Float16(4)] {
+        for component in [value, value, value, Float16(1)] {
+            var bits = component.bitPattern.littleEndian
+            withUnsafeBytes(of: &bits) { sourceData.append(contentsOf: $0) }
+        }
+    }
+    guard let image = CGImage(
+        headroom: 4,
+        width: 4,
+        height: 1,
+        bitsPerComponent: 16,
+        bitsPerPixel: 64,
+        bytesPerRow: 32,
+        space: extendedSpace,
+        bitmapInfo: CGBitmapInfo(rawValue:
+            CGImageAlphaInfo.premultipliedLast.rawValue
+            | CGBitmapInfo.floatComponents.rawValue
+            | CGBitmapInfo.byteOrder16Little.rawValue),
+        provider: CGDataProvider(data: sourceData),
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+    ), context.draw(
+        image,
+        in: CGRect(x: 0, y: 0, width: 4, height: 1),
+        by: .referenceWhiteBased,
+        options: nil
+    ) else {
+        return nil
+    }
+    return await context.makeImageAsync()?.data
+}
+
 @inline(__always)
 private func absDiff(_ a: UInt8, _ b: UInt8) -> UInt8 {
     return a >= b ? a - b : b - a
@@ -418,6 +475,7 @@ struct OCGSmokeTests {
         try #require(maskedImagePixelData != nil, "maskedImagePixelData is nil after capture")
         try #require(mixedDrawingPixelData != nil, "mixedDrawingPixelData is nil after capture")
         try #require(imageShadowPixelData != nil, "imageShadowPixelData is nil after capture")
+        try #require(toneMappedPixelData != nil, "toneMappedPixelData is nil after capture")
     }
 
     @Test func imageHasExpectedDimensions() {
@@ -518,6 +576,19 @@ struct OCGSmokeTests {
             #expect(data[opaque + 2] < 8)
             #expect(data[opaque + 3] > 247)
             #expect(data[transparent + 3] < 8)
+        }
+    }
+
+    @Test func hdrToneMappingReachesWebGPURenderer() throws {
+        let data = try #require(toneMappedPixelData)
+        #expect(data.count >= 16)
+        let expected: [UInt8] = [148, 198, 233, 255]
+        for pixel in 0..<4 {
+            let offset = pixel * 4
+            #expect(absDiff(data[offset], expected[pixel]) <= 7)
+            #expect(absDiff(data[offset + 1], expected[pixel]) <= 7)
+            #expect(absDiff(data[offset + 2], expected[pixel]) <= 7)
+            #expect(data[offset + 3] > 247)
         }
     }
 }

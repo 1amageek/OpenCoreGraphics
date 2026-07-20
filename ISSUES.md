@@ -159,6 +159,16 @@ let transparentColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0)
 - 画像 texture の alpha を shadow mask に描画し、透明画素が影を生成しないことをブラウザ画素 readback で検証
 - DeviceGray の shadow color を DeviceRGB に変換し、成分数の誤解釈を防止
 
+### #13 HDR tone mapping と統計 API が実処理に未接続
+**状態**: 修正済み
+
+- `CGToneMapping` を現行 SDK の case / raw value に修正
+- Linear / sRGB / PQ / HLG の transfer function を復号
+- reference-white / ITU / EXR / none の tone mapping と option 検証を実装
+- `CGContext.draw(_:in:by:options:)` と通常描画の `contentToneMappingInfo` 経路を接続
+- `copyWithCalculatedHDRStats()`、最大輝度、平均輝度を実画素から計算
+- native の Apple 実測画素比較と Chromium WebGPU readback で検証
+
 ---
 
 ### #14 `makeImage()` GPU readback が未実装
@@ -179,7 +189,6 @@ GPU readback を実装：
 - `CGContext.clip(to:mask:)`: image mask の逆 alpha、DeviceGray の通常 alpha、decode、補間、複数 mask の積算を実装済み。path・gradient・shading・image・layer・pattern の WebGPU pipeline に連続値を適用し、ブラウザ画素 readback で検証済み
 - `CGPattern`: callback を独立した GPU context の cell texture へ描画し、matrix / phase / step、colored / uncolored、path clip、image-mask clip を反映する tiling を実装済み。手続き的 checkerboard と非互換な `renderCell*` API は削除済み
 - ICC: profile data の保持だけで、profile に基づく色変換は未実装
-- HDR statistics: `copyWithCalculatedHDRStats()` の画素解析は未実装
 - PDF: package の責務境界上、parser / writer / renderer は実装していない
 
 ### パフォーマンス最適化

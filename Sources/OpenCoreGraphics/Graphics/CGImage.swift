@@ -103,7 +103,7 @@ public final class CGImage: @unchecked Sendable {
     ///
     /// Returns 0 if not calculated.
     public var calculatedContentHeadroom: Float {
-        _contentHeadroom ?? 0.0
+        calculatedHDRStats()?.headroom ?? 0
     }
 
     /// The content average light level for HDR images.
@@ -117,7 +117,7 @@ public final class CGImage: @unchecked Sendable {
     ///
     /// Returns 0 if not calculated.
     public var calculatedContentAverageLightLevel: Float {
-        _contentAverageLightLevel ?? 0.0
+        calculatedHDRStats()?.averageLightLevel ?? 0
     }
 
     /// Whether the image should be tone mapped.
@@ -125,9 +125,13 @@ public final class CGImage: @unchecked Sendable {
         _contentHeadroom.map { $0 > 1.0 } ?? false
     }
 
+    internal var requiresToneMappingFor8BitOutput: Bool {
+        bitsPerComponent > 8 || shouldToneMap || colorSpace?.isHDR() == true
+    }
+
     /// Whether the image contains image-specific tone mapping metadata.
     public var containsImageSpecificToneMappingMetadata: Bool {
-        _contentHeadroom != nil || _contentAverageLightLevel != nil
+        false
     }
 
     /// The Universal Type Identifier for the image.
@@ -276,9 +280,15 @@ public final class CGImage: @unchecked Sendable {
         shouldInterpolate: Bool,
         intent: CGColorRenderingIntent
     ) {
+        let isFloatExtended = space.name?.contains("Extended") == true
+            && bitmapInfo.isFloatComponents
+            && (bitsPerComponent == 16 || bitsPerComponent == 32)
+        let isPQOrHLG = space.name?.contains("_PQ") == true || space.name?.contains("_HLG") == true
         guard width > 0, height > 0,
               bitsPerComponent > 0, bitsPerPixel > 0,
-              headroom >= 1.0 else {
+              headroom.isFinite,
+              headroom == 0 || headroom >= 1,
+              isFloatExtended || isPQOrHLG else {
             return nil
         }
 
@@ -298,7 +308,7 @@ public final class CGImage: @unchecked Sendable {
             renderingIntent: intent,
             isMask: false,
             data: provider.data,
-            contentHeadroom: headroom,
+            contentHeadroom: headroom == 0 ? nil : headroom,
             contentAverageLightLevel: nil,
             retainedProvider: provider
         )
@@ -371,7 +381,7 @@ public final class CGImage: @unchecked Sendable {
 
     /// Creates a copy of the image.
     public func copy() -> CGImage? {
-        CGImage(
+        return CGImage(
             width: width,
             height: height,
             bitsPerComponent: bitsPerComponent,
@@ -455,7 +465,13 @@ public final class CGImage: @unchecked Sendable {
     /// - Parameter contentAverageLightLevel: The content average light level value.
     /// - Returns: A new image with the specified content average light level.
     public func copy(contentAverageLightLevel: Float) -> CGImage? {
-        CGImage(
+        guard !isMask,
+              colorSpace?.model == .rgb,
+              contentAverageLightLevel.isFinite,
+              contentAverageLightLevel >= 0 else {
+            return nil
+        }
+        return CGImage(
             width: width,
             height: height,
             bitsPerComponent: bitsPerComponent,
@@ -477,7 +493,23 @@ public final class CGImage: @unchecked Sendable {
     ///
     /// - Returns: A new image with calculated HDR statistics.
     public func copyWithCalculatedHDRStats() -> CGImage? {
-        return nil
+        guard let stats = calculatedHDRStats() else { return nil }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: bitsPerComponent,
+            bitsPerPixel: bitsPerPixel,
+            bytesPerRow: bytesPerRow,
+            colorSpace: colorSpace,
+            bitmapInfo: bitmapInfo,
+            decodeStorage: decodeStorage,
+            shouldInterpolate: shouldInterpolate,
+            renderingIntent: renderingIntent,
+            isMask: false,
+            data: data ?? dataProvider?.data,
+            contentHeadroom: max(1, stats.headroom),
+            contentAverageLightLevel: stats.averageLightLevel
+        )
     }
 
     // MARK: - Creating Images by Modifying
@@ -688,6 +720,62 @@ public final class CGImage: @unchecked Sendable {
         )
     }
 
+    private func calculatedHDRStats() -> (headroom: Float, averageLightLevel: Float)? {
+        guard !isMask,
+              width > 0,
+              height > 0,
+              let sourceColorSpace = colorSpace,
+              sourceColorSpace.model == .rgb,
+              let sourceData = data ?? dataProvider?.data,
+              let sourceLayout = CGColorBufferConverter.Layout(
+                format: colorBufferFormat,
+                colorSpace: sourceColorSpace,
+                width: width
+              ),
+              sourceData.count >= sourceLayout.bytesPerRow * height else {
+            return nil
+        }
+
+        let transferFunction = CGImageTransferFunction(colorSpace: sourceColorSpace)
+        var maximumLuminance: CGFloat = 0
+        var luminanceSum: Double = 0
+        let decoded = sourceData.withUnsafeBytes { sourceBuffer -> Bool in
+            guard let sourceBytes = sourceBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return false
+            }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = y * sourceLayout.bytesPerRow + x * sourceLayout.bytesPerPixel
+                    guard let pixel = CGColorBufferConverter.decodePixel(
+                        sourceBytes,
+                        offset: offset,
+                        layout: sourceLayout
+                    ), pixel.components.count == 3 else {
+                        return false
+                    }
+                    let decodedComponents = applyingDecodeArray(to: pixel.components)
+                    let linear = decodedComponents.map(transferFunction.decode)
+                    let luminance = max(sourceColorSpace.luminance(of: linear), 0)
+                    maximumLuminance = max(maximumLuminance, luminance)
+                    luminanceSum += Double(luminance)
+                }
+            }
+            return true
+        }
+        guard decoded else { return nil }
+        let pixelCount = Double(width * height)
+        return (Float(maximumLuminance), Float(luminanceSum / pixelCount))
+    }
+
+    private func applyingDecodeArray(to components: [CGFloat]) -> [CGFloat] {
+        guard let decodeStorage else { return components }
+        return components.enumerated().map { index, value in
+            let lower = decodeStorage[index * 2]
+            let upper = decodeStorage[index * 2 + 1]
+            return lower + value * (upper - lower)
+        }
+    }
+
     private func rgba8Data() -> Data? {
         guard let sourceColorSpace = colorSpace,
               let destinationColorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -742,6 +830,85 @@ public final class CGImage: @unchecked Sendable {
         )
     }
 
+    internal func toneMapped(
+        by method: CGToneMapping,
+        targetHeadroom: Float,
+        options: [String: Any]?
+    ) -> CGImage? {
+        guard !isMask,
+              width > 0,
+              height > 0,
+              targetHeadroom.isFinite,
+              targetHeadroom >= 1,
+              let sourceColorSpace = colorSpace,
+              sourceColorSpace.model == .rgb,
+              let sourceData = data ?? dataProvider?.data,
+              let sourceLayout = CGColorBufferConverter.Layout(
+                format: colorBufferFormat,
+                colorSpace: sourceColorSpace,
+                width: width
+              ),
+              sourceData.count >= sourceLayout.bytesPerRow * height,
+              let configuration = ToneMappingConfiguration(
+                method: method,
+                sourceColorSpace: sourceColorSpace,
+                sourceHeadroom: _contentHeadroom ?? calculatedHDRStats()?.headroom,
+                targetHeadroom: targetHeadroom,
+                hasImageSpecificMetadata: containsImageSpecificToneMappingMetadata,
+                options: options
+              ) else {
+            return nil
+        }
+
+        var output = Data(count: width * height * 4)
+        let converted = sourceData.withUnsafeBytes { sourceBuffer -> Bool in
+            guard let sourceBytes = sourceBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return false
+            }
+            return output.withUnsafeMutableBytes { outputBuffer -> Bool in
+                guard let outputBytes = outputBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return false
+                }
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let sourceOffset = y * sourceLayout.bytesPerRow + x * sourceLayout.bytesPerPixel
+                        guard let pixel = CGColorBufferConverter.decodePixel(
+                            sourceBytes,
+                            offset: sourceOffset,
+                            layout: sourceLayout
+                        ), pixel.components.count == 3 else {
+                            return false
+                        }
+                        let mapped = configuration.map(applyingDecodeArray(to: pixel.components))
+                        let destinationOffset = (y * width + x) * 4
+                        outputBytes[destinationOffset] = Self.sRGBByte(mapped[0], alpha: pixel.alpha)
+                        outputBytes[destinationOffset + 1] = Self.sRGBByte(mapped[1], alpha: pixel.alpha)
+                        outputBytes[destinationOffset + 2] = Self.sRGBByte(mapped[2], alpha: pixel.alpha)
+                        outputBytes[destinationOffset + 3] = Self.byte(pixel.alpha)
+                    }
+                }
+                return true
+            }
+        }
+        guard converted else { return nil }
+        return makeRGBA8Image(data: output)
+    }
+
+    private static func sRGBByte(_ linearComponent: CGFloat, alpha: CGFloat) -> UInt8 {
+        let clamped = min(max(linearComponent, 0), 1)
+        let encoded: CGFloat
+        if clamped <= 0.0031308 {
+            encoded = clamped * 12.92
+        } else {
+            encoded = 1.055 * pow(clamped, 1 / 2.4) - 0.055
+        }
+        return byte(encoded * min(max(alpha, 0), 1))
+    }
+
+    private static func byte(_ component: CGFloat) -> UInt8 {
+        UInt8((min(max(component, 0), 1) * 255).rounded())
+    }
+
     private static func isValidGrayMaskImage(_ image: CGImage) -> Bool {
         guard image.colorSpace?.model == .monochrome else { return false }
         switch image.alphaInfo {
@@ -777,6 +944,245 @@ public final class CGImage: @unchecked Sendable {
     /// Returns the type identifier for CGImage objects.
     public class var typeID: UInt {
         CGTypeIdentifier.image
+    }
+}
+
+private enum CGImageTransferFunction {
+    case linear
+    case sRGB
+    case perceptualQuantizer
+    case hybridLogGamma
+
+    init(colorSpace: CGColorSpace) {
+        let name = colorSpace.name ?? ""
+        if name.contains("_PQ") {
+            self = .perceptualQuantizer
+        } else if name.contains("_HLG") {
+            self = .hybridLogGamma
+        } else if name.contains("Linear") || name.contains("ACESCG") {
+            self = .linear
+        } else {
+            self = .sRGB
+        }
+    }
+
+    var impliedHeadroom: Float {
+        switch self {
+        case .perceptualQuantizer: return 100
+        case .hybridLogGamma: return 12
+        case .linear, .sRGB: return 1
+        }
+    }
+
+    func decode(_ component: CGFloat) -> CGFloat {
+        switch self {
+        case .linear:
+            return component
+        case .sRGB:
+            let sign: CGFloat = component < 0 ? -1 : 1
+            let magnitude = abs(component)
+            if magnitude <= 0.04045 {
+                return component / 12.92
+            }
+            return sign * pow((magnitude + 0.055) / 1.055, 2.4)
+        case .perceptualQuantizer:
+            let m1: CGFloat = 2610 / 16384
+            let m2: CGFloat = 2523 / 32
+            let c1: CGFloat = 3424 / 4096
+            let c2: CGFloat = 2413 / 128
+            let c3: CGFloat = 2392 / 128
+            let power = pow(min(max(component, 0), 1), 1 / m2)
+            let denominator = c2 - c3 * power
+            guard denominator > 0 else { return 100 }
+            return pow(max(power - c1, 0) / denominator, 1 / m1) * 100
+        case .hybridLogGamma:
+            let value = min(max(component, 0), 1)
+            if value <= 0.5 {
+                return value * value / 3
+            }
+            let a: CGFloat = 0.17883277
+            let b: CGFloat = 0.28466892
+            let c: CGFloat = 0.55991073
+            return (exp((value - c) / a) + b) / 12
+        }
+    }
+}
+
+private extension CGColorSpace {
+    var rgbLuminanceCoefficients: (red: CGFloat, green: CGFloat, blue: CGFloat) {
+        let name = name ?? ""
+        if name.contains("ITUR_2020") || name.contains("ITUR_2100") {
+            return (0.2627, 0.6780, 0.0593)
+        }
+        if name.contains("DisplayP3") || name.contains("DCIP3") {
+            return (0.22897456, 0.69173852, 0.07928691)
+        }
+        if name.contains("ACESCG") {
+            return (0.27222872, 0.67408177, 0.05368952)
+        }
+        return (0.2126, 0.7152, 0.0722)
+    }
+
+    func luminance(of components: [CGFloat]) -> CGFloat {
+        let coefficients = rgbLuminanceCoefficients
+        return components[0] * coefficients.red
+            + components[1] * coefficients.green
+            + components[2] * coefficients.blue
+    }
+}
+
+private struct ToneMappingConfiguration {
+
+    private let method: CGToneMapping
+    private let transferFunction: CGImageTransferFunction
+    private let luminanceCoefficients: (red: CGFloat, green: CGFloat, blue: CGFloat)
+    private let sourceHeadroom: CGFloat
+    private let targetHeadroom: CGFloat
+    private let exrDefog: CGFloat
+    private let exrExposure: CGFloat
+    private let exrKneeLow: CGFloat
+    private let exrKneeHigh: CGFloat
+    private let use100nitsHLGOOTF: Bool
+    private let useBT1886Gamma: Bool
+    private let useLegacyHDREcosystem: Bool
+
+    init?(
+        method: CGToneMapping,
+        sourceColorSpace: CGColorSpace,
+        sourceHeadroom: Float?,
+        targetHeadroom: Float,
+        hasImageSpecificMetadata: Bool,
+        options: [String: Any]?
+    ) {
+        transferFunction = CGImageTransferFunction(colorSpace: sourceColorSpace)
+        luminanceCoefficients = sourceColorSpace.rgbLuminanceCoefficients
+
+        if method == .imageSpecificLumaScaling && !hasImageSpecificMetadata {
+            return nil
+        }
+        if method == .ituRecommended,
+           transferFunction != .perceptualQuantizer,
+           transferFunction != .hybridLogGamma {
+            return nil
+        }
+        if method == .exrGamma, transferFunction != .linear {
+            return nil
+        }
+
+        var defog: CGFloat = 0
+        var exposure: CGFloat = 0
+        var kneeLow: CGFloat = 0
+        var kneeHigh: CGFloat = 5
+        if method == .exrGamma {
+            guard let parsedDefog = Self.number(options?[kCGEXRToneMappingGammaDefog], default: defog),
+                  let parsedExposure = Self.number(options?[kCGEXRToneMappingGammaExposure], default: exposure),
+                  let parsedKneeLow = Self.number(options?[kCGEXRToneMappingGammaKneeLow], default: kneeLow),
+                  let parsedKneeHigh = Self.number(options?[kCGEXRToneMappingGammaKneeHigh], default: kneeHigh),
+                  (0...0.01).contains(parsedDefog),
+                  (-10...10).contains(parsedExposure),
+                  (-2.85...3).contains(parsedKneeLow),
+                  (3.5...7.5).contains(parsedKneeHigh) else {
+                return nil
+            }
+            defog = parsedDefog
+            exposure = parsedExposure
+            kneeLow = parsedKneeLow
+            kneeHigh = parsedKneeHigh
+        }
+
+        var use100nitsHLGOOTF = false
+        var useBT1886Gamma = false
+        var useLegacyHDREcosystem = false
+        if method == .ituRecommended {
+            guard let parsedUse100nitsHLGOOTF = Self.boolean(
+                options?[kCGUse100nitsHLGOOTF],
+                default: use100nitsHLGOOTF
+            ), let parsedUseBT1886Gamma = Self.boolean(
+                options?[kCGUseBT1886ForCoreVideoGamma],
+                default: useBT1886Gamma
+            ), Self.boolean(options?[kCGSkipBoostToHDR], default: false) != nil,
+               let parsedUseLegacyHDREcosystem = Self.boolean(
+                options?[kCGUseLegacyHDREcosystem],
+                default: useLegacyHDREcosystem
+               ) else {
+                return nil
+            }
+            use100nitsHLGOOTF = parsedUse100nitsHLGOOTF
+            useBT1886Gamma = parsedUseBT1886Gamma
+            useLegacyHDREcosystem = parsedUseLegacyHDREcosystem
+        }
+
+        self.method = method
+        self.sourceHeadroom = CGFloat(sourceHeadroom ?? transferFunction.impliedHeadroom)
+        self.targetHeadroom = CGFloat(targetHeadroom)
+        self.exrDefog = defog
+        self.exrExposure = exposure
+        self.exrKneeLow = kneeLow
+        self.exrKneeHigh = kneeHigh
+        self.use100nitsHLGOOTF = use100nitsHLGOOTF
+        self.useBT1886Gamma = useBT1886Gamma
+        self.useLegacyHDREcosystem = useLegacyHDREcosystem
+    }
+
+    func map(_ encodedComponents: [CGFloat]) -> [CGFloat] {
+        let linear = encodedComponents.map(transferFunction.decode)
+        switch method {
+        case .none:
+            return linear.map { min(max($0 / targetHeadroom, 0), 1) }
+        case .exrGamma:
+            return linear.map(mapEXRGamma)
+        case .ituRecommended:
+            return mapLuminance(linear, exponent: useLegacyHDREcosystem ? 2.35 : 2.5)
+        case .default, .imageSpecificLumaScaling, .referenceWhiteBased:
+            return mapLuminance(linear, exponent: 2.75)
+        }
+    }
+
+    private func mapLuminance(_ components: [CGFloat], exponent: CGFloat) -> [CGFloat] {
+        let luminance = max(
+            components[0] * luminanceCoefficients.red
+                + components[1] * luminanceCoefficients.green
+                + components[2] * luminanceCoefficients.blue,
+            0
+        )
+        guard luminance > 0 else { return [0, 0, 0] }
+        if sourceHeadroom <= targetHeadroom {
+            return components.map { min(max($0 / targetHeadroom, 0), 1) }
+        }
+        let normalized = min(luminance / sourceHeadroom, 1)
+        var mapped = 1 - pow(1 - normalized, exponent)
+        if use100nitsHLGOOTF, transferFunction == .hybridLogGamma {
+            mapped *= 0.9
+        }
+        if useBT1886Gamma {
+            mapped = pow(mapped, 2.4 / 2.2)
+        }
+        let scale = mapped / luminance
+        return components.map { min(max($0 * scale, 0), 1) }
+    }
+
+    private func mapEXRGamma(_ component: CGFloat) -> CGFloat {
+        let exposed = max(component - exrDefog, 0) * pow(2, exrExposure)
+        let kneeScale = pow(2, exrKneeLow * 0.1) * 5 / exrKneeHigh
+        return min(max(1 - exp(-0.48 * kneeScale * exposed), 0), 1)
+    }
+
+    private static func number(_ value: Any?, default defaultValue: CGFloat) -> CGFloat? {
+        guard let value else { return defaultValue }
+        let result: CGFloat
+        switch value {
+        case let value as CGFloat: result = value
+        case let value as Float: result = CGFloat(value)
+        case let value as Double: result = CGFloat(value)
+        case let value as Int: result = CGFloat(value)
+        default: return nil
+        }
+        return result.isFinite ? result : nil
+    }
+
+    private static func boolean(_ value: Any?, default defaultValue: Bool) -> Bool? {
+        guard let value else { return defaultValue }
+        return value as? Bool
     }
 }
 

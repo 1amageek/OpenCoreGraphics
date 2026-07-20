@@ -58,30 +58,32 @@ struct CGToneMappingTests {
     @Test("Raw values")
     func rawValues() {
         #expect(CGToneMapping.default.rawValue == 0)
-        #expect(CGToneMapping.none.rawValue == 1)
-        #expect(CGToneMapping.acesFilmic.rawValue == 2)
-        #expect(CGToneMapping.iturBt2390.rawValue == 3)
-        #expect(CGToneMapping.exponentialRolloff.rawValue == 4)
+        #expect(CGToneMapping.imageSpecificLumaScaling.rawValue == 1)
+        #expect(CGToneMapping.referenceWhiteBased.rawValue == 2)
+        #expect(CGToneMapping.ituRecommended.rawValue == 3)
+        #expect(CGToneMapping.exrGamma.rawValue == 4)
+        #expect(CGToneMapping.none.rawValue == 5)
     }
 
     @Test("Init from raw value")
     func initFromRawValue() {
         #expect(CGToneMapping(rawValue: 0) == .default)
-        #expect(CGToneMapping(rawValue: 1) == CGToneMapping.none)
-        #expect(CGToneMapping(rawValue: 2) == .acesFilmic)
-        #expect(CGToneMapping(rawValue: 3) == .iturBt2390)
-        #expect(CGToneMapping(rawValue: 4) == .exponentialRolloff)
+        #expect(CGToneMapping(rawValue: 1) == .imageSpecificLumaScaling)
+        #expect(CGToneMapping(rawValue: 2) == .referenceWhiteBased)
+        #expect(CGToneMapping(rawValue: 3) == .ituRecommended)
+        #expect(CGToneMapping(rawValue: 4) == .exrGamma)
+        #expect(CGToneMapping(rawValue: 5) == CGToneMapping.none)
         #expect(CGToneMapping(rawValue: 100) == nil)
     }
 
     @Test("Sendable conformance")
     func sendableConformance() async {
-        let mapping = CGToneMapping.acesFilmic
+        let mapping = CGToneMapping.referenceWhiteBased
         let task = Task {
             return mapping
         }
         let result = await task.value
-        #expect(result == .acesFilmic)
+        #expect(result == .referenceWhiteBased)
     }
 }
 

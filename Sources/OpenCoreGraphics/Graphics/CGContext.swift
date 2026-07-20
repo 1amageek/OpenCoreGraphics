@@ -113,7 +113,7 @@ public class CGContext: @unchecked Sendable {
         var fillColorSpace: CGColorSpace?
         var strokeColorSpace: CGColorSpace?
         var edrTargetHeadroom: Float = 1.0
-        var contentToneMappingInfo: CGContentToneMappingInfo? = nil
+        var contentToneMappingInfo: CGContentToneMappingInfo = .default(.init())
 
         // Pattern support
         var fillPattern: CGPattern?
@@ -1209,6 +1209,22 @@ public class CGContext: @unchecked Sendable {
 
     /// Draws an image in the specified rectangle.
     public func draw(_ image: CGImage, in rect: CGRect) {
+        if image.requiresToneMappingFor8BitOutput {
+            let request = currentState.contentToneMappingInfo.methodAndOptions
+            guard let mappedImage = image.toneMapped(
+                by: request.method,
+                targetHeadroom: currentState.edrTargetHeadroom,
+                options: request.options
+            ) else {
+                return
+            }
+            drawUnmapped(mappedImage, in: rect)
+            return
+        }
+        drawUnmapped(image, in: rect)
+    }
+
+    private func drawUnmapped(_ image: CGImage, in rect: CGRect) {
         // Apply CTM to the rect
         let transformedRect = rect.applying(currentState.ctm)
 
@@ -1230,6 +1246,32 @@ public class CGContext: @unchecked Sendable {
                 interpolationQuality: currentState.interpolationQuality
             )
         }
+    }
+
+    /// Draws an image after applying the requested HDR tone-mapping method.
+    ///
+    /// The return value reports whether tone mapping was applicable and the
+    /// resulting image was accepted by this context. Unsupported source
+    /// metadata, formats, or option values fail explicitly.
+    @discardableResult
+    public func draw(
+        _ image: CGImage,
+        in rect: CGRect,
+        by toneMapping: CGToneMapping = .default,
+        options: [String: Any]?
+    ) -> Bool {
+        guard rendererDelegate != nil,
+              bitsPerComponent == 8,
+              bitsPerPixel == 32,
+              let mappedImage = image.toneMapped(
+                by: toneMapping,
+                targetHeadroom: currentState.edrTargetHeadroom,
+                options: options
+              ) else {
+            return false
+        }
+        drawUnmapped(mappedImage, in: rect)
+        return true
     }
 
     /// Draws an image in the specified rectangle, creating a tiled pattern.
@@ -1561,24 +1603,29 @@ public class CGContext: @unchecked Sendable {
     /// Sets the EDR (Extended Dynamic Range) target headroom for the context.
     ///
     /// The headroom value specifies how much brighter than SDR white the brightest
-    /// pixels in the context can be. A value of 1.0 means SDR (no extended range).
-    /// Values greater than 1.0 enable HDR rendering.
+    /// pixels in the context can be. The return value reports whether the context's
+    /// backing format supports EDR headroom.
     ///
-    /// - Parameter headroom: The target headroom value. Must be >= 1.0.
-    public func setEDRTargetHeadroom(_ headroom: Float) {
-        currentState.edrTargetHeadroom = max(1.0, headroom)
-    }
-
-    /// The current EDR target headroom for the context.
-    public var edrTargetHeadroom: Float {
-        return currentState.edrTargetHeadroom
+    /// - Parameter headroom: The target headroom value.
+    @discardableResult
+    public func setEDRTargetHeadroom(_ headroom: Float) -> Bool {
+        let supportsExtendedColor = colorSpace?.name?.contains("Extended") == true
+            || colorSpace?.isHDR() == true
+        guard bitsPerComponent == 16 || bitsPerComponent == 32,
+              bitmapInfo.isFloatComponents,
+              colorSpace?.model == .rgb,
+              supportsExtendedColor else {
+            return false
+        }
+        currentState.edrTargetHeadroom = headroom
+        return true
     }
 
     /// The content tone mapping info for the context.
     ///
     /// This property controls how HDR content is tone mapped when drawn
-    /// to the context. Set to `nil` to use default tone mapping behavior.
-    public var contentToneMappingInfo: CGContentToneMappingInfo? {
+    /// to the context.
+    public var contentToneMappingInfo: CGContentToneMappingInfo {
         get { return currentState.contentToneMappingInfo }
         set { currentState.contentToneMappingInfo = newValue }
     }

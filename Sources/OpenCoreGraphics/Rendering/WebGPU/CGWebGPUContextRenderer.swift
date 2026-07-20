@@ -521,13 +521,14 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     ) {
         guard let target = effectiveRenderTarget,
               let textureView = getOrCreateTextureView(for: image) else { return }
+        let effectiveInterpolationQuality = image.shouldInterpolate ? interpolationQuality : .none
 
         drawTexture(
             textureView,
             in: rect,
             alpha: alpha,
             blendMode: blendMode,
-            interpolationQuality: interpolationQuality,
+            interpolationQuality: effectiveInterpolationQuality,
             target: target,
             clipPaths: [],
             shouldAntialias: false
@@ -691,13 +692,14 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     ) {
         guard let target = effectiveRenderTarget,
               let textureView = getOrCreateTextureView(for: image) else { return }
+        let effectiveInterpolationQuality = image.shouldInterpolate ? interpolationQuality : .none
 
         if state.hasShadow, let shadowColor = state.shadowColor {
             renderTextureShadow(
                 textureView: textureView,
                 in: rect,
                 alpha: alpha,
-                interpolationQuality: interpolationQuality,
+                interpolationQuality: effectiveInterpolationQuality,
                 to: target,
                 shadowColor: shadowColor,
                 shadowOffset: state.shadowOffset,
@@ -711,7 +713,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             in: rect,
             alpha: alpha,
             blendMode: blendMode,
-            interpolationQuality: interpolationQuality,
+            interpolationQuality: effectiveInterpolationQuality,
             target: target,
             clipPaths: state.clipPaths,
             imageMaskClips: state.imageMaskClips,

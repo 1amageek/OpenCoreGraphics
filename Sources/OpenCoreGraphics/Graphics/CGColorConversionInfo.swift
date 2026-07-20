@@ -30,18 +30,45 @@ public enum CGToneMapping: UInt32, Sendable {
     /// Default tone mapping.
     case `default` = 0
 
-    /// No tone mapping.
-    case none = 1
+    /// Image-specific luminance scaling based on gain-map metadata.
+    case imageSpecificLumaScaling = 1
 
-    /// ACES filmic tone mapping.
-    case acesFilmic = 2
+    /// A reference-white-preserving curve that rolls off HDR highlights.
+    case referenceWhiteBased = 2
 
-    /// ITU-R BT.2390 tone mapping.
-    case iturBt2390 = 3
+    /// Tone mapping based on ITU-R recommendations.
+    case ituRecommended = 3
 
-    /// Exponential rolloff tone mapping.
-    case exponentialRolloff = 4
+    /// OpenEXR gamma tone mapping.
+    case exrGamma = 4
+
+    /// No tone mapping. Extended values are clipped to the destination range.
+    case none = 5
 }
+
+/// The OpenEXR defog option key.
+public let kCGEXRToneMappingGammaDefog = "kCGEXRToneMappingGammaDefog"
+
+/// The OpenEXR exposure option key.
+public let kCGEXRToneMappingGammaExposure = "kCGEXRToneMappingGammaExposure"
+
+/// The OpenEXR low-knee option key.
+public let kCGEXRToneMappingGammaKneeLow = "kCGEXRToneMappingGammaKneeLow"
+
+/// The OpenEXR high-knee option key.
+public let kCGEXRToneMappingGammaKneeHigh = "kCGEXRToneMappingGammaKneeHigh"
+
+/// The ITU HLG OOTF option key.
+public let kCGUse100nitsHLGOOTF = "kCGUse100nitsHLGOOTF"
+
+/// The ITU BT.1886 transfer-function option key.
+public let kCGUseBT1886ForCoreVideoGamma = "kCGUseBT1886ForCoreVideoGamma"
+
+/// The ITU SDR-to-HDR boost option key.
+public let kCGSkipBoostToHDR = "kCGSkipBoostToHDR"
+
+/// The legacy HDR conversion option key.
+public let kCGUseLegacyHDREcosystem = "kCGUseLegacyHDREcosystem"
 
 // MARK: - CGColorBufferFormat
 

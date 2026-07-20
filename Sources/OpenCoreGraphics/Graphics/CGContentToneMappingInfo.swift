@@ -145,6 +145,41 @@ public enum CGContentToneMappingInfo: Sendable {
     }
 }
 
+internal extension CGContentToneMappingInfo {
+    var methodAndOptions: (method: CGToneMapping, options: [String: Any]?) {
+        switch self {
+        case .none:
+            return (.none, nil)
+        case .default:
+            return (.default, nil)
+        case .imageSpecificLumaScaling:
+            return (.imageSpecificLumaScaling, nil)
+        case .referenceWhiteBased:
+            return (.referenceWhiteBased, nil)
+        case .exrGamma(let options):
+            return (
+                .exrGamma,
+                [
+                    kCGEXRToneMappingGammaDefog: options.defog,
+                    kCGEXRToneMappingGammaExposure: options.exposure,
+                    kCGEXRToneMappingGammaKneeHigh: options.kneeHigh,
+                    kCGEXRToneMappingGammaKneeLow: options.kneeLow
+                ]
+            )
+        case .ituRecommended(let options):
+            return (
+                .ituRecommended,
+                [
+                    kCGSkipBoostToHDR: options.skipBoostToHDR,
+                    kCGUse100nitsHLGOOTF: options.use100nitsHLGOOTF,
+                    kCGUseBT1886ForCoreVideoGamma: options.useBT1886ForCoreVideoGamma,
+                    kCGUseLegacyHDREcosystem: options.useLegacyHDREcosystem
+                ]
+            )
+        }
+    }
+}
+
 // MARK: - Equatable
 
 extension CGContentToneMappingInfo: Equatable {
@@ -197,14 +232,14 @@ extension CGContentToneMappingInfo: Hashable {
 // MARK: - Identifiable
 
 extension CGContentToneMappingInfo: Identifiable {
-    public var id: Int {
+    public var id: CGToneMapping {
         switch self {
-        case .none: return 0
-        case .default: return 1
-        case .exrGamma: return 2
-        case .imageSpecificLumaScaling: return 3
-        case .ituRecommended: return 4
-        case .referenceWhiteBased: return 5
+        case .default: return .default
+        case .imageSpecificLumaScaling: return .imageSpecificLumaScaling
+        case .referenceWhiteBased: return .referenceWhiteBased
+        case .ituRecommended: return .ituRecommended
+        case .exrGamma: return .exrGamma
+        case .none: return .none
         }
     }
 }
@@ -293,4 +328,3 @@ extension CGContentToneMappingInfo.ITURecommendedOptions: Hashable {
         hasher.combine(useLegacyHDREcosystem)
     }
 }
-

@@ -315,28 +315,28 @@ struct CGContentToneMappingInfoTests {
         @Test("None case")
         func noneCase() {
             let info = CGContentToneMappingInfo.none
-            #expect(info.id == 0)
+            #expect(info.id == .none)
         }
 
         @Test("Default case with options")
         func defaultCaseWithOptions() {
             let options = CGContentToneMappingInfo.DefaultOptions()
             let info = CGContentToneMappingInfo.default(options)
-            #expect(info.id == 1)
+            #expect(info.id == .default)
         }
 
         @Test("EXR gamma case")
         func exrGammaCase() {
             let options = CGContentToneMappingInfo.EXRGammaOptions()
             let info = CGContentToneMappingInfo.exrGamma(options)
-            #expect(info.id == 2)
+            #expect(info.id == .exrGamma)
         }
 
         @Test("ITU recommended case")
         func ituRecommendedCase() {
             let options = CGContentToneMappingInfo.ITURecommendedOptions()
             let info = CGContentToneMappingInfo.ituRecommended(options)
-            #expect(info.id == 4)
+            #expect(info.id == .ituRecommended)
         }
     }
 

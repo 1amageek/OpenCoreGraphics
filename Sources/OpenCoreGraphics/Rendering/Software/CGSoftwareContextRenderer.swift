@@ -136,7 +136,7 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
                 data: data,
                 u: u,
                 v: v,
-                linear: interpolationQuality != .none,
+                linear: interpolationQuality != .none && image.shouldInterpolate,
                 alpha: alpha
             )
         } blendMode: { blendMode }
