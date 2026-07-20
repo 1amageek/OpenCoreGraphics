@@ -38,6 +38,9 @@ public class CGFont: @unchecked Sendable {
     /// The internal parser.
     private let parser: SFNTParser?
 
+    /// A parsed Adobe Type 1 font program for PFA/PFB input.
+    private let type1Program: Type1FontProgram?
+
     /// Cached parsed tables.
     private var cachedHead: HeadTable?
     private var cachedHhea: HheaTable?
@@ -71,10 +74,19 @@ public class CGFont: @unchecked Sendable {
     /// Creates a font object from data supplied by a data provider.
     public init?(_ provider: CGDataProvider) {
         guard let data = provider.data else { return nil }
-        guard let parser = SFNTParser(data: data) else { return nil }
+
+        guard let parser = SFNTParser(data: data) else {
+            guard let type1Program = Type1FontProgram(data: data) else { return nil }
+            self.fontData = data
+            self.parser = nil
+            self.type1Program = type1Program
+            self.variationCoordinates = nil
+            return
+        }
 
         self.fontData = data
         self.parser = parser
+        self.type1Program = nil
         self.variationCoordinates = nil
 
         // Pre-parse essential tables
@@ -213,6 +225,7 @@ public class CGFont: @unchecked Sendable {
         cachedCpal: CpalTable?,
         cachedCFF: CFFFontProgram?,
         cachedCFF2: CFF2FontProgram?,
+        type1Program: Type1FontProgram?,
         variationCoordinates: [String: CGFloat]?
     ) {
         self.fontData = fontData
@@ -237,6 +250,7 @@ public class CGFont: @unchecked Sendable {
         self.cachedCpal = cachedCpal
         self.cachedCFF = cachedCFF
         self.cachedCFF2 = cachedCFF2
+        self.type1Program = type1Program
         self.variationCoordinates = variationCoordinates
     }
 
@@ -431,41 +445,51 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the full name associated with a font object.
     public var fullName: String? {
-        getNameTable()?.fullName
+        if let type1Program { return type1Program.fullName }
+        return getNameTable()?.fullName
     }
 
     /// Obtains the PostScript name of a font.
     public var postScriptName: String? {
-        getNameTable()?.postScriptName
+        if let type1Program { return type1Program.postScriptName }
+        return getNameTable()?.postScriptName
     }
 
     /// Returns the number of glyphs in a font.
     public var numberOfGlyphs: Int {
-        Int(cachedMaxp?.numGlyphs ?? 0)
+        if let type1Program { return type1Program.glyphs.count }
+        return Int(cachedMaxp?.numGlyphs ?? 0)
     }
 
     /// Returns the number of glyph space units per em for the provided font.
     public var unitsPerEm: Int32 {
-        Int32(cachedHead?.unitsPerEm ?? 1000)
+        if let type1Program { return Int32(type1Program.unitsPerEm) }
+        return Int32(cachedHead?.unitsPerEm ?? 1000)
     }
 
     /// Returns the ascent of a font.
     public var ascent: Int32 {
-        Int32(getHheaTable()?.ascent ?? 0)
+        if let type1Program { return Self.integerMetric(type1Program.metricsBBox.maxY) ?? 0 }
+        return Int32(getHheaTable()?.ascent ?? 0)
     }
 
     /// Returns the descent of a font.
     public var descent: Int32 {
-        Int32(getHheaTable()?.descent ?? 0)
+        if let type1Program { return Self.integerMetric(type1Program.metricsBBox.minY) ?? 0 }
+        return Int32(getHheaTable()?.descent ?? 0)
     }
 
     /// Returns the leading of a font.
     public var leading: Int32 {
-        Int32(getHheaTable()?.lineGap ?? 0)
+        if type1Program != nil { return 0 }
+        return Int32(getHheaTable()?.lineGap ?? 0)
     }
 
     /// Returns the cap height of a font.
     public var capHeight: Int32 {
+        if let type1Program {
+            return type1Program.capHeight.flatMap(Self.integerMetric) ?? ascent * 8 / 9
+        }
         if let os2 = getOS2Table(), let capHeight = os2.sCapHeight {
             return Int32(capHeight)
         }
@@ -475,6 +499,9 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the x-height of a font.
     public var xHeight: Int32 {
+        if let type1Program {
+            return type1Program.xHeight.flatMap(Self.integerMetric) ?? ascent * 2 / 3
+        }
         if let os2 = getOS2Table(), let xHeight = os2.sxHeight {
             return Int32(xHeight)
         }
@@ -484,16 +511,19 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the bounding box of a font.
     public var fontBBox: CGRect {
-        cachedHead?.fontBBox ?? .zero
+        if let type1Program { return type1Program.fontBBox }
+        return cachedHead?.fontBBox ?? .zero
     }
 
     /// Returns the italic angle of a font.
     public var italicAngle: CGFloat {
-        getPostTable()?.italicAngle ?? 0
+        if let type1Program { return type1Program.italicAngle }
+        return getPostTable()?.italicAngle ?? 0
     }
 
     /// Returns the thickness of the dominant vertical stems of glyphs in a font.
     public var stemV: CGFloat {
+        if type1Program != nil { return 0 }
         // stemV is not directly available in TrueType fonts
         // Estimate based on weight class if available
         if let os2 = getOS2Table() {
@@ -508,12 +538,14 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns an array of tags that correspond to the font tables for a font.
     public var tableTags: [UInt32]? {
-        parser?.tableTags
+        if type1Program != nil { return nil }
+        return parser?.tableTags
     }
 
     /// Returns the font table that corresponds to the provided tag.
     public func table(for tag: UInt32) -> Data? {
-        parser?.tableData(for: tag)
+        if type1Program != nil { return nil }
+        return parser?.tableData(for: tag)
     }
 
     // MARK: - Glyph Metrics
@@ -524,7 +556,16 @@ public class CGFont: @unchecked Sendable {
         count: Int,
         advances: UnsafeMutablePointer<Int32>
     ) -> Bool {
-        guard count >= 0, let hmtx = getHmtxTable() else { return false }
+        guard count >= 0 else { return false }
+        if let type1Program {
+            for index in 0..<count {
+                guard let glyph = type1Program.glyph(at: Int(glyphs[index])),
+                      let value = Self.integerMetric(glyph.advance.width) else { return false }
+                advances[index] = value
+            }
+            return true
+        }
+        guard let hmtx = getHmtxTable() else { return false }
         let regionScalars: [CGFloat]?
         if let hvar = cachedHvar {
             guard let coordinates = normalizedVariationCoordinates(),
@@ -605,6 +646,10 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the variable horizontal left side bearing in font design units.
     internal func horizontalLeftSideBearing(for glyph: CGGlyph) -> Int32? {
+        if let type1Program {
+            guard let value = type1Program.glyph(at: Int(glyph))?.sideBearing.x else { return nil }
+            return Self.integerMetric(value)
+        }
         guard let hmtx = getHmtxTable(),
               let baseBearing = hmtx.leftSideBearing(for: Int(glyph)) else {
             return nil
@@ -681,6 +726,14 @@ public class CGFont: @unchecked Sendable {
         count: Int,
         bboxes: UnsafeMutablePointer<CGRect>
     ) -> Bool {
+        guard count >= 0 else { return false }
+        if let type1Program {
+            for index in 0..<count {
+                guard let bounds = type1Program.glyphBounds(at: Int(glyphs[index])) else { return false }
+                bboxes[index] = bounds
+            }
+            return true
+        }
         guard let parser else { return false }
 
         if parser.hasTable(FontTableTag.CFF) {
@@ -754,10 +807,9 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns a glyph outline in font design units.
     internal func path(for glyph: CGGlyph) -> CGPath? {
-        guard Int(glyph) < numberOfGlyphs,
-              let parser else {
-            return nil
-        }
+        guard Int(glyph) < numberOfGlyphs else { return nil }
+        if let type1Program { return type1Program.glyph(at: Int(glyph))?.path }
+        guard let parser else { return nil }
         if parser.hasTable(FontTableTag.CFF) {
             return getCFFProgram()?.path(glyphIndex: Int(glyph))
         }
@@ -796,12 +848,16 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the glyph name of the specified glyph in the specified font.
     public func name(for glyph: CGGlyph) -> String? {
+        if let type1Program { return type1Program.glyphName(at: Int(glyph)) }
         guard let post = getPostTable() else { return nil }
         return post.name(for: Int(glyph))
     }
 
     /// Returns the glyph for the glyph name associated with the specified font object.
     public func getGlyphWithGlyphName(name: String) -> CGGlyph {
+        if let type1Program, let index = type1Program.glyphIndex(named: name) {
+            return CGGlyph(index)
+        }
         guard let post = getPostTable(),
               let glyphNames = post.glyphNames else {
             return kCGFontIndexInvalid
@@ -905,6 +961,7 @@ public class CGFont: @unchecked Sendable {
             cachedCpal: cachedCpal,
             cachedCFF: cachedCFF,
             cachedCFF2: cachedCFF2,
+            type1Program: type1Program,
             variationCoordinates: coords.isEmpty ? nil : coords
         )
     }
@@ -966,11 +1023,19 @@ public class CGFont: @unchecked Sendable {
         return Int32(value.rounded(.toNearestOrAwayFromZero))
     }
 
+    private static func integerMetric(_ value: CGFloat) -> Int32? {
+        guard value.isFinite, value >= CGFloat(Int32.min), value <= CGFloat(Int32.max) else {
+            return nil
+        }
+        return Int32(value.rounded(.toNearestOrAwayFromZero))
+    }
+
     // MARK: - Color Font Support (SF Symbols)
 
     /// Returns whether this font has color glyph data.
     public var hasColorGlyphs: Bool {
-        getColrTable() != nil && getCpalTable() != nil
+        if type1Program != nil { return false }
+        return getColrTable() != nil && getCpalTable() != nil
     }
 
     /// Returns the color layers for a glyph (COLR table).
@@ -992,7 +1057,11 @@ public class CGFont: @unchecked Sendable {
 
     /// Determines whether Core Graphics can create a subset of the font in PostScript format.
     public func canCreatePostScriptSubset(_ format: CGFontPostScriptFormat) -> Bool {
-        guard fontData != nil, parser != nil, numberOfGlyphs > 0 else { return false }
+        guard fontData != nil, numberOfGlyphs > 0 else { return false }
+        if type1Program != nil {
+            return format == .type1
+        }
+        guard parser != nil else { return false }
         switch format {
         case .type1:
             let hasOutline = parser?.hasTable(FontTableTag.glyf) == true

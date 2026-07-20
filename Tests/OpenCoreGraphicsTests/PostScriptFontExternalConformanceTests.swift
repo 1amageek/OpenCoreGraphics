@@ -86,6 +86,45 @@ struct PostScriptFontExternalConformanceTests {
         try verifySubset(format: .type1, path: Self.cffFontPath)
     }
 
+    @Test("Generated Type 1 PFA reloads with Apple-compatible metadata, metrics, and outlines")
+    func type1PFAReload() throws {
+        let source = try Self.openFont(at: Self.trueTypeFontPath)
+        let fixture = try #require(Self.fixtureGlyph(in: source))
+        let data = try Self.type1Subset(font: source, fixture: fixture)
+        try Self.verifyType1Reload(data: data, glyphName: fixture.name)
+    }
+
+    @Test("Generated Type 1 PFB reloads with Apple-compatible metadata, metrics, and outlines")
+    func type1PFBReload() throws {
+        let source = try Self.openFont(at: Self.trueTypeFontPath)
+        let fixture = try #require(Self.fixtureGlyph(in: source))
+        let pfa = try Self.type1Subset(font: source, fixture: fixture)
+        let pfb = try #require(Self.pfb(from: pfa))
+        try Self.verifyType1Reload(data: pfb, glyphName: fixture.name)
+    }
+
+    @Test("Truncated PFA and malformed PFB are rejected")
+    func malformedType1Containers() throws {
+        let source = try Self.openFont(at: Self.trueTypeFontPath)
+        let fixture = try #require(Self.fixtureGlyph(in: source))
+        let pfa = try Self.type1Subset(font: source, fixture: fixture)
+        let eexec = try #require(pfa.range(of: Data("eexec\n".utf8)))
+        let truncated = Data(pfa.prefix(eexec.upperBound + 16))
+        let truncatedProvider = OpenCoreGraphics.CGDataProvider(data: truncated)
+        let truncatedFont: OpenCoreGraphics.CGFont? = .init(truncatedProvider)
+        #expect(truncatedFont == nil)
+
+        var pfb = try #require(Self.pfb(from: pfa))
+        #expect(pfb.count > 12)
+        pfb[2] = 0xFF
+        pfb[3] = 0xFF
+        pfb[4] = 0xFF
+        pfb[5] = 0x7F
+        let malformedProvider = OpenCoreGraphics.CGDataProvider(data: pfb)
+        let malformedFont: OpenCoreGraphics.CGFont? = .init(malformedProvider)
+        #expect(malformedFont == nil)
+    }
+
     @Test("Type 42 subset is accepted by Apple Core Graphics and preserves metrics")
     func type42Subset() throws {
         try verifySubset(format: .type42, path: Self.trueTypeFontPath)
@@ -175,6 +214,134 @@ struct PostScriptFontExternalConformanceTests {
         let provider = OpenCoreGraphics.CGDataProvider(data: data)
         let optionalFont: OpenCoreGraphics.CGFont? = .init(provider)
         return try #require(optionalFont)
+    }
+
+    private static func openFont(data: Data) throws -> OpenCoreGraphics.CGFont {
+        let provider = OpenCoreGraphics.CGDataProvider(data: data)
+        let optionalFont: OpenCoreGraphics.CGFont? = .init(provider)
+        return try #require(optionalFont)
+    }
+
+    private static func appleFont(data: Data) throws -> CoreGraphics.CGFont {
+        let optionalProvider: CoreGraphics.CGDataProvider? = .init(data: data as CFData)
+        let provider = try #require(optionalProvider)
+        let optionalFont: CoreGraphics.CGFont? = .init(provider)
+        return try #require(optionalFont)
+    }
+
+    private static func type1Subset(
+        font: OpenCoreGraphics.CGFont,
+        fixture: (glyph: OpenCoreGraphics.CGGlyph, name: String)
+    ) throws -> Data {
+        var encoding = [OpenCoreGraphics.CGGlyph](repeating: 0, count: 256)
+        encoding[65] = fixture.glyph
+        let glyphs: [OpenCoreGraphics.CGGlyph] = [0, fixture.glyph]
+        return try #require(glyphs.withUnsafeBufferPointer { glyphBuffer in
+            encoding.withUnsafeBufferPointer { encodingBuffer in
+                font.createPostScriptSubset(
+                    subsetName: "OCGType1Reload",
+                    format: .type1,
+                    glyphs: glyphBuffer.baseAddress,
+                    count: glyphBuffer.count,
+                    encoding: encodingBuffer.baseAddress
+                )
+            }
+        })
+    }
+
+    private static func verifyType1Reload(data: Data, glyphName: String) throws {
+        let open = try openFont(data: data)
+        let apple = try appleFont(data: data)
+        #expect(open.fullName == apple.fullName as String?)
+        #expect(open.postScriptName == apple.postScriptName as String?)
+        #expect(open.numberOfGlyphs == apple.numberOfGlyphs)
+        #expect(open.unitsPerEm == apple.unitsPerEm)
+        #expect(open.ascent == apple.ascent)
+        #expect(open.descent == apple.descent)
+        #expect(open.leading == apple.leading)
+        #expect(open.capHeight == apple.capHeight)
+        #expect(open.xHeight == apple.xHeight)
+        #expect(open.fontBBox.origin.x == apple.fontBBox.origin.x)
+        #expect(Swift.abs(Double(open.fontBBox.origin.y - apple.fontBBox.origin.y)) <= 1)
+        #expect(Swift.abs(Double(open.fontBBox.size.width - apple.fontBBox.size.width)) <= 1)
+        #expect(Swift.abs(Double(open.fontBBox.size.height - apple.fontBBox.size.height)) <= 1)
+        #expect(open.italicAngle == apple.italicAngle)
+        #expect(open.stemV == apple.stemV)
+        #expect(open.tableTags == nil)
+        #expect(apple.tableTags == nil)
+        #expect(open.canCreatePostScriptSubset(.type1) == apple.canCreatePostScriptSubset(.type1))
+        #expect(open.canCreatePostScriptSubset(.type3) == apple.canCreatePostScriptSubset(.type3))
+        #expect(open.canCreatePostScriptSubset(.type42) == apple.canCreatePostScriptSubset(.type42))
+
+        let openGlyph = open.getGlyphWithGlyphName(name: glyphName)
+        let appleGlyph = apple.getGlyphWithGlyphName(name: glyphName as CFString)
+        #expect(openGlyph != OpenCoreGraphics.kCGFontIndexInvalid)
+        #expect(appleGlyph != CoreGraphics.CGGlyph.max)
+        #expect(open.name(for: openGlyph) == apple.name(for: appleGlyph) as String?)
+
+        var mutableOpenGlyph = openGlyph
+        var openAdvance: Int32 = 0
+        #expect(open.getGlyphAdvances(glyphs: &mutableOpenGlyph, count: 1, advances: &openAdvance))
+        var mutableAppleGlyph = appleGlyph
+        var appleAdvance: Int32 = 0
+        #expect(apple.getGlyphAdvances(glyphs: &mutableAppleGlyph, count: 1, advances: &appleAdvance))
+        #expect(openAdvance == appleAdvance)
+
+        var openBounds = Foundation.CGRect(x: 0, y: 0, width: 0, height: 0)
+        var appleBounds = Foundation.CGRect(x: 0, y: 0, width: 0, height: 0)
+        #expect(open.getGlyphBBoxes(glyphs: &mutableOpenGlyph, count: 1, bboxes: &openBounds))
+        #expect(apple.getGlyphBBoxes(glyphs: &mutableAppleGlyph, count: 1, bboxes: &appleBounds))
+        #expect(Swift.abs(Double(openBounds.origin.x - appleBounds.origin.x)) <= 1)
+        #expect(Swift.abs(Double(openBounds.origin.y - appleBounds.origin.y)) <= 1)
+        #expect(openBounds.size.width == appleBounds.size.width)
+        #expect(openBounds.size.height == appleBounds.size.height)
+        let openPath = try #require(open.path(for: openGlyph))
+        let appleCTFont = CTFontCreateWithGraphicsFont(apple, CGFloat(apple.unitsPerEm), nil, nil)
+        let applePath = try #require(CTFontCreatePathForGlyph(appleCTFont, appleGlyph, nil))
+        #expect(boundsApproximatelyEqual(openPath.boundingBox, applePath.boundingBox))
+    }
+
+    private static func pfb(from pfa: Data) -> Data? {
+        guard let eexec = pfa.range(of: Data("eexec\n".utf8)) else { return nil }
+        let clear = Data(pfa[..<eexec.upperBound])
+        guard let source = String(data: pfa[eexec.upperBound...], encoding: .ascii) else { return nil }
+        var ciphertext = Data()
+        for token in source.split(whereSeparator: { $0.isWhitespace }) {
+            if token.count >= 32, token.allSatisfy({ $0 == "0" }) { break }
+            let bytes = Array(token.utf8)
+            guard bytes.count.isMultiple(of: 2) else { return nil }
+            for index in stride(from: 0, to: bytes.count, by: 2) {
+                guard let high = hexNibble(bytes[index]), let low = hexNibble(bytes[index + 1]) else {
+                    return nil
+                }
+                ciphertext.append(high << 4 | low)
+            }
+        }
+        guard !ciphertext.isEmpty else { return nil }
+        var result = Data()
+        appendPFBSegment(type: 1, data: clear, to: &result)
+        appendPFBSegment(type: 2, data: ciphertext, to: &result)
+        result.append(contentsOf: [0x80, 0x03])
+        return result
+    }
+
+    private static func appendPFBSegment(type: UInt8, data: Data, to result: inout Data) {
+        result.append(contentsOf: [0x80, type])
+        let length = UInt32(data.count)
+        result.append(UInt8(truncatingIfNeeded: length))
+        result.append(UInt8(truncatingIfNeeded: length >> 8))
+        result.append(UInt8(truncatingIfNeeded: length >> 16))
+        result.append(UInt8(truncatingIfNeeded: length >> 24))
+        result.append(data)
+    }
+
+    private static func hexNibble(_ byte: UInt8) -> UInt8? {
+        switch byte {
+        case 48...57: return byte - 48
+        case 65...70: return byte - 65 + 10
+        case 97...102: return byte - 97 + 10
+        default: return nil
+        }
     }
 
     private static func appleFont(at path: String) throws -> CoreGraphics.CGFont {
