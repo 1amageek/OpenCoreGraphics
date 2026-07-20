@@ -145,7 +145,12 @@ internal struct SFNTParser: Sendable {
         guard let tableData = tableData(for: FontTableTag.hhea) else {
             throw FontParserError.tableNotFound("hhea")
         }
-        guard tableData.count >= 36 else {
+        guard tableData.count >= 36,
+              tableData.readUInt32BE(at: 0) == 0x0001_0000,
+              tableData.readUInt32BE(at: 24) == 0,
+              tableData.readInt16BE(at: 28) == 0,
+              tableData.readInt16BE(at: 30) == 0,
+              tableData.readInt16BE(at: 32) == 0 else {
             throw FontParserError.invalidTableFormat("hhea")
         }
 
@@ -228,12 +233,19 @@ internal struct SFNTParser: Sendable {
             throw FontParserError.tableNotFound("hmtx")
         }
 
+        guard numberOfGlyphs > 0, (1...numberOfGlyphs).contains(numberOfHMetrics) else {
+            throw FontParserError.invalidTableFormat("hmtx")
+        }
+        let requiredLength = numberOfHMetrics * 4 + (numberOfGlyphs - numberOfHMetrics) * 2
+        guard tableData.count == requiredLength else {
+            throw FontParserError.invalidTableFormat("hmtx")
+        }
+
         var hMetrics: [HmtxTable.LongHorMetric] = []
         hMetrics.reserveCapacity(numberOfHMetrics)
 
         for i in 0..<numberOfHMetrics {
             let offset = i * 4
-            guard offset + 4 <= tableData.count else { break }
             hMetrics.append(HmtxTable.LongHorMetric(
                 advanceWidth: tableData.readUInt16BE(at: offset),
                 leftSideBearing: tableData.readInt16BE(at: offset + 2)
@@ -250,12 +262,92 @@ internal struct SFNTParser: Sendable {
 
             for i in 0..<lsbCount {
                 let offset = lsbOffset + i * 2
-                guard offset + 2 <= tableData.count else { break }
                 leftSideBearings.append(tableData.readInt16BE(at: offset))
             }
         }
 
-        return HmtxTable(hMetrics: hMetrics, leftSideBearings: leftSideBearings)
+        return HmtxTable(
+            hMetrics: hMetrics,
+            leftSideBearings: leftSideBearings,
+            glyphCount: numberOfGlyphs
+        )
+    }
+
+    // MARK: - Variable Metrics Tables
+
+    func parseHvarTable(axisCount: Int, glyphCount: Int) throws -> HvarTable? {
+        guard let tableData = tableData(for: FontTableTag.HVAR) else { return nil }
+        guard let table = HvarTable(data: tableData, axisCount: axisCount, glyphCount: glyphCount) else {
+            throw FontParserError.invalidTableFormat("HVAR")
+        }
+        return table
+    }
+
+    func parseVheaTable() throws -> VheaTable {
+        guard let tableData = tableData(for: FontTableTag.vhea) else {
+            throw FontParserError.tableNotFound("vhea")
+        }
+        let version = tableData.readUInt32BE(at: 0)
+        guard tableData.count >= 36,
+              version == 0x0001_0000 || version == 0x0001_1000,
+              tableData.readUInt32BE(at: 24) == 0,
+              tableData.readInt16BE(at: 28) == 0,
+              tableData.readInt16BE(at: 30) == 0,
+              tableData.readInt16BE(at: 32) == 0 else {
+            throw FontParserError.invalidTableFormat("vhea")
+        }
+        return VheaTable(
+            advanceHeightMax: tableData.readUInt16BE(at: 10),
+            numberOfVMetrics: tableData.readUInt16BE(at: 34)
+        )
+    }
+
+    func parseVmtxTable(numberOfGlyphs: Int, numberOfVMetrics: Int) throws -> VmtxTable {
+        guard let tableData = tableData(for: FontTableTag.vmtx) else {
+            throw FontParserError.tableNotFound("vmtx")
+        }
+        guard numberOfGlyphs > 0, (1...numberOfGlyphs).contains(numberOfVMetrics) else {
+            throw FontParserError.invalidTableFormat("vmtx")
+        }
+        let requiredLength = numberOfVMetrics * 4 + (numberOfGlyphs - numberOfVMetrics) * 2
+        guard tableData.count == requiredLength else {
+            throw FontParserError.invalidTableFormat("vmtx")
+        }
+        var metrics: [VmtxTable.LongVerMetric] = []
+        metrics.reserveCapacity(numberOfVMetrics)
+        for index in 0..<numberOfVMetrics {
+            let offset = index * 4
+            metrics.append(VmtxTable.LongVerMetric(
+                advanceHeight: tableData.readUInt16BE(at: offset),
+                topSideBearing: tableData.readInt16BE(at: offset + 2)
+            ))
+        }
+        var topSideBearings: [Int16] = []
+        topSideBearings.reserveCapacity(numberOfGlyphs - numberOfVMetrics)
+        for index in 0..<(numberOfGlyphs - numberOfVMetrics) {
+            topSideBearings.append(tableData.readInt16BE(at: numberOfVMetrics * 4 + index * 2))
+        }
+        return VmtxTable(
+            metrics: metrics,
+            topSideBearings: topSideBearings,
+            glyphCount: numberOfGlyphs
+        )
+    }
+
+    func parseVvarTable(axisCount: Int, glyphCount: Int) throws -> VvarTable? {
+        guard let tableData = tableData(for: FontTableTag.VVAR) else { return nil }
+        guard let table = VvarTable(data: tableData, axisCount: axisCount, glyphCount: glyphCount) else {
+            throw FontParserError.invalidTableFormat("VVAR")
+        }
+        return table
+    }
+
+    func parseVorgTable(glyphCount: Int) throws -> VorgTable? {
+        guard let tableData = tableData(for: FontTableTag.VORG) else { return nil }
+        guard let table = VorgTable(data: tableData, glyphCount: glyphCount) else {
+            throw FontParserError.invalidTableFormat("VORG")
+        }
+        return table
     }
 
     // MARK: - Post Table

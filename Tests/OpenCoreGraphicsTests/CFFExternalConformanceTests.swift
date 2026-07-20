@@ -68,6 +68,7 @@ struct CFFExternalConformanceTests {
         let appleFont = try #require(optionalAppleFont)
 
         try Self.compareBounds(openFont: openFont, appleFont: appleFont)
+        try Self.compareAdvances(openFont: openFont, appleFont: appleFont)
 
         let axisName = try #require(
             openFont.variationAxes?.first(where: {
@@ -80,6 +81,7 @@ struct CFFExternalConformanceTests {
         )
         #expect(openVariableFont.variations?[axisName] == 900)
         try Self.compareBounds(openFont: openVariableFont, appleFont: appleVariableFont)
+        try Self.compareAdvances(openFont: openVariableFont, appleFont: appleVariableFont)
     }
 
     private static func compareBounds(
@@ -121,6 +123,36 @@ struct CFFExternalConformanceTests {
             compared += 1
         }
         #expect(compared >= 64)
+    }
+
+    private static func compareAdvances(
+        openFont: OpenCoreGraphics.CGFont,
+        appleFont: CoreGraphics.CGFont
+    ) throws {
+        var glyphs = (0..<min(openFont.numberOfGlyphs, 128)).map(UInt16.init)
+        var openAdvances = Array(repeating: Int32.zero, count: glyphs.count)
+        var appleAdvances = Array(repeating: Int32.zero, count: glyphs.count)
+        let openSucceeded = glyphs.withUnsafeBufferPointer { glyphBuffer in
+            openAdvances.withUnsafeMutableBufferPointer { advanceBuffer in
+                openFont.getGlyphAdvances(
+                    glyphs: glyphBuffer.baseAddress!,
+                    count: glyphBuffer.count,
+                    advances: advanceBuffer.baseAddress!
+                )
+            }
+        }
+        let appleSucceeded = glyphs.withUnsafeBufferPointer { glyphBuffer in
+            appleAdvances.withUnsafeMutableBufferPointer { advanceBuffer in
+                appleFont.getGlyphAdvances(
+                    glyphs: glyphBuffer.baseAddress!,
+                    count: glyphBuffer.count,
+                    advances: advanceBuffer.baseAddress!
+                )
+            }
+        }
+        #expect(openSucceeded)
+        #expect(appleSucceeded)
+        #expect(openAdvances == appleAdvances)
     }
 
     private static func values(_ rect: Foundation.CGRect) -> [Double] {

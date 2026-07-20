@@ -133,29 +133,23 @@ internal struct HmtxTable: Sendable {
     let hMetrics: [LongHorMetric]
     /// Array of left side bearings for remaining glyphs.
     let leftSideBearings: [Int16]
+    /// Number of glyphs covered by this table.
+    let glyphCount: Int
 
     /// Gets the advance width for a glyph.
-    func advanceWidth(for glyphIndex: Int) -> UInt16 {
-        if glyphIndex < hMetrics.count {
-            return hMetrics[glyphIndex].advanceWidth
-        } else if !hMetrics.isEmpty {
-            // Glyphs beyond numberOfHMetrics use the last advance width
-            return hMetrics[hMetrics.count - 1].advanceWidth
-        }
-        return 0
+    func advanceWidth(for glyphIndex: Int) -> UInt16? {
+        guard (0..<glyphCount).contains(glyphIndex), let lastMetric = hMetrics.last else { return nil }
+        if hMetrics.indices.contains(glyphIndex) { return hMetrics[glyphIndex].advanceWidth }
+        return lastMetric.advanceWidth
     }
 
     /// Gets the left side bearing for a glyph.
-    func leftSideBearing(for glyphIndex: Int) -> Int16 {
-        if glyphIndex < hMetrics.count {
-            return hMetrics[glyphIndex].leftSideBearing
-        } else {
-            let lsbIndex = glyphIndex - hMetrics.count
-            if lsbIndex < leftSideBearings.count {
-                return leftSideBearings[lsbIndex]
-            }
-        }
-        return 0
+    func leftSideBearing(for glyphIndex: Int) -> Int16? {
+        guard (0..<glyphCount).contains(glyphIndex) else { return nil }
+        if hMetrics.indices.contains(glyphIndex) { return hMetrics[glyphIndex].leftSideBearing }
+        let lsbIndex = glyphIndex - hMetrics.count
+        guard leftSideBearings.indices.contains(lsbIndex) else { return nil }
+        return leftSideBearings[lsbIndex]
     }
 }
 
@@ -518,5 +512,4 @@ internal struct CpalTable: Sendable {
         return palette[colorIndex]
     }
 }
-
 

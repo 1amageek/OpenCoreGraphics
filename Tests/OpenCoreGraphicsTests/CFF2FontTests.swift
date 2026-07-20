@@ -62,6 +62,10 @@ struct CFF2FontTests {
         data[variationStoreOffset + 2] = 0
         data[variationStoreOffset + 3] = 2
         #expect(CGFont(CGDataProvider(data: data)) == nil)
+
+        var invalidWordMode = makeFontData()
+        invalidWordMode[variationStoreOffset + 26] = 0x80
+        #expect(CGFont(CGDataProvider(data: invalidWordMode)) == nil)
     }
 
     @Test("CFF2 blend keeps delta groups in operand order")
@@ -115,6 +119,17 @@ struct CFF2FontTests {
         #expect(try #require(path).boundingBox == CGRect(x: -100, y: 0, width: 100, height: 100))
     }
 
+    @Test("CFF2 vertical metrics use vmtx and VORG")
+    func verticalMetrics() throws {
+        let font = try #require(CGFont(CGDataProvider(data: makeFontData())))
+        #expect(font.verticalAdvance(for: 0) == 800)
+        #expect(font.verticalAdvance(for: 1) == 900)
+        #expect(font.verticalTopSideBearing(for: 0) == 10)
+        #expect(font.verticalTopSideBearing(for: 1) == 20)
+        #expect(font.verticalOriginY(for: 0) == 850)
+        #expect(font.verticalOriginY(for: 1) == 920)
+    }
+
     private func makeFontData(includeAvar: Bool = false) -> Data {
         let head = makeHeadTable()
         let maxp = Data([0x00, 0x00, 0x50, 0x00, 0x00, 0x02])
@@ -126,13 +141,19 @@ struct CFF2FontTests {
                 (FontTableTag.maxp, maxp),
                 (FontTableTag.fvar, fvar),
                 (FontTableTag.avar, makeAvarTable()),
-                (FontTableTag.CFF2, cff2)
+                (FontTableTag.CFF2, cff2),
+                (FontTableTag.vhea, makeVheaTable()),
+                (FontTableTag.vmtx, makeVmtxTable()),
+                (FontTableTag.VORG, makeVorgTable())
             ]
             : [
                 (FontTableTag.head, head),
                 (FontTableTag.maxp, maxp),
                 (FontTableTag.fvar, fvar),
-                (FontTableTag.CFF2, cff2)
+                (FontTableTag.CFF2, cff2),
+                (FontTableTag.vhea, makeVheaTable()),
+                (FontTableTag.vmtx, makeVmtxTable()),
+                (FontTableTag.VORG, makeVorgTable())
             ]
         let directoryEnd = 12 + tables.count * 16
         var offset = directoryEnd
@@ -305,6 +326,36 @@ struct CFF2FontTests {
         data[41] = 0xC8
         data[42] = 0x00
         data[43] = 0x64
+        return data
+    }
+
+    private func makeVheaTable() -> Data {
+        var data = Data(repeating: 0, count: 36)
+        data[1] = 1
+        data[2] = 0x10
+        data[10] = 0x03
+        data[11] = 0x84
+        data[35] = 2
+        return data
+    }
+
+    private func makeVmtxTable() -> Data {
+        var data = Data()
+        appendUInt16(800, to: &data)
+        appendInt16(10, to: &data)
+        appendUInt16(900, to: &data)
+        appendInt16(20, to: &data)
+        return data
+    }
+
+    private func makeVorgTable() -> Data {
+        var data = Data()
+        appendUInt16(1, to: &data)
+        appendUInt16(0, to: &data)
+        appendInt16(850, to: &data)
+        appendUInt16(1, to: &data)
+        appendUInt16(1, to: &data)
+        appendInt16(920, to: &data)
         return data
     }
 

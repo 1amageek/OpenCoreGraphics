@@ -43,12 +43,17 @@ public class CGFont: @unchecked Sendable {
     private var cachedHhea: HheaTable?
     private var cachedMaxp: MaxpTable?
     private var cachedHmtx: HmtxTable?
+    private var cachedVhea: VheaTable?
+    private var cachedVmtx: VmtxTable?
+    private var cachedVorg: VorgTable?
     private var cachedPost: PostTable?
     private var cachedOS2: OS2Table?
     private var cachedName: NameTable?
     private var cachedLoca: LocaTable?
     private var cachedFvar: FvarTable?
     private var cachedAvar: AvarTable?
+    private var cachedHvar: HvarTable?
+    private var cachedVvar: VvarTable?
     private var cachedColr: ColrTable?
     private var cachedCpal: CpalTable?
     private var cachedCFF: CFFFontProgram?
@@ -78,6 +83,70 @@ public class CGFont: @unchecked Sendable {
         } catch {
             return nil
         }
+        let glyphCount = Int(cachedMaxp?.numGlyphs ?? 0)
+        let hasVerticalHeader = parser.hasTable(FontTableTag.vhea)
+        let hasVerticalMetrics = parser.hasTable(FontTableTag.vmtx)
+        guard hasVerticalHeader == hasVerticalMetrics else { return nil }
+        if hasVerticalHeader {
+            do {
+                let vhea = try parser.parseVheaTable()
+                self.cachedVhea = vhea
+                self.cachedVmtx = try parser.parseVmtxTable(
+                    numberOfGlyphs: glyphCount,
+                    numberOfVMetrics: Int(vhea.numberOfVMetrics)
+                )
+            } catch {
+                return nil
+            }
+        }
+        if parser.hasTable(FontTableTag.VORG)
+            && (parser.hasTable(FontTableTag.CFF) || parser.hasTable(FontTableTag.CFF2)) {
+            guard cachedVmtx != nil else { return nil }
+            do {
+                guard let vorg = try parser.parseVorgTable(glyphCount: glyphCount) else { return nil }
+                self.cachedVorg = vorg
+            } catch {
+                return nil
+            }
+        }
+        if parser.hasTable(FontTableTag.fvar) {
+            do {
+                guard let fvar = try parser.parseFvarTable() else { return nil }
+                self.cachedFvar = fvar
+                self.cachedAvar = try parser.parseAvarTable(axisCount: fvar.axes.count)
+                if parser.hasTable(FontTableTag.HVAR) {
+                    let hhea = try parser.parseHheaTable()
+                    self.cachedHhea = hhea
+                    self.cachedHmtx = try parser.parseHmtxTable(
+                        numberOfGlyphs: glyphCount,
+                        numberOfHMetrics: Int(hhea.numberOfHMetrics)
+                    )
+                    guard let hvar = try parser.parseHvarTable(
+                        axisCount: fvar.axes.count,
+                        glyphCount: glyphCount
+                    ) else {
+                        return nil
+                    }
+                    self.cachedHvar = hvar
+                }
+                if parser.hasTable(FontTableTag.VVAR) {
+                    guard self.cachedVmtx != nil else { return nil }
+                    guard let vvar = try parser.parseVvarTable(
+                        axisCount: fvar.axes.count,
+                        glyphCount: glyphCount
+                    ) else {
+                        return nil
+                    }
+                    self.cachedVvar = vvar
+                }
+            } catch {
+                return nil
+            }
+        } else if parser.hasTable(FontTableTag.avar)
+                    || parser.hasTable(FontTableTag.HVAR)
+                    || parser.hasTable(FontTableTag.VVAR) {
+            return nil
+        }
         if parser.hasTable(FontTableTag.CFF) {
             guard !parser.hasTable(FontTableTag.CFF2),
                   let cff = parser.parseCFFFontProgram(),
@@ -86,26 +155,12 @@ public class CGFont: @unchecked Sendable {
             }
             self.cachedCFF = cff
         } else if parser.hasTable(FontTableTag.CFF2) {
-            let fvar: FvarTable?
-            do {
-                fvar = try parser.parseFvarTable()
-            } catch {
-                return nil
-            }
-            let axisCount = fvar?.axes.count ?? 0
+            let axisCount = cachedFvar?.axes.count ?? 0
             guard let cff2 = parser.parseCFF2FontProgram(
                 axisCount: axisCount,
                 unitsPerEm: Int(cachedHead?.unitsPerEm ?? 0)
             ), cff2.charStrings.ranges.count == Int(cachedMaxp?.numGlyphs ?? 0) else {
                 return nil
-            }
-            self.cachedFvar = fvar
-            if axisCount > 0 {
-                do {
-                    self.cachedAvar = try parser.parseAvarTable(axisCount: axisCount)
-                } catch {
-                    return nil
-                }
             }
             self.cachedCFF2 = cff2
         }
@@ -128,12 +183,17 @@ public class CGFont: @unchecked Sendable {
         cachedHhea: HheaTable?,
         cachedMaxp: MaxpTable?,
         cachedHmtx: HmtxTable?,
+        cachedVhea: VheaTable?,
+        cachedVmtx: VmtxTable?,
+        cachedVorg: VorgTable?,
         cachedPost: PostTable?,
         cachedOS2: OS2Table?,
         cachedName: NameTable?,
         cachedLoca: LocaTable?,
         cachedFvar: FvarTable?,
         cachedAvar: AvarTable?,
+        cachedHvar: HvarTable?,
+        cachedVvar: VvarTable?,
         cachedColr: ColrTable?,
         cachedCpal: CpalTable?,
         cachedCFF: CFFFontProgram?,
@@ -146,12 +206,17 @@ public class CGFont: @unchecked Sendable {
         self.cachedHhea = cachedHhea
         self.cachedMaxp = cachedMaxp
         self.cachedHmtx = cachedHmtx
+        self.cachedVhea = cachedVhea
+        self.cachedVmtx = cachedVmtx
+        self.cachedVorg = cachedVorg
         self.cachedPost = cachedPost
         self.cachedOS2 = cachedOS2
         self.cachedName = cachedName
         self.cachedLoca = cachedLoca
         self.cachedFvar = cachedFvar
         self.cachedAvar = cachedAvar
+        self.cachedHvar = cachedHvar
+        self.cachedVvar = cachedVvar
         self.cachedColr = cachedColr
         self.cachedCpal = cachedCpal
         self.cachedCFF = cachedCFF
@@ -443,13 +508,120 @@ public class CGFont: @unchecked Sendable {
         count: Int,
         advances: UnsafeMutablePointer<Int32>
     ) -> Bool {
-        guard let hmtx = getHmtxTable() else { return false }
+        guard count >= 0, let hmtx = getHmtxTable() else { return false }
+        let regionScalars: [CGFloat]?
+        if let hvar = cachedHvar {
+            guard let coordinates = normalizedVariationCoordinates(),
+                  let scalars = hvar.regionScalars(for: coordinates) else {
+                return false
+            }
+            regionScalars = scalars
+        } else {
+            regionScalars = nil
+        }
 
         for i in 0..<count {
             let glyphIndex = Int(glyphs[i])
-            advances[i] = Int32(hmtx.advanceWidth(for: glyphIndex))
+            guard let baseAdvance = hmtx.advanceWidth(for: glyphIndex) else { return false }
+            let delta: CGFloat
+            if let hvar = cachedHvar, let regionScalars {
+                guard let resolvedDelta = hvar.advanceWidthDelta(
+                    for: glyphIndex,
+                    regionScalars: regionScalars
+                ) else {
+                    return false
+                }
+                delta = resolvedDelta
+            } else {
+                delta = 0
+            }
+            guard let adjustedAdvance = Self.adjustedMetric(base: baseAdvance, delta: delta) else {
+                return false
+            }
+            advances[i] = adjustedAdvance
         }
         return true
+    }
+
+    /// Returns the variable vertical advance height in font design units.
+    internal func verticalAdvance(for glyph: CGGlyph) -> Int32? {
+        guard let vmtx = cachedVmtx,
+              let baseAdvance = vmtx.advanceHeight(for: Int(glyph)) else {
+            return nil
+        }
+        guard let vvar = cachedVvar else { return Int32(baseAdvance) }
+        guard let coordinates = normalizedVariationCoordinates(),
+              let delta = vvar.advanceHeightDelta(
+                for: Int(glyph),
+                coordinates: coordinates
+              ) else {
+            return nil
+        }
+        return Self.adjustedMetric(base: baseAdvance, delta: delta)
+    }
+
+    /// Returns the variable horizontal left side bearing in font design units.
+    internal func horizontalLeftSideBearing(for glyph: CGGlyph) -> Int32? {
+        guard let hmtx = getHmtxTable(),
+              let baseBearing = hmtx.leftSideBearing(for: Int(glyph)) else {
+            return nil
+        }
+        guard let hvar = cachedHvar else { return Int32(baseBearing) }
+        guard let coordinates = normalizedVariationCoordinates(),
+              let delta = hvar.leftSideBearingDelta(
+                for: Int(glyph),
+                coordinates: coordinates
+              ) else {
+            return nil
+        }
+        return Self.adjustedMetric(base: CGFloat(baseBearing), delta: delta)
+    }
+
+    /// Returns the variable vertical top side bearing in font design units.
+    internal func verticalTopSideBearing(for glyph: CGGlyph) -> Int32? {
+        guard let vmtx = cachedVmtx,
+              let baseBearing = vmtx.topSideBearing(for: Int(glyph)) else {
+            return nil
+        }
+        guard let vvar = cachedVvar else { return Int32(baseBearing) }
+        guard let coordinates = normalizedVariationCoordinates(),
+              let delta = vvar.topSideBearingDelta(
+                for: Int(glyph),
+                coordinates: coordinates
+              ) else {
+            return nil
+        }
+        return Self.adjustedMetric(base: CGFloat(baseBearing), delta: delta)
+    }
+
+    /// Returns the variable vertical origin Y coordinate in font design units.
+    internal func verticalOriginY(for glyph: CGGlyph) -> Int32? {
+        let glyphIndex = Int(glyph)
+        if let vorg = cachedVorg {
+            guard let baseOrigin = vorg.originY(for: glyphIndex) else { return nil }
+            let delta: CGFloat
+            if let vvar = cachedVvar {
+                guard let coordinates = normalizedVariationCoordinates(),
+                      let resolved = vvar.verticalOriginDelta(
+                        for: glyphIndex,
+                        coordinates: coordinates
+                      ) else {
+                    return nil
+                }
+                delta = resolved
+            } else {
+                delta = 0
+            }
+            return Self.adjustedMetric(base: CGFloat(baseOrigin), delta: delta)
+        }
+        guard let topBearing = verticalTopSideBearing(for: glyph),
+              let glyphPath = path(for: glyph) else {
+            return nil
+        }
+        return Self.adjustedMetric(
+            base: CGFloat(topBearing) + glyphPath.boundingBox.maxY,
+            delta: 0
+        )
     }
 
     /// Gets the bounding box of each glyph in an array.
@@ -626,12 +798,17 @@ public class CGFont: @unchecked Sendable {
             cachedHhea: cachedHhea,
             cachedMaxp: cachedMaxp,
             cachedHmtx: cachedHmtx,
+            cachedVhea: cachedVhea,
+            cachedVmtx: cachedVmtx,
+            cachedVorg: cachedVorg,
             cachedPost: cachedPost,
             cachedOS2: cachedOS2,
             cachedName: cachedName,
             cachedLoca: cachedLoca,
             cachedFvar: cachedFvar,
             cachedAvar: cachedAvar,
+            cachedHvar: cachedHvar,
+            cachedVvar: cachedVvar,
             cachedColr: cachedColr,
             cachedCpal: cachedCpal,
             cachedCFF: cachedCFF,
@@ -682,6 +859,19 @@ public class CGFont: @unchecked Sendable {
         if let value = value as? Int32 { return CGFloat(value) }
         if let value = value as? UInt { return CGFloat(value) }
         return nil
+    }
+
+    private static func adjustedMetric(base: UInt16, delta: CGFloat) -> Int32? {
+        adjustedMetric(base: CGFloat(base), delta: delta)
+    }
+
+    private static func adjustedMetric(base: CGFloat, delta: CGFloat) -> Int32? {
+        let value = base + delta
+        guard value.isFinite,
+              value >= CGFloat(Int32.min), value <= CGFloat(Int32.max) else {
+            return nil
+        }
+        return Int32(value.rounded(.toNearestOrAwayFromZero))
     }
 
     // MARK: - Color Font Support (SF Symbols)
