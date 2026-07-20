@@ -1240,4 +1240,56 @@ struct CGPathTests {
             #expect(bbox.minY >= 94) // 100 - 5 (half line width)
         }
     }
+
+    @Suite("Dashed Path Copies")
+    struct DashedPathCopyTests {
+        @Test("Painted and unpainted segments follow the dash pattern")
+        func basicDashPattern() {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 0, y: 0))
+            path.addLine(to: CGPoint(x: 10, y: 0))
+
+            let dashed = path.copy(dashingWithPhase: 0, lengths: [2, 1])
+            var elements: [(CGPathElementType, CGPoint)] = []
+            dashed.applyWithBlock { element in
+                guard let points = element.pointee.points else { return }
+                elements.append((element.pointee.type, points[0]))
+            }
+
+            #expect(elements.count == 8)
+            #expect(elements.map(\.0) == [.moveToPoint, .addLineToPoint, .moveToPoint, .addLineToPoint, .moveToPoint, .addLineToPoint, .moveToPoint, .addLineToPoint])
+            #expect(elements.map { $0.1.x } == [0, 2, 3, 5, 6, 8, 9, 10])
+        }
+
+        @Test("Transform is applied before phase and lengths")
+        func transformBeforeDashing() {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 1, y: 1))
+            path.addLine(to: CGPoint(x: 5, y: 1))
+
+            let dashed = path.copy(
+                dashingWithPhase: 1,
+                lengths: [2, 2],
+                transform: CGAffineTransform(scaleX: 2, y: 3)
+            )
+            var points: [CGPoint] = []
+            dashed.applyWithBlock { element in
+                guard let elementPoints = element.pointee.points else { return }
+                points.append(elementPoints[0])
+            }
+
+            #expect(points == [
+                CGPoint(x: 2, y: 3), CGPoint(x: 3, y: 3),
+                CGPoint(x: 5, y: 3), CGPoint(x: 7, y: 3),
+                CGPoint(x: 9, y: 3), CGPoint(x: 10, y: 3)
+            ])
+        }
+
+        @Test("Invalid dash lengths produce an empty path")
+        func invalidPattern() {
+            let path = CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10))
+            #expect(path.copy(dashingWithPhase: 0, lengths: [2, 0]).isEmpty)
+            #expect(path.copy(dashingWithPhase: 0, lengths: [CGFloat.nan]).isEmpty)
+        }
+    }
 }

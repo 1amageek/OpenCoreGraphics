@@ -11,6 +11,50 @@ import Foundation
 
 extension CGPath {
 
+    // MARK: - Dashed Copies
+
+    /// Returns a transformed copy whose line segments contain only the painted
+    /// portions of the requested dash pattern.
+    public func copy(
+        dashingWithPhase phase: CGFloat,
+        lengths: [CGFloat],
+        transform: CGAffineTransform = .identity
+    ) -> CGPath {
+        let transformedPath: CGPath
+        if transform.isIdentity {
+            transformedPath = self
+        } else {
+            var transform = transform
+            transformedPath = withUnsafePointer(to: &transform) { pointer in
+                copy(using: pointer) ?? CGPath()
+            }
+        }
+
+        guard !lengths.isEmpty else {
+            return transformedPath.copy() ?? CGPath()
+        }
+        guard lengths.allSatisfy({ $0.isFinite && $0 > 0 }) else {
+            return CGPath()
+        }
+
+        let pattern = lengths.count.isMultiple(of: 2) ? lengths : lengths + lengths
+        let patternLength = pattern.reduce(0, +)
+        guard patternLength.isFinite, patternLength > 0 else { return CGPath() }
+
+        let subpaths = transformedPath._flattenToSubpaths(threshold: 0.25)
+        let result = CGMutablePath()
+        for subpath in subpaths {
+            appendDashedSubpath(
+                subpath,
+                phase: phase,
+                pattern: pattern,
+                patternLength: patternLength,
+                to: result
+            )
+        }
+        return result.copy() ?? CGPath()
+    }
+
     // MARK: - Flattening
 
     /// Returns a new path representing this path with all curves replaced by
@@ -164,4 +208,70 @@ private func _combinedBoundingBox(_ subpaths: [FlattenedSubpath]) -> CGRect {
         }
     }
     return result
+}
+
+private func appendDashedSubpath(
+    _ subpath: FlattenedSubpath,
+    phase: CGFloat,
+    pattern: [CGFloat],
+    patternLength: CGFloat,
+    to result: CGMutablePath
+) {
+    guard subpath.points.count >= 2 else { return }
+
+    var normalizedPhase = phase.truncatingRemainder(dividingBy: patternLength)
+    if normalizedPhase < 0 { normalizedPhase += patternLength }
+
+    var patternIndex = 0
+    var remaining = pattern[0]
+    while normalizedPhase >= remaining {
+        normalizedPhase -= remaining
+        patternIndex = (patternIndex + 1) % pattern.count
+        remaining = pattern[patternIndex]
+    }
+    remaining -= normalizedPhase
+
+    let segmentCount = subpath.isClosed ? subpath.points.count : subpath.points.count - 1
+    var isDrawing = patternIndex.isMultiple(of: 2)
+    var hasOpenDash = false
+    let epsilon: CGFloat = 0.000_001
+
+    for segmentIndex in 0..<segmentCount {
+        var start = subpath.points[segmentIndex]
+        let end = subpath.points[(segmentIndex + 1) % subpath.points.count]
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let segmentLength = hypot(dx, dy)
+        guard segmentLength > epsilon else { continue }
+
+        let unitX = dx / segmentLength
+        let unitY = dy / segmentLength
+        var distanceLeft = segmentLength
+
+        while distanceLeft > epsilon {
+            let step = min(distanceLeft, remaining)
+            let next = CGPoint(x: start.x + unitX * step, y: start.y + unitY * step)
+
+            if isDrawing {
+                if !hasOpenDash {
+                    result.move(to: start)
+                    hasOpenDash = true
+                }
+                result.addLine(to: next)
+            } else {
+                hasOpenDash = false
+            }
+
+            start = next
+            distanceLeft -= step
+            remaining -= step
+
+            if remaining <= epsilon {
+                patternIndex = (patternIndex + 1) % pattern.count
+                remaining = pattern[patternIndex]
+                isDrawing = patternIndex.isMultiple(of: 2)
+                if !isDrawing { hasOpenDash = false }
+            }
+        }
+    }
 }
