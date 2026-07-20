@@ -50,6 +50,7 @@ public class CGFont: @unchecked Sendable {
     private var cachedFvar: FvarTable?
     private var cachedColr: ColrTable?
     private var cachedCpal: CpalTable?
+    private var cachedCFF: CFFFontProgram?
 
     /// Lock for thread-safe lazy initialization (recursive to allow nested table loading).
     private let cacheLock = NSRecursiveLock()
@@ -73,6 +74,19 @@ public class CGFont: @unchecked Sendable {
             self.cachedHead = try parser.parseHeadTable()
             self.cachedMaxp = try parser.parseMaxpTable()
         } catch {
+            return nil
+        }
+        if parser.hasTable(FontTableTag.CFF) {
+            guard !parser.hasTable(FontTableTag.CFF2),
+                  let cff = parser.parseCFFFontProgram(),
+                  cff.charStrings.ranges.count == Int(cachedMaxp?.numGlyphs ?? 0) else {
+                return nil
+            }
+            self.cachedCFF = cff
+        } else if parser.hasTable(FontTableTag.CFF2) {
+            // CFF2 reaches CGFont through the OTTO SFNT path. Until CFF2 variation-aware
+            // CharStrings are decoded, accepting the font would incorrectly advertise usable
+            // outlines, so initialization must fail instead of returning empty glyph paths.
             return nil
         }
     }
@@ -101,6 +115,7 @@ public class CGFont: @unchecked Sendable {
         cachedFvar: FvarTable?,
         cachedColr: ColrTable?,
         cachedCpal: CpalTable?,
+        cachedCFF: CFFFontProgram?,
         variationCoordinates: [String: CGFloat]?
     ) {
         self.fontData = fontData
@@ -116,6 +131,7 @@ public class CGFont: @unchecked Sendable {
         self.cachedFvar = cachedFvar
         self.cachedColr = cachedColr
         self.cachedCpal = cachedCpal
+        self.cachedCFF = cachedCFF
         self.variationCoordinates = variationCoordinates
     }
 
@@ -268,6 +284,16 @@ public class CGFont: @unchecked Sendable {
         return cachedCpal
     }
 
+    private func getCFFProgram() -> CFFFontProgram? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+
+        if cachedCFF == nil, let parser {
+            cachedCFF = parser.parseCFFFontProgram()
+        }
+        return cachedCFF
+    }
+
     // MARK: - Font Metadata
 
     /// Returns the full name associated with a font object.
@@ -380,8 +406,22 @@ public class CGFont: @unchecked Sendable {
         count: Int,
         bboxes: UnsafeMutablePointer<CGRect>
     ) -> Bool {
-        guard let loca = getLocaTable(),
-              let parser = parser else { return false }
+        guard let parser else { return false }
+
+        if parser.hasTable(FontTableTag.CFF) {
+            guard let cff = getCFFProgram() else { return false }
+            for index in 0..<count {
+                let glyphIndex = Int(glyphs[index])
+                guard glyphIndex < numberOfGlyphs,
+                      let path = cff.path(glyphIndex: glyphIndex) else {
+                    return false
+                }
+                bboxes[index] = path.boundingBox
+            }
+            return true
+        }
+
+        guard let loca = getLocaTable() else { return false }
 
         for i in 0..<count {
             let glyphIndex = Int(glyphs[i])
@@ -401,10 +441,13 @@ public class CGFont: @unchecked Sendable {
     /// Returns a glyph outline in font design units.
     internal func path(for glyph: CGGlyph) -> CGPath? {
         guard Int(glyph) < numberOfGlyphs,
-              let loca = getLocaTable(),
               let parser else {
             return nil
         }
+        if parser.hasTable(FontTableTag.CFF) {
+            return getCFFProgram()?.path(glyphIndex: Int(glyph))
+        }
+        guard let loca = getLocaTable() else { return nil }
         return parser.parseGlyphPath(glyphIndex: Int(glyph), loca: loca)
     }
 
@@ -500,6 +543,7 @@ public class CGFont: @unchecked Sendable {
             cachedFvar: cachedFvar,
             cachedColr: cachedColr,
             cachedCpal: cachedCpal,
+            cachedCFF: cachedCFF,
             variationCoordinates: coords.isEmpty ? nil : coords
         )
     }

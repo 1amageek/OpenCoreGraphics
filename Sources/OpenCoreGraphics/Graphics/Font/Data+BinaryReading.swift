@@ -169,6 +169,8 @@ enum FontTableTag {
     static let glyf: UInt32 = 0x676C7966  // 'glyf'
     static let fvar: UInt32 = 0x66766172  // 'fvar'
     static let gvar: UInt32 = 0x67766172  // 'gvar'
+    static let CFF:  UInt32 = 0x43464620  // 'CFF '
+    static let CFF2: UInt32 = 0x43464632  // 'CFF2'
     static let COLR: UInt32 = 0x434F4C52  // 'COLR'
     static let CPAL: UInt32 = 0x4350414C  // 'CPAL'
 
@@ -193,5 +195,4 @@ enum FontTableTag {
         return String(bytes: bytes, encoding: .ascii) ?? ""
     }
 }
-
 

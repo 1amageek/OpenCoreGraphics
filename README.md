@@ -10,10 +10,11 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 910 tests passed |
+| Native package | 913 tests passed |
 | Browser | Real WebGPU path, image-mask, callback-pattern, HDR tone mapping, image rendering, and pixel readback passed |
 | Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC, LUT, and floating-point multi-process profiles convert through D50 XYZ or Lab PCS; CICP HLG/PQ metadata uses its interoperable HDR rendering |
-| Remaining boundary | CFF/CFF2 and variable glyph outlines, and PDF are not complete |
+| Font outlines | TrueType `glyf` and static OpenType CFF1/Type2 outlines execute through the normal `CGContext` path; CFF bounds are checked against Apple CoreText |
+| Remaining boundary | CFF2 and variable glyph outlines, PostScript font subsetting/encoding, and PDF are not complete |
 
 ## Installation
 

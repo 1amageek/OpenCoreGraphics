@@ -8,7 +8,7 @@ import Synchronization
 import Testing
 @testable import OpenCoreGraphics
 
-@Suite("TrueType Glyph Outline Tests")
+@Suite("Glyph Outline Tests")
 struct CGGlyphOutlineTests {
 
     private final class RecordingRenderer: CGContextRendererDelegate {
@@ -146,6 +146,66 @@ struct CGGlyphOutlineTests {
         #expect(renderer.snapshot() == [CGRect(x: 5, y: 5, width: 1, height: 1)])
     }
 
+    @Test("CFF Type 2 outlines decode through CGFont with global subroutines and cubic curves")
+    func cffType2Outlines() throws {
+        let font = try #require(CGFont(CGDataProvider(data: makeCFFFontData())))
+        #expect(font.numberOfGlyphs == 3)
+
+        let square = try #require(font.path(for: 1))
+        #expect(square.boundingBox == CGRect(x: 0, y: 0, width: 100, height: 100))
+        #expect(square.commands.count == 6)
+
+        let curve = try #require(font.path(for: 2))
+        #expect(curve.commands.contains(where: {
+            if case .curveTo = $0 { return true }
+            return false
+        }))
+
+        var glyphs: [CGGlyph] = [1, 2]
+        var boxes = Array(repeating: CGRect.zero, count: glyphs.count)
+        let success = glyphs.withUnsafeBufferPointer { glyphBuffer in
+            boxes.withUnsafeMutableBufferPointer { boxBuffer in
+                font.getGlyphBBoxes(
+                    glyphs: glyphBuffer.baseAddress!,
+                    count: glyphBuffer.count,
+                    bboxes: boxBuffer.baseAddress!
+                )
+            }
+        }
+        #expect(success)
+        #expect(boxes[0] == square.boundingBox)
+        #expect(boxes[1] == curve.boundingBox)
+
+        var truncatedCFF = makeCFFTable()
+        truncatedCFF.removeLast()
+        #expect(CGFont(CGDataProvider(data: makeCFFFontData(cff: truncatedCFF))) == nil)
+    }
+
+    @Test("Real OpenType CFF outlines execute when an Apple CFF font is installed")
+    func realCFFOutlines() throws {
+        let url = URL(fileURLWithPath: "/Library/Fonts/SF-Pro-Text-Regular.otf")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        let font = try #require(CGFont(CGDataProvider(data: data)))
+        #expect(font.table(for: FontTableTag.CFF) != nil)
+
+        var decoded = 0
+        var cubic = 0
+        for glyphIndex in 0..<min(font.numberOfGlyphs, 64) {
+            if let path = font.path(for: CGGlyph(glyphIndex)), !path.commands.isEmpty {
+                decoded += 1
+                if path.commands.contains(where: {
+                    if case .curveTo = $0 { return true }
+                    return false
+                }) {
+                    cubic += 1
+                }
+            }
+        }
+        #expect(decoded >= 32)
+        #expect(cubic > 0)
+    }
+
     @Test("Text position aliases the text matrix translation")
     func textPositionAliasesTextMatrixTranslation() throws {
         let context = try #require(CGContext(
@@ -237,6 +297,76 @@ struct CGGlyphOutlineTests {
         data.append(maxp)
         data.append(loca)
         data.append(glyphs)
+        return data
+    }
+
+    private func makeCFFFontData(cff suppliedCFF: Data? = nil) -> Data {
+        let head = makeHeadTable()
+        let maxp = Data([0x00, 0x00, 0x50, 0x00, 0x00, 0x03])
+        let cff = suppliedCFF ?? makeCFFTable()
+        let directoryEnd = 12 + 3 * 16
+        let headOffset = directoryEnd
+        let maxpOffset = headOffset + head.count
+        let cffOffset = maxpOffset + maxp.count
+
+        var data = Data("OTTO".utf8)
+        appendUInt16(3, to: &data)
+        data.append(contentsOf: Array(repeating: 0, count: 6))
+        appendTableRecord(tag: FontTableTag.head, offset: headOffset, length: head.count, to: &data)
+        appendTableRecord(tag: FontTableTag.maxp, offset: maxpOffset, length: maxp.count, to: &data)
+        appendTableRecord(tag: FontTableTag.CFF, offset: cffOffset, length: cff.count, to: &data)
+        data.append(head)
+        data.append(maxp)
+        data.append(cff)
+        return data
+    }
+
+    private func makeCFFTable() -> Data {
+        let name = makeCFFIndex([Data("Test".utf8)])
+        let stringIndex = Data([0, 0])
+        let squareSubroutine = Data([
+            239, 139, 5,
+            139, 239, 5,
+            39, 139, 5,
+            139, 39, 5,
+            11
+        ])
+        let globalSubroutines = makeCFFIndex([squareSubroutine])
+        let charStrings = makeCFFIndex([
+            Data([14]),
+            Data([139, 139, 21, 32, 29, 14]),
+            Data([139, 139, 21, 189, 239, 189, 39, 189, 139, 8, 14])
+        ])
+
+        var topDictionary = makeCFFIndex([Data([139, 17])])
+        let charStringsOffset = 4 + name.count + topDictionary.count + stringIndex.count + globalSubroutines.count
+        precondition(charStringsOffset <= 107)
+        topDictionary = makeCFFIndex([Data([UInt8(charStringsOffset + 139), 17])])
+
+        var data = Data([1, 0, 4, 1])
+        data.append(name)
+        data.append(topDictionary)
+        data.append(stringIndex)
+        data.append(globalSubroutines)
+        precondition(data.count == charStringsOffset)
+        data.append(charStrings)
+        return data
+    }
+
+    private func makeCFFIndex(_ objects: [Data]) -> Data {
+        if objects.isEmpty { return Data([0, 0]) }
+        let payloadSize = objects.reduce(0) { $0 + $1.count }
+        precondition(payloadSize + 1 <= 255)
+        var data = Data()
+        appendUInt16(UInt16(objects.count), to: &data)
+        data.append(1)
+        var offset = 1
+        data.append(UInt8(offset))
+        for object in objects {
+            offset += object.count
+            data.append(UInt8(offset))
+        }
+        for object in objects { data.append(object) }
         return data
     }
 

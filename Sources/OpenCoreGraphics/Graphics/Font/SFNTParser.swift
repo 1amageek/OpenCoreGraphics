@@ -59,10 +59,10 @@ internal struct SFNTParser: Sendable {
 
         // Valid values:
         // 0x00010000 - TrueType
-        // 0x4F54544F ('OTTO') - OpenType with CFF (not supported)
+        // 0x4F54544F ('OTTO') - OpenType with CFF/CFF2 outlines
         // 0x74727565 ('true') - TrueType (Mac)
         // 0x74797031 ('typ1') - Old-style PostScript (not supported)
-        guard sfntVersion == 0x00010000 || sfntVersion == 0x74727565 else {
+        guard sfntVersion == 0x00010000 || sfntVersion == 0x4F54544F || sfntVersion == 0x74727565 else {
             return nil
         }
 
@@ -784,5 +784,4 @@ internal struct SFNTParser: Sendable {
         return ""
     }
 }
-
 

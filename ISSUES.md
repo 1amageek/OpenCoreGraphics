@@ -198,7 +198,8 @@ GPU readback を実装：
 - テクスチャアトラスの活用
 
 ### 追加機能
-- TrueType `glyf` の単純・複合 glyph 描画は実装済み。CFF/CFF2 と variation outline は未実装
+- TrueType `glyf` の単純・複合 glyph 描画と static OpenType CFF1/Type2（INDEX/DICT、local/global subroutine、hint mask、line/curve/flex、演算 stack）は実装済み。実在する SF Pro CFF glyph の bounds を Apple CoreText と外部照合済み。CFF2 の `blend`/`vsindex` と TrueType `gvar` variation outline は未実装
+- `CGFont` の PostScript Type 1/3/42 subset と encoding 生成は Apple の現行 API であり未実装。`false` / `nil` を返して成功扱いしない
 - PDF 出力 (CGPDFContext)
 - CGLayer の WASM GPU texture 直接合成は実装済み。全描画意味論との同等性検証は継続する
 
