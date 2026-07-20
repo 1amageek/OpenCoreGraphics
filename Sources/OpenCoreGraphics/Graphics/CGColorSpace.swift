@@ -93,6 +93,13 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     /// Gamma value for calibrated grayscale color spaces.
     private let gamma: CGFloat?
 
+    /// Executable color profile used by managed color conversion.
+    internal let colorProfile: CGColorProfile?
+
+    internal var hasUnavailableManagedTransform: Bool {
+        colorProfile == nil && name?.contains("HLG") == true
+    }
+
     /// Internal initializer
     internal init(
         model: CGColorSpaceModel,
@@ -103,7 +110,8 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         iccProfileData: Data? = nil,
         whitePoint: [CGFloat]? = nil,
         blackPoint: [CGFloat]? = nil,
-        gamma: CGFloat? = nil
+        gamma: CGFloat? = nil,
+        colorProfile: CGColorProfile? = nil
     ) {
         self.model = model
         self.name = name
@@ -114,6 +122,7 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         self.whitePoint = whitePoint
         self.blackPoint = blackPoint
         self.gamma = gamma
+        self.colorProfile = colorProfile
     }
 
     // MARK: - System-Defined Color Space Names (class let)
@@ -251,76 +260,40 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     /// Creates a specified type of Quartz color space.
     public convenience init?(name: String) {
+        let model: CGColorSpaceModel
+        let componentCount: Int
         switch name {
-        case "kCGColorSpaceSRGB", "sRGB":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceDisplayP3":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceDisplayP3_HLG":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceDisplayP3_PQ":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceExtendedLinearDisplayP3":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceExtendedDisplayP3":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceLinearDisplayP3":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceLinearSRGB":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceExtendedSRGB":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceExtendedLinearSRGB":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceGenericGrayGamma2_2":
-            self.init(model: .monochrome, name: name, numberOfComponents: 1)
-        case "kCGColorSpaceExtendedGray":
-            self.init(model: .monochrome, name: name, numberOfComponents: 1)
-        case "kCGColorSpaceLinearGray":
-            self.init(model: .monochrome, name: name, numberOfComponents: 1)
-        case "kCGColorSpaceExtendedLinearGray":
-            self.init(model: .monochrome, name: name, numberOfComponents: 1)
+        case Self.sRGB, "sRGB", Self.displayP3, Self.displayP3_HLG, Self.displayP3_PQ,
+             Self.extendedLinearDisplayP3, Self.extendedDisplayP3, Self.linearDisplayP3,
+             Self.linearSRGB, Self.extendedSRGB, Self.extendedLinearSRGB,
+             Self.genericRGBLinear, Self.acescgLinear, Self.adobeRGB1998, Self.dcip3,
+             Self.rommrgb, Self.itur_709, Self.itur_709_HLG, Self.itur_709_PQ,
+             Self.itur_2020, Self.itur_2020_sRGBGamma, Self.extendedLinearITUR_2020,
+             Self.extendedITUR_2020, Self.linearITUR_2020, Self.itur_2100_HLG,
+             Self.itur_2100_PQ, Self.coreMedia709:
+            model = .rgb
+            componentCount = 3
+        case Self.genericGrayGamma2_2, Self.extendedGray, Self.linearGray, Self.extendedLinearGray:
+            model = .monochrome
+            componentCount = 1
         case "kCGColorSpaceGenericCMYK":
-            self.init(model: .cmyk, name: name, numberOfComponents: 4)
-        case "kCGColorSpaceGenericRGBLinear":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceGenericLab":
-            self.init(model: .lab, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceGenericXYZ":
-            self.init(model: .XYZ, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceACESCGLinear":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceAdobeRGB1998":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceDCIP3":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceROMMRGB":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_709":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_709_HLG":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_709_PQ":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_2020":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_2020_sRGBGamma":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceExtendedLinearITUR_2020":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceExtendedITUR_2020":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceLinearITUR_2020":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_2100_HLG":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceITUR_2100_PQ":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
-        case "kCGColorSpaceCoreMedia709":
-            self.init(model: .rgb, name: name, numberOfComponents: 3)
+            model = .cmyk
+            componentCount = 4
+        case Self.genericLab:
+            model = .lab
+            componentCount = 3
+        case Self.genericXYZ:
+            model = .XYZ
+            componentCount = 3
         default:
             return nil
         }
+        self.init(
+            model: model,
+            name: name,
+            numberOfComponents: componentCount,
+            colorProfile: CGNamedColorProfile.profile(named: name)
+        )
     }
 
     /// Creates a calibrated grayscale color space.
@@ -331,6 +304,9 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     ) {
         let wp = [whitePoint[0], whitePoint[1], whitePoint[2]]
         let bp: [CGFloat]? = blackPoint.map { [$0[0], $0[1], $0[2]] }
+        guard wp.allSatisfy({ $0.isFinite && $0 > 0 }), gamma.isFinite, gamma > 0 else {
+            return nil
+        }
 
         self.init(
             model: .monochrome,
@@ -338,7 +314,12 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
             numberOfComponents: 1,
             whitePoint: wp,
             blackPoint: bp,
-            gamma: gamma
+            gamma: gamma,
+            colorProfile: CGColorProfile(
+                model: .gray(curve: .gamma(gamma)),
+                whitePoint: CGColorVector(x: wp[0], y: wp[1], z: wp[2]),
+                extendedRange: false
+            )
         )
     }
 
@@ -351,13 +332,35 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     ) {
         let wp = [whitePoint[0], whitePoint[1], whitePoint[2]]
         let bp: [CGFloat]? = blackPoint.map { [$0[0], $0[1], $0[2]] }
+        let gammaValues: [CGFloat] = gamma.map { [$0[0], $0[1], $0[2]] } ?? [1, 1, 1]
+        let matrixValues: [CGFloat] = matrix.map {
+            [$0[0], $0[1], $0[2], $0[3], $0[4], $0[5], $0[6], $0[7], $0[8]]
+        } ?? [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        let profileMatrix = CGColorMatrix(
+            m00: matrixValues[0], m01: matrixValues[3], m02: matrixValues[6],
+            m10: matrixValues[1], m11: matrixValues[4], m12: matrixValues[7],
+            m20: matrixValues[2], m21: matrixValues[5], m22: matrixValues[8]
+        )
+        guard wp.allSatisfy({ $0.isFinite && $0 > 0 }),
+              gammaValues.allSatisfy({ $0.isFinite && $0 > 0 }),
+              profileMatrix.inverted() != nil else {
+            return nil
+        }
 
         self.init(
             model: .rgb,
             name: nil,
             numberOfComponents: 3,
             whitePoint: wp,
-            blackPoint: bp
+            blackPoint: bp,
+            colorProfile: CGColorProfile(
+                model: .rgb(
+                    matrix: profileMatrix,
+                    curves: gammaValues.map(CGTransferCurve.gamma)
+                ),
+                whitePoint: CGColorVector(x: wp[0], y: wp[1], z: wp[2]),
+                extendedRange: false
+            )
         )
     }
 
@@ -368,7 +371,12 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         profile: CGDataProvider,
         alternate: CGColorSpace?
     ) {
-        guard nComponents > 0 && nComponents <= 4 else { return nil }
+        guard nComponents > 0 && nComponents <= 4,
+              let profileData = profile.data,
+              let parsed = CGICCProfileParser.parse(profileData),
+              parsed.componentCount == nComponents else {
+            return nil
+        }
 
         let model: CGColorSpaceModel
         switch nComponents {
@@ -377,12 +385,22 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         case 4: model = .cmyk
         default: model = .unknown
         }
+        let alternateProfile: CGColorProfile?
+        if let alternate,
+           alternate.model == model,
+           alternate.numberOfComponents == nComponents {
+            alternateProfile = alternate.colorProfile
+        } else {
+            alternateProfile = nil
+        }
 
         self.init(
             model: model,
             name: nil,
             numberOfComponents: nComponents,
-            baseColorSpace: alternate
+            baseColorSpace: alternate,
+            iccProfileData: profileData,
+            colorProfile: parsed.profile ?? alternateProfile
         )
     }
 
@@ -440,56 +458,14 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
 
     /// Creates an ICC-based color space using the ICC profile contained in the specified data.
     public convenience init?(iccData: Data) {
-        guard iccData.count >= 128 else { return nil }
-        let header = [UInt8](iccData.prefix(40))
-        let declaredSize = Int(header[0]) << 24
-            | Int(header[1]) << 16
-            | Int(header[2]) << 8
-            | Int(header[3])
-        guard declaredSize >= 128,
-              declaredSize <= iccData.count,
-              header[36] == 0x61,
-              header[37] == 0x63,
-              header[38] == 0x73,
-              header[39] == 0x70 else {
-            return nil
-        }
-
-        let signature = String(bytes: header[16..<20], encoding: .ascii)
-        let model: CGColorSpaceModel
-        let componentCount: Int
-        switch signature {
-        case "GRAY":
-            model = .monochrome
-            componentCount = 1
-        case "RGB ":
-            model = .rgb
-            componentCount = 3
-        case "CMYK":
-            model = .cmyk
-            componentCount = 4
-        case "Lab ":
-            model = .lab
-            componentCount = 3
-        case "XYZ ":
-            model = .XYZ
-            componentCount = 3
-        default:
-            guard let signature = signature,
-                  signature.hasSuffix("CLR"),
-                  let digit = signature.first?.hexDigitValue,
-                  (2...15).contains(digit) else {
-                return nil
-            }
-            model = .deviceN
-            componentCount = digit
-        }
+        guard let parsed = CGICCProfileParser.parse(iccData) else { return nil }
 
         self.init(
-            model: model,
+            model: parsed.model,
             name: nil,
-            numberOfComponents: componentCount,
-            iccProfileData: iccData
+            numberOfComponents: parsed.componentCount,
+            iccProfileData: iccData,
+            colorProfile: parsed.profile
         )
     }
 
@@ -564,7 +540,14 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     public static func == (lhs: CGColorSpace, rhs: CGColorSpace) -> Bool {
         return lhs.model == rhs.model &&
                lhs.name == rhs.name &&
-               lhs.numberOfComponents == rhs.numberOfComponents
+               lhs.numberOfComponents == rhs.numberOfComponents &&
+               lhs.baseColorSpace == rhs.baseColorSpace &&
+               lhs.colorTable == rhs.colorTable &&
+               lhs.iccProfileData == rhs.iccProfileData &&
+               lhs.whitePoint == rhs.whitePoint &&
+               lhs.blackPoint == rhs.blackPoint &&
+               lhs.gamma == rhs.gamma &&
+               lhs.colorProfile == rhs.colorProfile
     }
 
     // MARK: - Hashable
@@ -573,5 +556,12 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         hasher.combine(model)
         hasher.combine(name)
         hasher.combine(numberOfComponents)
+        hasher.combine(baseColorSpace)
+        hasher.combine(colorTable)
+        hasher.combine(iccProfileData)
+        hasher.combine(whitePoint)
+        hasher.combine(blackPoint)
+        hasher.combine(gamma)
+        hasher.combine(colorProfile)
     }
 }

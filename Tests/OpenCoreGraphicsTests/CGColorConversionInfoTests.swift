@@ -350,7 +350,7 @@ struct CGColorConversionInfoTests {
             }
 
             #expect(succeeded)
-            #expect(destination == [76, 255, 150, 128])
+            #expect(destination == [129, 255, 219, 128])
         }
 
         @Test("Unpremultiplies source and premultiplies destination")

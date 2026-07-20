@@ -204,6 +204,15 @@ public class CGColorConversionInfo: @unchecked Sendable {
             return false
         }
 
+        guard source.copyICCData() == nil || source.colorProfile != nil,
+              destination.copyICCData() == nil || destination.colorProfile != nil else {
+            return false
+        }
+        guard !source.hasUnavailableManagedTransform,
+              !destination.hasUnavailableManagedTransform else {
+            return false
+        }
+
         let deviceNames: Set<String> = ["DeviceGray", "DeviceRGB", "DeviceCMYK"]
         guard !deviceNames.contains(source.name ?? ""),
               !deviceNames.contains(destination.name ?? "") else {

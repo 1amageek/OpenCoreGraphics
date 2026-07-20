@@ -10,9 +10,10 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 882 tests passed |
+| Native package | 894 tests passed |
 | Browser | Real WebGPU path, image-mask, callback-pattern, HDR tone mapping, image rendering, and pixel readback passed |
-| Remaining boundary | ICC profile transforms, CFF/CFF2 and variable glyph outlines, and PDF are not complete |
+| Color management | Named RGB/gray, calibrated RGB/gray, and ICC matrix/TRC profiles convert through D50 PCS; unsupported ICC LUT and HLG OOTF transforms fail explicitly |
+| Remaining boundary | ICC LUT/multi-process transforms, coupled HLG OOTF, CFF/CFF2 and variable glyph outlines, and PDF are not complete |
 
 ## Installation
 
@@ -189,8 +190,8 @@ WebGPU is required for WASM rendering. Supported browsers:
 ### Data Handling
 - `CGDataProvider`, `CGDataConsumer`
 
-### PDF Support
-- `CGPDFDocument`, `CGPDFPage`, `CGPDFObject`, `CGPDFScanner`
+### PDF Declarations
+- `CGPDFDocument`, `CGPDFPage`, `CGPDFObject`, `CGPDFScanner` are present for source compatibility, but parser, writer, and renderer paths are not implemented and do not advertise success.
 
 ### Fonts
 - `CGFont`
@@ -257,6 +258,8 @@ CGColorSpace.genericGrayGamma2_2     // "kCGColorSpaceGenericGrayGamma2_2"
 CGColorSpace.genericCMYK             // "kCGColorSpaceGenericCMYK"
 // ... and many more
 ```
+
+Named RGB/gray and calibrated spaces perform matrix/TRC conversion through a D50 profile connection space. ICC v2/v4 matrix/TRC profiles support `XYZType`, `curveType`, and all five `parametricCurveType` functions. Invalid tag tables and curves are rejected; ICC LUT/multi-process and HLG OOTF conversions return failure instead of applying a model-only fallback.
 
 ## Design Principles
 

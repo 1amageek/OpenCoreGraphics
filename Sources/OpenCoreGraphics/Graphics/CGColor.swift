@@ -107,15 +107,33 @@ public class CGColor: @unchecked Sendable {
 
     /// Creates a new color in a different color space that matches the provided color.
     public func converted(to space: CGColorSpace, intent: CGColorRenderingIntent, options: [String: Any]?) -> CGColor? {
-        guard let components = self.components else { return nil }
+        guard let sourceSpace = colorSpace,
+              let components = self.components,
+              components.count == sourceSpace.numberOfComponents + 1 else {
+            return nil
+        }
 
-        // Same color space - just copy components
-        if let sourceName = colorSpace?.name, sourceName == space.name {
+        if sourceSpace == space {
             return CGColor(space: space, componentArray: components)
         }
 
+        if let sourceProfile = sourceSpace.colorProfile,
+           let destinationProfile = space.colorProfile {
+            guard let pcs = sourceProfile.toPCS(components),
+                  var convertedComponents = destinationProfile.fromPCS(pcs) else {
+                return nil
+            }
+            convertedComponents.append(components[sourceSpace.numberOfComponents])
+            return CGColor(space: space, componentArray: convertedComponents)
+        }
+
+        if sourceSpace.copyICCData() != nil || space.copyICCData() != nil ||
+           sourceSpace.hasUnavailableManagedTransform || space.hasUnavailableManagedTransform {
+            return nil
+        }
+
         // Color conversion between different models
-        switch (colorSpace?.model, space.model) {
+        switch (sourceSpace.model, space.model) {
 
         // MARK: Monochrome conversions
         case (.monochrome, .rgb):
@@ -422,4 +440,3 @@ extension CGColor: Hashable {
         }
     }
 }
-
