@@ -10,11 +10,11 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 932 tests passed |
+| Native package | 938 tests passed |
 | Browser | Real WebGPU path, image-mask, callback-pattern, HDR tone mapping, image rendering, and pixel readback passed |
 | Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC, LUT, and floating-point multi-process profiles convert through D50 XYZ or Lab PCS; graphics-state rendering intents reach solid, gradient, shading, pattern, image, and shadow rendering without silent source-color fallback |
-| Font outlines and metrics | Static TrueType `glyf`, OpenType CFF1/Type2, and CFF2 variable outlines execute through the normal `CGContext` path; shared ItemVariationStore processing applies HVAR/VVAR metrics, and CFF1/CFF2 bounds plus CFF2 advances are checked against Apple CoreText/CoreGraphics |
-| Remaining boundary | TrueType `gvar` and PostScript font subsetting/encoding remain incomplete; PDF is outside the current project scope |
+| Font outlines and metrics | Static and `gvar`-variable TrueType `glyf`, OpenType CFF1/Type2, and CFF2 variable outlines execute through the normal `CGContext` path; `gvar` tuple decoding, IUP interpolation, composite placement, phantom-point metrics, and shared ItemVariationStore HVAR/VVAR processing are active. Skia variable bounds and advances plus CFF1/CFF2 conformance are checked against Apple CoreText/CoreGraphics |
+| Remaining boundary | PostScript font subsetting/encoding remains incomplete; PDF is outside the current project scope |
 
 ## Installation
 

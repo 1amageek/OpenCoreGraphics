@@ -10,28 +10,91 @@ import Foundation
 extension SFNTParser {
 
     /// Decodes a TrueType glyph into a path in font design units.
-    func parseGlyphPath(glyphIndex: Int, loca: LocaTable) -> CGPath? {
+    func parseGlyphPath(
+        glyphIndex: Int,
+        loca: LocaTable,
+        gvar: GvarTable? = nil,
+        normalizedCoordinates: [CGFloat] = [],
+        hmtx: HmtxTable? = nil,
+        vmtx: VmtxTable? = nil
+    ) -> CGPath? {
         guard let glyfData = tableData(for: FontTableTag.glyf) else { return nil }
 
         var activeGlyphs: Set<Int> = []
-        guard let outline = parseGlyphOutline(
+        guard let glyph = parseGlyphOutline(
             glyphIndex: glyphIndex,
             loca: loca,
             glyfData: glyfData,
+            gvar: gvar,
+            normalizedCoordinates: normalizedCoordinates,
+            hmtx: hmtx,
+            vmtx: vmtx,
             activeGlyphs: &activeGlyphs,
             depth: 0
         ) else {
             return nil
         }
 
-        return outline.path
+        guard glyph.phantomPoints.count == 4,
+              glyph.basePhantomPoints.count == 4 else {
+            return nil
+        }
+        guard hmtx != nil else { return glyph.outline.path }
+        let horizontalOrigin = glyph.phantomPoints[0].x
+        let path = glyph.outline.path
+        if horizontalOrigin == 0 { return path }
+        var transform = CGAffineTransform(
+            translationX: -horizontalOrigin,
+            y: 0
+        )
+        return path.copy(using: &transform)
+    }
+
+    func parseGlyphVariationMetrics(
+        glyphIndex: Int,
+        loca: LocaTable,
+        gvar: GvarTable,
+        normalizedCoordinates: [CGFloat],
+        hmtx: HmtxTable,
+        vmtx: VmtxTable?
+    ) -> (advanceWidth: CGFloat, leftSideBearing: CGFloat, advanceHeight: CGFloat?, topSideBearing: CGFloat?)? {
+        guard let glyfData = tableData(for: FontTableTag.glyf) else { return nil }
+        var activeGlyphs: Set<Int> = []
+        guard let glyph = parseGlyphOutline(
+            glyphIndex: glyphIndex,
+            loca: loca,
+            glyfData: glyfData,
+            gvar: gvar,
+            normalizedCoordinates: normalizedCoordinates,
+            hmtx: hmtx,
+            vmtx: vmtx,
+            activeGlyphs: &activeGlyphs,
+            depth: 0
+        ) else { return nil }
+        let bounds = glyph.outline.path.boundingBox
+        let phantom = glyph.phantomPoints
+        let basePhantom = glyph.basePhantomPoints
+        guard phantom.count == 4, basePhantom.count == 4 else { return nil }
+        let horizontalOriginDelta = phantom[0].x - basePhantom[0].x
+        let advanceWidthDelta = phantom[1].x - basePhantom[1].x
+        let verticalMetrics: (CGFloat, CGFloat)? = vmtx.map { _ in
+            let baseAdvanceHeight = basePhantom[2].y - basePhantom[3].y
+            let bottomDelta = phantom[3].y - basePhantom[3].y
+            return (baseAdvanceHeight - bottomDelta, phantom[2].y - bounds.maxY)
+        }
+        return (
+            basePhantom[1].x - basePhantom[0].x + advanceWidthDelta,
+            bounds.minX - basePhantom[0].x - horizontalOriginDelta,
+            verticalMetrics?.0,
+            verticalMetrics?.1
+        )
     }
 }
 
 private extension SFNTParser {
 
     struct GlyphPoint {
-        let position: CGPoint
+        var position: CGPoint
         let isOnCurve: Bool
 
         func applying(_ transform: CGAffineTransform) -> GlyphPoint {
@@ -44,6 +107,14 @@ private extension SFNTParser {
 
         var points: [GlyphPoint] {
             contours.flatMap { $0 }
+        }
+
+        var contourRanges: [Range<Int>] {
+            var start = 0
+            return contours.map { contour in
+                defer { start += contour.count }
+                return start..<(start + contour.count)
+            }
         }
 
         var path: CGPath {
@@ -115,13 +186,31 @@ private extension SFNTParser {
         }
     }
 
+    struct ParsedGlyph {
+        var outline: GlyphOutline
+        var basePhantomPoints: [CGPoint]
+        var phantomPoints: [CGPoint]
+    }
+
+    struct CompoundComponent {
+        let flags: UInt16
+        let glyphIndex: Int
+        let argument1: Int
+        let argument2: Int
+        let linearTransform: CGAffineTransform
+    }
+
     func parseGlyphOutline(
         glyphIndex: Int,
         loca: LocaTable,
         glyfData: Data,
+        gvar: GvarTable?,
+        normalizedCoordinates: [CGFloat],
+        hmtx: HmtxTable?,
+        vmtx: VmtxTable?,
         activeGlyphs: inout Set<Int>,
         depth: Int
-    ) -> GlyphOutline? {
+    ) -> ParsedGlyph? {
         guard depth <= 32,
               !activeGlyphs.contains(glyphIndex),
               let location = loca.glyphLocation(for: glyphIndex),
@@ -132,7 +221,34 @@ private extension SFNTParser {
         }
 
         if location.length == 0 {
-            return GlyphOutline(contours: [])
+            guard let phantom = phantomPoints(
+                glyphIndex: glyphIndex,
+                glyphOffset: location.offset,
+                glyfData: glyfData,
+                hmtx: hmtx,
+                vmtx: vmtx
+            ) else { return nil }
+            let deltas: [CGPoint]
+            if let gvar {
+                guard let resolved = gvar.adjustments(
+                    glyphIndex: glyphIndex,
+                    pointCount: 4,
+                    normalizedCoordinates: normalizedCoordinates,
+                    originalPoints: phantom,
+                    contourRanges: []
+                ) else { return nil }
+                deltas = resolved
+            } else {
+                deltas = [CGPoint](repeating: .zero, count: 4)
+            }
+            guard deltas.count == 4 else { return nil }
+            return ParsedGlyph(
+                outline: GlyphOutline(contours: []),
+                basePhantomPoints: phantom,
+                phantomPoints: zip(phantom, deltas).map { point, delta in
+                    CGPoint(x: point.x + delta.x, y: point.y + delta.y)
+                }
+            )
         }
         guard location.length >= 10 else { return nil }
 
@@ -141,19 +257,63 @@ private extension SFNTParser {
 
         let numberOfContours = glyfData.readInt16BE(at: location.offset)
         if numberOfContours >= 0 {
-            return parseSimpleGlyph(
+            guard var outline = parseSimpleGlyph(
                 at: location.offset,
                 length: location.length,
                 numberOfContours: Int(numberOfContours),
                 glyfData: glyfData
+            ), let phantom = phantomPoints(
+                glyphIndex: glyphIndex,
+                glyphOffset: location.offset,
+                glyfData: glyfData,
+                hmtx: hmtx,
+                vmtx: vmtx
+            ) else { return nil }
+            var originalPoints = outline.points.map(\.position)
+            originalPoints.append(contentsOf: phantom)
+            let contourRanges = outline.contourRanges
+            let deltas: [CGPoint]
+            if let gvar {
+                guard let resolved = gvar.adjustments(
+                    glyphIndex: glyphIndex,
+                    pointCount: originalPoints.count,
+                    normalizedCoordinates: normalizedCoordinates,
+                    originalPoints: originalPoints,
+                    contourRanges: contourRanges
+                ) else { return nil }
+                deltas = resolved
+            } else {
+                deltas = [CGPoint](repeating: .zero, count: originalPoints.count)
+            }
+            var deltaIndex = 0
+            for contourIndex in outline.contours.indices {
+                for pointIndex in outline.contours[contourIndex].indices {
+                    outline.contours[contourIndex][pointIndex].position.x += deltas[deltaIndex].x
+                    outline.contours[contourIndex][pointIndex].position.y += deltas[deltaIndex].y
+                    deltaIndex += 1
+                }
+            }
+            let variedPhantom = (0..<4).map { index in
+                let delta = deltas[deltaIndex + index]
+                return CGPoint(x: phantom[index].x + delta.x, y: phantom[index].y + delta.y)
+            }
+            return ParsedGlyph(
+                outline: outline,
+                basePhantomPoints: phantom,
+                phantomPoints: variedPhantom
             )
         }
 
         return parseCompoundGlyph(
+            glyphIndex: glyphIndex,
             at: location.offset,
             length: location.length,
             loca: loca,
             glyfData: glyfData,
+            gvar: gvar,
+            normalizedCoordinates: normalizedCoordinates,
+            hmtx: hmtx,
+            vmtx: vmtx,
             activeGlyphs: &activeGlyphs,
             depth: depth
         )
@@ -276,16 +436,21 @@ private extension SFNTParser {
     }
 
     func parseCompoundGlyph(
+        glyphIndex: Int,
         at glyphOffset: Int,
         length: Int,
         loca: LocaTable,
         glyfData: Data,
+        gvar: GvarTable?,
+        normalizedCoordinates: [CGFloat],
+        hmtx: HmtxTable?,
+        vmtx: VmtxTable?,
         activeGlyphs: inout Set<Int>,
         depth: Int
-    ) -> GlyphOutline? {
+    ) -> ParsedGlyph? {
         let glyphEnd = glyphOffset + length
         var cursor = glyphOffset + 10
-        var contours: [[GlyphPoint]] = []
+        var components: [CompoundComponent] = []
         var hasMoreComponents = true
         var lastFlags: UInt16 = 0
 
@@ -293,6 +458,11 @@ private extension SFNTParser {
             guard cursor + 4 <= glyphEnd else { return nil }
             let flags = glyfData.readUInt16BE(at: cursor)
             let componentGlyph = Int(glyfData.readUInt16BE(at: cursor + 2))
+            guard flags & 0xE010 == 0,
+                  [flags & 0x0008, flags & 0x0040, flags & 0x0080].filter({ $0 != 0 }).count <= 1,
+                  !(flags & 0x0800 != 0 && flags & 0x1000 != 0) else {
+                return nil
+            }
             cursor += 4
             lastFlags = flags
 
@@ -328,41 +498,14 @@ private extension SFNTParser {
                 cursor: &cursor,
                 glyphEnd: glyphEnd,
                 data: glyfData
-            ), let component = parseGlyphOutline(
+            ) else { return nil }
+            components.append(CompoundComponent(
+                flags: flags,
                 glyphIndex: componentGlyph,
-                loca: loca,
-                glyfData: glyfData,
-                activeGlyphs: &activeGlyphs,
-                depth: depth + 1
-            ) else {
-                return nil
-            }
-
-            var transformedComponent = component.applying(linearTransform)
-            let translation: CGPoint
-            if argumentsAreXYValues {
-                let rawOffset = CGPoint(x: CGFloat(argument1), y: CGFloat(argument2))
-                if flags & 0x0800 != 0 {
-                    translation = rawOffset.applying(linearTransform)
-                } else {
-                    translation = rawOffset
-                }
-            } else {
-                let parentPoints = contours.flatMap { $0 }
-                let componentPoints = transformedComponent.points
-                guard argument1 < parentPoints.count, argument2 < componentPoints.count else {
-                    return nil
-                }
-                translation = CGPoint(
-                    x: parentPoints[argument1].position.x - componentPoints[argument2].position.x,
-                    y: parentPoints[argument1].position.y - componentPoints[argument2].position.y
-                )
-            }
-
-            transformedComponent = transformedComponent.applying(
-                CGAffineTransform(translationX: translation.x, y: translation.y)
-            )
-            contours.append(contentsOf: transformedComponent.contours)
+                argument1: argument1,
+                argument2: argument2,
+                linearTransform: linearTransform
+            ))
             hasMoreComponents = flags & 0x0020 != 0
         }
 
@@ -372,7 +515,126 @@ private extension SFNTParser {
             guard cursor + 2 + instructionLength <= glyphEnd else { return nil }
         }
 
-        return GlyphOutline(contours: contours)
+        guard let basePhantom = phantomPoints(
+            glyphIndex: glyphIndex,
+            glyphOffset: glyphOffset,
+            glyfData: glyfData,
+            hmtx: hmtx,
+            vmtx: vmtx
+        ) else { return nil }
+        var pseudoPoints = components.map { component in
+            guard component.flags & 0x0002 != 0 else { return CGPoint.zero }
+            return CGPoint(x: CGFloat(component.argument1), y: CGFloat(component.argument2))
+        }
+        pseudoPoints.append(contentsOf: basePhantom)
+        let componentDeltas: [CGPoint]
+        if let gvar {
+            guard let resolved = gvar.adjustments(
+                glyphIndex: glyphIndex,
+                pointCount: pseudoPoints.count,
+                normalizedCoordinates: normalizedCoordinates,
+                originalPoints: pseudoPoints,
+                contourRanges: []
+            ) else { return nil }
+            componentDeltas = resolved
+        } else {
+            componentDeltas = [CGPoint](repeating: .zero, count: pseudoPoints.count)
+        }
+
+        var contours: [[GlyphPoint]] = []
+        var inheritedBasePhantom = basePhantom
+        var variedPhantom = (0..<4).map { index in
+            let delta = componentDeltas[components.count + index]
+            return CGPoint(
+                x: basePhantom[index].x + delta.x,
+                y: basePhantom[index].y + delta.y
+            )
+        }
+        for componentIndex in components.indices {
+            let component = components[componentIndex]
+            guard let child = parseGlyphOutline(
+                glyphIndex: component.glyphIndex,
+                loca: loca,
+                glyfData: glyfData,
+                gvar: gvar,
+                normalizedCoordinates: normalizedCoordinates,
+                hmtx: hmtx,
+                vmtx: vmtx,
+                activeGlyphs: &activeGlyphs,
+                depth: depth + 1
+            ) else { return nil }
+
+            var transformedOutline = child.outline.applying(component.linearTransform)
+            let translation: CGPoint
+            if component.flags & 0x0002 != 0 {
+                let delta = componentDeltas[componentIndex]
+                let adjustedOffset = CGPoint(
+                    x: CGFloat(component.argument1) + delta.x,
+                    y: CGFloat(component.argument2) + delta.y
+                )
+                translation = component.flags & 0x0800 != 0
+                    ? adjustedOffset.applying(component.linearTransform)
+                    : adjustedOffset
+            } else {
+                let parentPoints = contours.flatMap { $0 }
+                let childPoints = transformedOutline.points
+                guard component.argument1 >= 0, component.argument2 >= 0,
+                      component.argument1 < parentPoints.count,
+                      component.argument2 < childPoints.count else {
+                    return nil
+                }
+                translation = CGPoint(
+                    x: parentPoints[component.argument1].position.x
+                        - childPoints[component.argument2].position.x,
+                    y: parentPoints[component.argument1].position.y
+                        - childPoints[component.argument2].position.y
+                )
+            }
+            let translationTransform = CGAffineTransform(
+                translationX: translation.x,
+                y: translation.y
+            )
+            transformedOutline = transformedOutline.applying(translationTransform)
+            contours.append(contentsOf: transformedOutline.contours)
+
+            if component.flags & 0x0200 != 0 {
+                inheritedBasePhantom = child.basePhantomPoints.map { point in
+                    point.applying(component.linearTransform).applying(translationTransform)
+                }
+                variedPhantom = child.phantomPoints.map { point in
+                    point.applying(component.linearTransform).applying(translationTransform)
+                }
+            }
+        }
+        return ParsedGlyph(
+            outline: GlyphOutline(contours: contours),
+            basePhantomPoints: inheritedBasePhantom,
+            phantomPoints: variedPhantom
+        )
+    }
+
+    func phantomPoints(
+        glyphIndex: Int,
+        glyphOffset: Int,
+        glyfData: Data,
+        hmtx: HmtxTable?,
+        vmtx: VmtxTable?
+    ) -> [CGPoint]? {
+        let hasHeader = glyphOffset >= 0 && glyphOffset <= glyfData.count - 10
+        let xMin = hasHeader ? CGFloat(glyfData.readInt16BE(at: glyphOffset + 2)) : 0
+        let yMax = hasHeader ? CGFloat(glyfData.readInt16BE(at: glyphOffset + 8)) : 0
+        let advanceWidth = hmtx?.advanceWidth(for: glyphIndex).map(CGFloat.init) ?? 0
+        let leftSideBearing = hmtx?.leftSideBearing(for: glyphIndex).map(CGFloat.init) ?? 0
+        let left = xMin - leftSideBearing
+        let advanceHeight = vmtx?.advanceHeight(for: glyphIndex).map(CGFloat.init) ?? 0
+        let topSideBearing = vmtx?.topSideBearing(for: glyphIndex).map(CGFloat.init) ?? 0
+        let top = yMax + topSideBearing
+        return [
+            CGPoint(x: left, y: 0),
+            CGPoint(x: left + advanceWidth, y: 0),
+            CGPoint(x: 0, y: top),
+            CGPoint(x: 0, y: top - advanceHeight)
+        ]
     }
 
     func readComponentTransform(

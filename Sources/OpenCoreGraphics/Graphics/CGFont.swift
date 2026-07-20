@@ -54,6 +54,7 @@ public class CGFont: @unchecked Sendable {
     private var cachedAvar: AvarTable?
     private var cachedHvar: HvarTable?
     private var cachedVvar: VvarTable?
+    private var cachedGvar: GvarTable?
     private var cachedColr: ColrTable?
     private var cachedCpal: CpalTable?
     private var cachedCFF: CFFFontProgram?
@@ -114,13 +115,15 @@ public class CGFont: @unchecked Sendable {
                 guard let fvar = try parser.parseFvarTable() else { return nil }
                 self.cachedFvar = fvar
                 self.cachedAvar = try parser.parseAvarTable(axisCount: fvar.axes.count)
-                if parser.hasTable(FontTableTag.HVAR) {
+                if parser.hasTable(FontTableTag.HVAR) || parser.hasTable(FontTableTag.gvar) {
                     let hhea = try parser.parseHheaTable()
                     self.cachedHhea = hhea
                     self.cachedHmtx = try parser.parseHmtxTable(
                         numberOfGlyphs: glyphCount,
                         numberOfHMetrics: Int(hhea.numberOfHMetrics)
                     )
+                }
+                if parser.hasTable(FontTableTag.HVAR) {
                     guard let hvar = try parser.parseHvarTable(
                         axisCount: fvar.axes.count,
                         glyphCount: glyphCount
@@ -139,12 +142,23 @@ public class CGFont: @unchecked Sendable {
                     }
                     self.cachedVvar = vvar
                 }
+                if parser.hasTable(FontTableTag.gvar) {
+                    guard parser.hasTable(FontTableTag.glyf),
+                          let gvar = try parser.parseGvarTable(
+                            axisCount: fvar.axes.count,
+                            glyphCount: glyphCount
+                          ) else {
+                        return nil
+                    }
+                    self.cachedGvar = gvar
+                }
             } catch {
                 return nil
             }
         } else if parser.hasTable(FontTableTag.avar)
                     || parser.hasTable(FontTableTag.HVAR)
-                    || parser.hasTable(FontTableTag.VVAR) {
+                    || parser.hasTable(FontTableTag.VVAR)
+                    || parser.hasTable(FontTableTag.gvar) {
             return nil
         }
         if parser.hasTable(FontTableTag.CFF) {
@@ -194,6 +208,7 @@ public class CGFont: @unchecked Sendable {
         cachedAvar: AvarTable?,
         cachedHvar: HvarTable?,
         cachedVvar: VvarTable?,
+        cachedGvar: GvarTable?,
         cachedColr: ColrTable?,
         cachedCpal: CpalTable?,
         cachedCFF: CFFFontProgram?,
@@ -217,6 +232,7 @@ public class CGFont: @unchecked Sendable {
         self.cachedAvar = cachedAvar
         self.cachedHvar = cachedHvar
         self.cachedVvar = cachedVvar
+        self.cachedGvar = cachedGvar
         self.cachedColr = cachedColr
         self.cachedCpal = cachedCpal
         self.cachedCFF = cachedCFF
@@ -532,6 +548,9 @@ public class CGFont: @unchecked Sendable {
                     return false
                 }
                 delta = resolvedDelta
+            } else if cachedGvar != nil {
+                guard let metrics = trueTypeVariationMetrics(for: glyphs[i]) else { return false }
+                delta = metrics.advanceWidth - CGFloat(baseAdvance)
             } else {
                 delta = 0
             }
@@ -543,11 +562,35 @@ public class CGFont: @unchecked Sendable {
         return true
     }
 
+    private func trueTypeVariationMetrics(
+        for glyph: CGGlyph
+    ) -> (advanceWidth: CGFloat, leftSideBearing: CGFloat, advanceHeight: CGFloat?, topSideBearing: CGFloat?)? {
+        guard let parser,
+              let gvar = cachedGvar,
+              let loca = getLocaTable(),
+              let hmtx = getHmtxTable(),
+              let coordinates = normalizedVariationCoordinates() else {
+            return nil
+        }
+        return parser.parseGlyphVariationMetrics(
+            glyphIndex: Int(glyph),
+            loca: loca,
+            gvar: gvar,
+            normalizedCoordinates: coordinates,
+            hmtx: hmtx,
+            vmtx: cachedVmtx
+        )
+    }
+
     /// Returns the variable vertical advance height in font design units.
     internal func verticalAdvance(for glyph: CGGlyph) -> Int32? {
         guard let vmtx = cachedVmtx,
               let baseAdvance = vmtx.advanceHeight(for: Int(glyph)) else {
             return nil
+        }
+        if cachedVvar == nil, cachedGvar != nil {
+            guard let varied = trueTypeVariationMetrics(for: glyph)?.advanceHeight else { return nil }
+            return Self.adjustedMetric(base: varied, delta: 0)
         }
         guard let vvar = cachedVvar else { return Int32(baseAdvance) }
         guard let coordinates = normalizedVariationCoordinates(),
@@ -566,6 +609,10 @@ public class CGFont: @unchecked Sendable {
               let baseBearing = hmtx.leftSideBearing(for: Int(glyph)) else {
             return nil
         }
+        if cachedHvar == nil, cachedGvar != nil {
+            guard let varied = trueTypeVariationMetrics(for: glyph) else { return nil }
+            return Self.adjustedMetric(base: varied.leftSideBearing, delta: 0)
+        }
         guard let hvar = cachedHvar else { return Int32(baseBearing) }
         guard let coordinates = normalizedVariationCoordinates(),
               let delta = hvar.leftSideBearingDelta(
@@ -582,6 +629,10 @@ public class CGFont: @unchecked Sendable {
         guard let vmtx = cachedVmtx,
               let baseBearing = vmtx.topSideBearing(for: Int(glyph)) else {
             return nil
+        }
+        if cachedVvar == nil, cachedGvar != nil {
+            guard let varied = trueTypeVariationMetrics(for: glyph)?.topSideBearing else { return nil }
+            return Self.adjustedMetric(base: varied, delta: 0)
         }
         guard let vvar = cachedVvar else { return Int32(baseBearing) }
         guard let coordinates = normalizedVariationCoordinates(),
@@ -665,6 +716,17 @@ public class CGFont: @unchecked Sendable {
         }
 
         guard let loca = getLocaTable() else { return false }
+        let hmtx = parser.hasTable(FontTableTag.hhea) && parser.hasTable(FontTableTag.hmtx)
+            ? getHmtxTable()
+            : nil
+
+        if cachedGvar != nil {
+            for index in 0..<count {
+                guard let variedPath = path(for: glyphs[index]) else { return false }
+                bboxes[index] = variedPath.isEmpty ? .zero : variedPath.boundingBox
+            }
+            return true
+        }
 
         for i in 0..<count {
             let glyphIndex = Int(glyphs[i])
@@ -672,7 +734,16 @@ public class CGFont: @unchecked Sendable {
             if let location = loca.glyphLocation(for: glyphIndex),
                location.length > 0,
                let bbox = parser.parseGlyphBBox(glyphOffset: location.offset, glyphLength: location.length) {
-                bboxes[i] = bbox.cgRect
+                if let leftSideBearing = hmtx?.leftSideBearing(for: glyphIndex) {
+                    bboxes[i] = CGRect(
+                        x: CGFloat(leftSideBearing),
+                        y: CGFloat(bbox.yMin),
+                        width: CGFloat(Int32(bbox.xMax) - Int32(bbox.xMin)),
+                        height: CGFloat(Int32(bbox.yMax) - Int32(bbox.yMin))
+                    )
+                } else {
+                    bboxes[i] = bbox.cgRect
+                }
             } else {
                 // Empty glyph (space, etc.)
                 bboxes[i] = .zero
@@ -698,7 +769,27 @@ public class CGFont: @unchecked Sendable {
             )
         }
         guard let loca = getLocaTable() else { return nil }
-        return parser.parseGlyphPath(glyphIndex: Int(glyph), loca: loca)
+        if let gvar = cachedGvar {
+            guard let coordinates = normalizedVariationCoordinates(),
+                  let hmtx = getHmtxTable() else { return nil }
+            return parser.parseGlyphPath(
+                glyphIndex: Int(glyph),
+                loca: loca,
+                gvar: gvar,
+                normalizedCoordinates: coordinates,
+                hmtx: hmtx,
+                vmtx: cachedVmtx
+            )
+        }
+        let hmtx = parser.hasTable(FontTableTag.hhea) && parser.hasTable(FontTableTag.hmtx)
+            ? getHmtxTable()
+            : nil
+        return parser.parseGlyphPath(
+            glyphIndex: Int(glyph),
+            loca: loca,
+            hmtx: hmtx,
+            vmtx: cachedVmtx
+        )
     }
 
     // MARK: - Glyph Names
@@ -809,6 +900,7 @@ public class CGFont: @unchecked Sendable {
             cachedAvar: cachedAvar,
             cachedHvar: cachedHvar,
             cachedVvar: cachedVvar,
+            cachedGvar: cachedGvar,
             cachedColr: cachedColr,
             cachedCpal: cachedCpal,
             cachedCFF: cachedCFF,

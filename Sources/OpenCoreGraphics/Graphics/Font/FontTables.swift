@@ -420,18 +420,6 @@ internal struct FvarTable: Sendable {
     let instances: [NamedInstance]
 }
 
-// MARK: - Gvar Table (Glyph Variations)
-
-/// The 'gvar' table contains glyph variation data.
-internal struct GvarTable: Sendable {
-    /// Glyph variation data offsets.
-    let glyphVariationDataOffsets: [UInt32]
-    /// Shared tuple coordinates (each tuple is an array of normalized coordinates).
-    let sharedTuples: [[CGFloat]]
-    /// Raw data for lazy parsing of individual glyph variations.
-    let data: Data
-}
-
 // MARK: - COLR Table (Color Layers)
 
 /// The 'COLR' table defines color layers for glyphs.
@@ -512,4 +500,3 @@ internal struct CpalTable: Sendable {
         return palette[colorIndex]
     }
 }
-

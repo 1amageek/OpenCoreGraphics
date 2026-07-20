@@ -283,6 +283,14 @@ internal struct SFNTParser: Sendable {
         return table
     }
 
+    func parseGvarTable(axisCount: Int, glyphCount: Int) throws -> GvarTable? {
+        guard let tableData = tableData(for: FontTableTag.gvar) else { return nil }
+        guard let table = GvarTable(data: tableData, axisCount: axisCount, glyphCount: glyphCount) else {
+            throw FontParserError.invalidTableFormat("gvar")
+        }
+        return table
+    }
+
     func parseVheaTable() throws -> VheaTable {
         guard let tableData = tableData(for: FontTableTag.vhea) else {
             throw FontParserError.tableNotFound("vhea")

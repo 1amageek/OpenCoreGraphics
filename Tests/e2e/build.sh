@@ -21,7 +21,11 @@ fi
 echo "→ Building OCGSmoke against SDK=$SDK"
 cd "$SMOKE_DIR"
 "${SWIFT_COMMAND[@]}" package resolve --version "$JAVASCRIPTKIT_VERSION" javascriptkit
-"${SWIFT_COMMAND[@]}" build --product OCGSmoke --swift-sdk "$SDK" -c release
+"${SWIFT_COMMAND[@]}" build \
+    --product OCGSmoke \
+    --swift-sdk "$SDK" \
+    -c release \
+    --disable-build-manifest-caching
 
 BUILT_WASM="$SMOKE_DIR/.build/wasm32-unknown-wasip1/release/OCGSmoke.wasm"
 JAVASCRIPTKIT_RUNTIME="$SMOKE_DIR/.build/checkouts/JavaScriptKit/Plugins/PackageToJS/Templates/runtime.mjs"
