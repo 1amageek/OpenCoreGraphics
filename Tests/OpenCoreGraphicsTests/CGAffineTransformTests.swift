@@ -790,11 +790,11 @@ struct CGAffineTransformComponentsTests {
     @Suite("Initialization")
     struct InitializationTests {
 
-        @Test("Default initializer creates identity components")
+        @Test("Default initializer creates zero components")
         func defaultInit() {
             let components = CGAffineTransformComponents()
-            #expect(components.scale.width == 1.0)
-            #expect(components.scale.height == 1.0)
+            #expect(components.scale.width == 0.0)
+            #expect(components.scale.height == 0.0)
             #expect(components.horizontalShear == 0.0)
             #expect(components.rotation == 0.0)
             #expect(components.translation.dx == 0.0)

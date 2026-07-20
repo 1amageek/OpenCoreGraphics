@@ -6,6 +6,11 @@
 import Foundation
 
 internal final class Type2CharStringInterpreter {
+    enum Format {
+        case cff1
+        case cff2
+    }
+
     private enum Control {
         case returned
         case ended
@@ -13,8 +18,12 @@ internal final class Type2CharStringInterpreter {
 
     private let data: Data
     private let charString: Range<Int>
-    private let localSubroutines: CFFIndex?
-    private let globalSubroutines: CFFIndex
+    private let localSubroutines: [Range<Int>]?
+    private let globalSubroutines: [Range<Int>]
+    private let format: Format
+    private let variationStore: CFF2VariationStore?
+    private let normalizedCoordinates: [CGFloat]
+    private let stackLimit: Int
     private let path = CGMutablePath()
     private var stack: [CGFloat] = []
     private var transient = Array(repeating: CGFloat.zero, count: 32)
@@ -24,19 +33,31 @@ internal final class Type2CharStringInterpreter {
     private var hintCount = 0
     private var randomState: UInt32
     private var isValid = true
+    private var variationDataIndex: Int
+    private var hasSeenVariationIndex = false
+    private var hasSeenBlend = false
 
     init(
         data: Data,
         charString: Range<Int>,
-        localSubroutines: CFFIndex?,
-        globalSubroutines: CFFIndex,
-        randomSeed: UInt32
+        localSubroutines: [Range<Int>]?,
+        globalSubroutines: [Range<Int>],
+        randomSeed: UInt32,
+        format: Format = .cff1,
+        variationStore: CFF2VariationStore? = nil,
+        normalizedCoordinates: [CGFloat] = [],
+        defaultVariationDataIndex: Int = 0
     ) {
         self.data = data
         self.charString = charString
         self.localSubroutines = localSubroutines
         self.globalSubroutines = globalSubroutines
         self.randomState = randomSeed
+        self.format = format
+        self.variationStore = variationStore
+        self.normalizedCoordinates = normalizedCoordinates
+        self.variationDataIndex = defaultVariationDataIndex
+        self.stackLimit = format == .cff2 ? 513 : 48
     }
 
     func parse() -> CGPath? {
@@ -55,7 +76,7 @@ internal final class Type2CharStringInterpreter {
         while cursor < range.upperBound {
             let byte = data.readUInt8(at: cursor)
             if byte == 28 || byte >= 32 {
-                guard stack.count < 48,
+                guard stack.count < stackLimit,
                       let value = decodeNumber(cursor: &cursor, end: range.upperBound) else {
                     return nil
                 }
@@ -95,20 +116,31 @@ internal final class Type2CharStringInterpreter {
                 guard let control = callSubroutine(localSubroutines, depth: depth) else { return nil }
                 if control == .ended { return .ended }
             case 11:
-                return isSubroutine ? .returned : nil
+                if format == .cff1 {
+                    return isSubroutine ? .returned : nil
+                }
+                stack.removeAll(keepingCapacity: true)
             case 12:
                 guard cursor < range.upperBound else { return nil }
                 let escaped = data.readUInt8(at: cursor)
                 cursor += 1
                 guard applyEscapedOperator(escaped) else { return nil }
             case 14:
-                if !widthSeen, stack.count == 1 || stack.count == 5 {
-                    stack.removeFirst()
-                    widthSeen = true
+                if format == .cff2 {
+                    stack.removeAll(keepingCapacity: true)
+                } else {
+                    if !widthSeen, stack.count == 1 || stack.count == 5 {
+                        stack.removeFirst()
+                        widthSeen = true
+                    }
+                    guard stack.isEmpty else { return nil }
+                    closeContour()
+                    return .ended
                 }
-                guard stack.isEmpty else { return nil }
-                closeContour()
-                return .ended
+            case 15:
+                guard applyVariationIndex() else { return nil }
+            case 16:
+                guard applyBlend() else { return nil }
             case 19, 20:
                 guard consumeStemArguments(allowEmpty: true), hintCount > 0 else { return nil }
                 let maskSize = (hintCount + 7) / 8
@@ -155,11 +187,17 @@ internal final class Type2CharStringInterpreter {
             case 30, 31:
                 guard applyAlternatingCurves(startsVertical: byte == 30) else { return nil }
             default:
-                return nil
+                if format == .cff2 {
+                    stack.removeAll(keepingCapacity: true)
+                } else {
+                    return nil
+                }
             }
         }
-        if isSubroutine { return nil }
-        return nil
+        guard format == .cff2 else { return nil }
+        if isSubroutine { return .returned }
+        closeContour()
+        return .ended
     }
 
     private func decodeNumber(cursor: inout Int, end: Int) -> CGFloat? {
@@ -169,9 +207,9 @@ internal final class Type2CharStringInterpreter {
         switch byte {
         case 28:
             guard cursor <= end - 2 else { return nil }
-            let value = data.readInt16BE(at: cursor)
+            let value = CGFloat(data.readInt16BE(at: cursor))
             cursor += 2
-            return CGFloat(value)
+            return value
         case 32...246:
             return CGFloat(Int(byte) - 139)
         case 247...250:
@@ -195,7 +233,7 @@ internal final class Type2CharStringInterpreter {
     }
 
     private func consumeStemArguments(allowEmpty: Bool = false) -> Bool {
-        if !widthSeen {
+        if format == .cff1, !widthSeen {
             if !stack.count.isMultiple(of: 2) { stack.removeFirst() }
             widthSeen = true
         }
@@ -209,7 +247,7 @@ internal final class Type2CharStringInterpreter {
     }
 
     private func prepareMove(argumentCount: Int) -> Bool {
-        if !widthSeen, stack.count == argumentCount + 1 {
+        if format == .cff1, !widthSeen, stack.count == argumentCount + 1 {
             stack.removeFirst()
         }
         widthSeen = true
@@ -265,11 +303,13 @@ internal final class Type2CharStringInterpreter {
         }
     }
 
-    private func callSubroutine(_ index: CFFIndex?, depth: Int) -> Control? {
-        guard let index, let encoded = popInteger() else { return nil }
-        let count = index.ranges.count
+    private func callSubroutine(_ ranges: [Range<Int>]?, depth: Int) -> Control? {
+        guard let ranges, let encoded = popInteger() else { return nil }
+        let count = ranges.count
         let bias = count < 1_240 ? 107 : (count < 33_900 ? 1_131 : 32_768)
-        guard let range = index.range(at: encoded + bias) else { return nil }
+        let subroutineIndex = encoded + bias
+        guard ranges.indices.contains(subroutineIndex) else { return nil }
+        let range = ranges[subroutineIndex]
         return execute(range: range, depth: depth + 1, isSubroutine: true)
     }
 
@@ -314,6 +354,10 @@ internal final class Type2CharStringInterpreter {
     }
 
     private func applyEscapedOperator(_ operation: UInt8) -> Bool {
+        if format == .cff2, !(34...37).contains(operation) {
+            stack.removeAll(keepingCapacity: true)
+            return true
+        }
         switch operation {
         case 0:
             return stack.isEmpty
@@ -359,13 +403,13 @@ internal final class Type2CharStringInterpreter {
             guard let value = stack.popLast(), value >= 0 else { return false }
             stack.append(sqrt(value))
         case 27:
-            guard let value = stack.last, stack.count < 48 else { return false }
+            guard let value = stack.last, stack.count < stackLimit else { return false }
             stack.append(value)
         case 28:
             guard stack.count >= 2 else { return false }
             stack.swapAt(stack.count - 1, stack.count - 2)
         case 29:
-            guard var index = popInteger(), !stack.isEmpty, stack.count < 48 else { return false }
+            guard var index = popInteger(), !stack.isEmpty, stack.count < stackLimit else { return false }
             if index < 0 { index = 0 }
             index = min(index, stack.count - 1)
             stack.append(stack[stack.count - 1 - index])
@@ -409,7 +453,48 @@ internal final class Type2CharStringInterpreter {
         default:
             return false
         }
-        return stack.count <= 48 && stack.allSatisfy(\.isFinite)
+        return stack.count <= stackLimit && stack.allSatisfy(\.isFinite)
+    }
+
+    private func applyVariationIndex() -> Bool {
+        guard format == .cff2, !hasSeenVariationIndex, !hasSeenBlend,
+              stack.count == 1, let index = popInteger(), index >= 0,
+              let variationStore,
+              variationStore.scalars(for: index, coordinates: normalizedCoordinates) != nil else {
+            return false
+        }
+        variationDataIndex = index
+        hasSeenVariationIndex = true
+        return true
+    }
+
+    private func applyBlend() -> Bool {
+        guard format == .cff2, let variationStore,
+              let count = popInteger(), count >= 1,
+              let scalars = variationStore.scalars(
+                  for: variationDataIndex,
+                  coordinates: normalizedCoordinates
+              ),
+              count <= stackLimit / max(scalars.count + 1, 1) else {
+            return false
+        }
+        let operandCount = count * (scalars.count + 1)
+        guard operandCount <= stack.count else { return false }
+        let start = stack.count - operandCount
+        var blended: [CGFloat] = []
+        blended.reserveCapacity(count)
+        for valueIndex in 0..<count {
+            var value = stack[start + valueIndex]
+            let deltaStart = start + count + valueIndex * scalars.count
+            for scalarIndex in scalars.indices {
+                value += stack[deltaStart + scalarIndex] * scalars[scalarIndex]
+            }
+            guard value.isFinite else { return false }
+            blended.append(value)
+        }
+        stack.replaceSubrange(start..., with: blended)
+        hasSeenBlend = true
+        return stack.count <= stackLimit
     }
 
     private func binary(_ operation: (CGFloat, CGFloat) -> CGFloat) -> Bool {

@@ -579,28 +579,51 @@ internal struct SFNTParser: Sendable {
             throw FontParserError.invalidTableFormat("fvar")
         }
 
-        let _ = tableData.readUInt16BE(at: 0)  // majorVersion
-        let _ = tableData.readUInt16BE(at: 2)  // minorVersion
+        let majorVersion = tableData.readUInt16BE(at: 0)
+        let minorVersion = tableData.readUInt16BE(at: 2)
         let axesArrayOffset = Int(tableData.readUInt16BE(at: 4))
-        // reserved: 2 bytes at offset 6
+        let countSizePairs = tableData.readUInt16BE(at: 6)
         let axisCount = Int(tableData.readUInt16BE(at: 8))
         let axisSize = Int(tableData.readUInt16BE(at: 10))
         let instanceCount = Int(tableData.readUInt16BE(at: 12))
         let instanceSize = Int(tableData.readUInt16BE(at: 14))
 
+        guard majorVersion == 1, minorVersion == 0,
+              axesArrayOffset >= 16, countSizePairs == 2,
+              axisCount > 0, axisSize == 20,
+              instanceSize == 4 + axisCount * 4 || instanceSize == 6 + axisCount * 4,
+              axisCount <= (tableData.count - axesArrayOffset) / axisSize,
+              instanceCount <= (
+                  tableData.count - axesArrayOffset - axisCount * axisSize
+              ) / instanceSize else {
+            throw FontParserError.invalidTableFormat("fvar")
+        }
+
         // Parse axes
         var axes: [FvarTable.VariationAxis] = []
+        var axisTags: Set<UInt32> = []
         for i in 0..<axisCount {
             let offset = axesArrayOffset + i * axisSize
-            guard offset + 20 <= tableData.count else { break }
-
+            let tag = tableData.readUInt32BE(at: offset)
+            let minValue = tableData.readFixed(at: offset + 4)
+            let defaultValue = tableData.readFixed(at: offset + 8)
+            let maxValue = tableData.readFixed(at: offset + 12)
+            let flags = tableData.readUInt16BE(at: offset + 16)
+            let nameID = tableData.readUInt16BE(at: offset + 18)
+            guard axisTags.insert(tag).inserted,
+                  Self.isPrintableTag(tag),
+                  minValue <= defaultValue, defaultValue <= maxValue,
+                  flags & ~UInt16(1) == 0,
+                  (256..<32_768).contains(Int(nameID)) else {
+                throw FontParserError.invalidTableFormat("fvar")
+            }
             axes.append(FvarTable.VariationAxis(
-                tag: tableData.readUInt32BE(at: offset),
-                minValue: tableData.readFixed(at: offset + 4),
-                defaultValue: tableData.readFixed(at: offset + 8),
-                maxValue: tableData.readFixed(at: offset + 12),
-                flags: tableData.readUInt16BE(at: offset + 16),
-                nameID: tableData.readUInt16BE(at: offset + 18)
+                tag: tag,
+                minValue: minValue,
+                defaultValue: defaultValue,
+                maxValue: maxValue,
+                flags: flags,
+                nameID: nameID
             ))
         }
 
@@ -610,10 +633,12 @@ internal struct SFNTParser: Sendable {
 
         for i in 0..<instanceCount {
             let offset = instancesOffset + i * instanceSize
-            guard offset + 4 + axisCount * 4 <= tableData.count else { break }
-
             let subfamilyNameID = tableData.readUInt16BE(at: offset)
             let flags = tableData.readUInt16BE(at: offset + 2)
+            guard (subfamilyNameID == 2 || (256..<32_768).contains(Int(subfamilyNameID))),
+                  flags == 0 else {
+                throw FontParserError.invalidTableFormat("fvar")
+            }
 
             var coordinates: [CGFloat] = []
             for j in 0..<axisCount {
@@ -623,6 +648,11 @@ internal struct SFNTParser: Sendable {
             let postScriptNameID: UInt16?
             if instanceSize >= 4 + axisCount * 4 + 2 {
                 postScriptNameID = tableData.readUInt16BE(at: offset + 4 + axisCount * 4)
+                guard postScriptNameID == 0xFFFF || postScriptNameID.map({
+                    (256..<32_768).contains(Int($0))
+                }) == true else {
+                    throw FontParserError.invalidTableFormat("fvar")
+                }
             } else {
                 postScriptNameID = nil
             }
@@ -636,6 +666,14 @@ internal struct SFNTParser: Sendable {
         }
 
         return FvarTable(axes: axes, instances: instances)
+    }
+
+    private static func isPrintableTag(_ tag: UInt32) -> Bool {
+        (0..<4).allSatisfy { index in
+            let shift = UInt32((3 - index) * 8)
+            let byte = UInt8((tag >> shift) & 0xFF)
+            return (0x20...0x7E).contains(byte)
+        }
     }
 
     // MARK: - COLR Table
@@ -784,4 +822,3 @@ internal struct SFNTParser: Sendable {
         return ""
     }
 }
-

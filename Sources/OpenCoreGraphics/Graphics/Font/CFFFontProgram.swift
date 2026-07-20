@@ -88,8 +88,8 @@ internal struct CFFFontProgram: Sendable {
         return Type2CharStringInterpreter(
             data: data,
             charString: charString,
-            localSubroutines: privatePrograms[dictionaryIndex].localSubroutines,
-            globalSubroutines: globalSubroutines,
+            localSubroutines: privatePrograms[dictionaryIndex].localSubroutines?.ranges,
+            globalSubroutines: globalSubroutines.ranges,
             randomSeed: UInt32(truncatingIfNeeded: glyphIndex) &+ 1
         ).parse()
     }

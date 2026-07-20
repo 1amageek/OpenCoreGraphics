@@ -283,143 +283,76 @@ extension CGAffineTransform {
 public typealias CGAffineTransform = Foundation.CGAffineTransform
 
 extension CGAffineTransform {
-
-    /// Creates an affine transformation matrix with the specified values (positional).
     @inlinable
-    public init(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat, _ tx: CGFloat, _ ty: CGFloat) {
-        self.init(a: a, b: b, c: c, d: d, tx: tx, ty: ty)
+    public init(translationX x: CGFloat, y: CGFloat) {
+        self.init(a: 1, b: 0, c: 0, d: 1, tx: x, ty: y)
     }
 
-    /// Creates an affine transformation matrix from a translation.
     @inlinable
-    public init(translationX tx: CGFloat, y ty: CGFloat) {
-        self.init(a: 1, b: 0, c: 0, d: 1, tx: tx, ty: ty)
+    public init(scaleX x: CGFloat, y: CGFloat) {
+        self.init(a: x, b: 0, c: 0, d: y, tx: 0, ty: 0)
     }
 
-    /// Creates an affine transformation matrix from scaling values.
-    @inlinable
-    public init(scaleX sx: CGFloat, y sy: CGFloat) {
-        self.init(a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0)
-    }
-
-    /// Creates an affine transformation matrix from a rotation value.
     @inlinable
     public init(rotationAngle angle: CGFloat) {
-        let cosAngle = cos(angle)
-        let sinAngle = sin(angle)
-        self.init(a: cosAngle, b: sinAngle, c: -sinAngle, d: cosAngle, tx: 0, ty: 0)
+        self.init(a: cos(angle), b: sin(angle), c: -sin(angle), d: cos(angle), tx: 0, ty: 0)
     }
 
-    /// Creates an affine transformation matrix from components.
-    @inlinable
-    public init(_ components: CGAffineTransformComponents) {
-        self = components.transform
-    }
-
-    /// The identity transform.
     public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
 
-    /// Returns whether this transform is the identity transform.
     @inlinable
     public var isIdentity: Bool {
-        return a == 1 && b == 0 && c == 0 && d == 1 && tx == 0 && ty == 0
+        a == 1 && b == 0 && c == 0 && d == 1 && tx == 0 && ty == 0
     }
 
-    /// Returns an affine transformation matrix constructed by translating an existing one.
     @inlinable
-    public func translatedBy(x tx: CGFloat, y ty: CGFloat) -> CGAffineTransform {
-        return CGAffineTransform(
-            a: a,
-            b: b,
-            c: c,
-            d: d,
-            tx: self.tx + a * tx + c * ty,
-            ty: self.ty + b * tx + d * ty
-        )
+    public func translatedBy(x: CGFloat, y: CGFloat) -> CGAffineTransform {
+        CGAffineTransform(a: a, b: b, c: c, d: d, tx: tx + a * x + c * y, ty: ty + b * x + d * y)
     }
 
-    /// Returns an affine transformation matrix constructed by scaling an existing one.
     @inlinable
-    public func scaledBy(x sx: CGFloat, y sy: CGFloat) -> CGAffineTransform {
-        return CGAffineTransform(
-            a: a * sx,
-            b: b * sx,
-            c: c * sy,
-            d: d * sy,
-            tx: tx,
-            ty: ty
-        )
+    public func scaledBy(x: CGFloat, y: CGFloat) -> CGAffineTransform {
+        CGAffineTransform(a: a * x, b: b * x, c: c * y, d: d * y, tx: tx, ty: ty)
     }
 
-    /// Returns an affine transformation matrix constructed by rotating an existing one.
     @inlinable
     public func rotated(by angle: CGFloat) -> CGAffineTransform {
-        let cosAngle = cos(angle)
-        let sinAngle = sin(angle)
+        let cosine = cos(angle)
+        let sine = sin(angle)
         return CGAffineTransform(
-            a: a * cosAngle + c * sinAngle,
-            b: b * cosAngle + d * sinAngle,
-            c: c * cosAngle - a * sinAngle,
-            d: d * cosAngle - b * sinAngle,
+            a: a * cosine + c * sine,
+            b: b * cosine + d * sine,
+            c: c * cosine - a * sine,
+            d: d * cosine - b * sine,
             tx: tx,
             ty: ty
         )
     }
 
-    /// Returns an affine transformation matrix constructed by inverting an existing one.
-    ///
-    /// If the transform is singular (non-invertible, i.e., determinant is zero),
-    /// returns the original transform unchanged. This matches Apple's CoreGraphics
-    /// behavior — silently substituting `.identity` would corrupt `convertToUserSpace()`
-    /// results and mask genuine matrix-degeneracy bugs in caller code.
     @inlinable
     public func inverted() -> CGAffineTransform {
         let determinant = a * d - b * c
         guard determinant != 0 else { return self }
-        let invDet = 1.0 / determinant
+        let reciprocal = 1 / determinant
         return CGAffineTransform(
-            a: d * invDet,
-            b: -b * invDet,
-            c: -c * invDet,
-            d: a * invDet,
-            tx: (c * ty - d * tx) * invDet,
-            ty: (b * tx - a * ty) * invDet
+            a: d * reciprocal,
+            b: -b * reciprocal,
+            c: -c * reciprocal,
+            d: a * reciprocal,
+            tx: (c * ty - d * tx) * reciprocal,
+            ty: (b * tx - a * ty) * reciprocal
         )
     }
 
-    /// Returns an affine transformation matrix constructed by combining two existing ones.
     @inlinable
-    public func concatenating(_ t2: CGAffineTransform) -> CGAffineTransform {
-        return CGAffineTransform(
-            a: a * t2.a + b * t2.c,
-            b: a * t2.b + b * t2.d,
-            c: c * t2.a + d * t2.c,
-            d: c * t2.b + d * t2.d,
-            tx: tx * t2.a + ty * t2.c + t2.tx,
-            ty: tx * t2.b + ty * t2.d + t2.ty
-        )
-    }
-
-    /// Decomposes this transform into its component parts.
-    public func decomposed() -> CGAffineTransformComponents {
-        let translation = CGVector(dx: tx, dy: ty)
-        let scaleX = sqrt(a * a + b * b)
-        let scaleY = sqrt(c * c + d * d)
-        let determinant = a * d - b * c
-        let signY: CGFloat = determinant < 0 ? -1 : 1
-        let scale = CGSize(width: scaleX, height: scaleY * signY)
-        let rotation = atan2(b, a)
-        let shear: CGFloat
-        if abs(determinant) <= CGFloat.ulpOfOne {
-            shear = 0
-        } else {
-            shear = (a * c + b * d) / determinant
-        }
-        return CGAffineTransformComponents(
-            scale: scale,
-            horizontalShear: shear,
-            rotation: rotation,
-            translation: translation
+    public func concatenating(_ other: CGAffineTransform) -> CGAffineTransform {
+        CGAffineTransform(
+            a: a * other.a + b * other.c,
+            b: a * other.b + b * other.d,
+            c: c * other.a + d * other.c,
+            d: c * other.b + d * other.d,
+            tx: tx * other.a + ty * other.c + other.tx,
+            ty: tx * other.b + ty * other.d + other.ty
         )
     }
 }
@@ -432,7 +365,6 @@ extension CGAffineTransform {
 // conformances retroactively so macOS test builds match the WASM API surface.
 
 extension CGAffineTransform: @retroactive Equatable {
-    @inlinable
     public static func == (lhs: CGAffineTransform, rhs: CGAffineTransform) -> Bool {
         return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c &&
                lhs.d == rhs.d && lhs.tx == rhs.tx && lhs.ty == rhs.ty
@@ -440,7 +372,6 @@ extension CGAffineTransform: @retroactive Equatable {
 }
 
 extension CGAffineTransform: @retroactive Hashable {
-    @inlinable
     public func hash(into hasher: inout Hasher) {
         hasher.combine(a)
         hasher.combine(b)

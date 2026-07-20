@@ -48,9 +48,11 @@ public class CGFont: @unchecked Sendable {
     private var cachedName: NameTable?
     private var cachedLoca: LocaTable?
     private var cachedFvar: FvarTable?
+    private var cachedAvar: AvarTable?
     private var cachedColr: ColrTable?
     private var cachedCpal: CpalTable?
     private var cachedCFF: CFFFontProgram?
+    private var cachedCFF2: CFF2FontProgram?
 
     /// Lock for thread-safe lazy initialization (recursive to allow nested table loading).
     private let cacheLock = NSRecursiveLock()
@@ -84,10 +86,28 @@ public class CGFont: @unchecked Sendable {
             }
             self.cachedCFF = cff
         } else if parser.hasTable(FontTableTag.CFF2) {
-            // CFF2 reaches CGFont through the OTTO SFNT path. Until CFF2 variation-aware
-            // CharStrings are decoded, accepting the font would incorrectly advertise usable
-            // outlines, so initialization must fail instead of returning empty glyph paths.
-            return nil
+            let fvar: FvarTable?
+            do {
+                fvar = try parser.parseFvarTable()
+            } catch {
+                return nil
+            }
+            let axisCount = fvar?.axes.count ?? 0
+            guard let cff2 = parser.parseCFF2FontProgram(
+                axisCount: axisCount,
+                unitsPerEm: Int(cachedHead?.unitsPerEm ?? 0)
+            ), cff2.charStrings.ranges.count == Int(cachedMaxp?.numGlyphs ?? 0) else {
+                return nil
+            }
+            self.cachedFvar = fvar
+            if axisCount > 0 {
+                do {
+                    self.cachedAvar = try parser.parseAvarTable(axisCount: axisCount)
+                } catch {
+                    return nil
+                }
+            }
+            self.cachedCFF2 = cff2
         }
     }
 
@@ -113,9 +133,11 @@ public class CGFont: @unchecked Sendable {
         cachedName: NameTable?,
         cachedLoca: LocaTable?,
         cachedFvar: FvarTable?,
+        cachedAvar: AvarTable?,
         cachedColr: ColrTable?,
         cachedCpal: CpalTable?,
         cachedCFF: CFFFontProgram?,
+        cachedCFF2: CFF2FontProgram?,
         variationCoordinates: [String: CGFloat]?
     ) {
         self.fontData = fontData
@@ -129,9 +151,11 @@ public class CGFont: @unchecked Sendable {
         self.cachedName = cachedName
         self.cachedLoca = cachedLoca
         self.cachedFvar = cachedFvar
+        self.cachedAvar = cachedAvar
         self.cachedColr = cachedColr
         self.cachedCpal = cachedCpal
         self.cachedCFF = cachedCFF
+        self.cachedCFF2 = cachedCFF2
         self.variationCoordinates = variationCoordinates
     }
 
@@ -254,6 +278,21 @@ public class CGFont: @unchecked Sendable {
         return cachedFvar
     }
 
+    private func getAvarTable() -> AvarTable? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+
+        if cachedAvar == nil, let parser, let fvar = getFvarTable() {
+            do {
+                cachedAvar = try parser.parseAvarTable(axisCount: fvar.axes.count)
+            } catch {
+                print("CGFont: failed to parse avar table: \(error)")
+                cachedAvar = nil
+            }
+        }
+        return cachedAvar
+    }
+
     private func getColrTable() -> ColrTable? {
         cacheLock.lock()
         defer { cacheLock.unlock() }
@@ -292,6 +331,19 @@ public class CGFont: @unchecked Sendable {
             cachedCFF = parser.parseCFFFontProgram()
         }
         return cachedCFF
+    }
+
+    private func getCFF2Program() -> CFF2FontProgram? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+
+        if cachedCFF2 == nil, let parser {
+            cachedCFF2 = parser.parseCFF2FontProgram(
+                axisCount: getFvarTable()?.axes.count ?? 0,
+                unitsPerEm: Int(cachedHead?.unitsPerEm ?? 0)
+            )
+        }
+        return cachedCFF2
     }
 
     // MARK: - Font Metadata
@@ -421,6 +473,25 @@ public class CGFont: @unchecked Sendable {
             return true
         }
 
+        if parser.hasTable(FontTableTag.CFF2) {
+            guard let cff2 = getCFF2Program(),
+                  let coordinates = normalizedVariationCoordinates() else {
+                return false
+            }
+            for index in 0..<count {
+                let glyphIndex = Int(glyphs[index])
+                guard glyphIndex < numberOfGlyphs,
+                      let path = cff2.path(
+                          glyphIndex: glyphIndex,
+                          normalizedCoordinates: coordinates
+                      ) else {
+                    return false
+                }
+                bboxes[index] = path.boundingBox
+            }
+            return true
+        }
+
         guard let loca = getLocaTable() else { return false }
 
         for i in 0..<count {
@@ -446,6 +517,13 @@ public class CGFont: @unchecked Sendable {
         }
         if parser.hasTable(FontTableTag.CFF) {
             return getCFFProgram()?.path(glyphIndex: Int(glyph))
+        }
+        if parser.hasTable(FontTableTag.CFF2) {
+            guard let coordinates = normalizedVariationCoordinates() else { return nil }
+            return getCFF2Program()?.path(
+                glyphIndex: Int(glyph),
+                normalizedCoordinates: coordinates
+            )
         }
         guard let loca = getLocaTable() else { return nil }
         return parser.parseGlyphPath(glyphIndex: Int(glyph), loca: loca)
@@ -478,7 +556,15 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the variation specification dictionary for a font.
     public var variations: [String: CGFloat]? {
-        variationCoordinates
+        guard let fvar = getFvarTable() else { return nil }
+        var values: [String: CGFloat] = [:]
+        values.reserveCapacity(fvar.axes.count)
+        for axis in fvar.axes {
+            let name = variationAxisName(axis)
+            guard values[name] == nil else { return nil }
+            values[name] = variationCoordinates?[axis.tagString] ?? axis.defaultValue
+        }
+        return values
     }
 
     /// Returns an array of the variation axis dictionaries for a font.
@@ -496,8 +582,7 @@ public class CGFont: @unchecked Sendable {
                 kCGFontVariationAxisName: axis.tagString
             ]
 
-            // Try to get the localized name from the name table
-            if let nameTable = nameTable,
+            if let nameTable,
                let record = nameTable.records.first(where: { $0.nameID == axis.nameID }) {
                 axisDict[kCGFontVariationAxisName] = record.value
             }
@@ -517,15 +602,20 @@ public class CGFont: @unchecked Sendable {
 
         var coords: [String: CGFloat] = variationCoordinates ?? [:]
 
-        if let variations = variations {
+        if let variations {
+            var axesByName: [String: FvarTable.VariationAxis] = [:]
+            axesByName.reserveCapacity(fvar.axes.count)
+            for axis in fvar.axes {
+                let name = variationAxisName(axis)
+                guard axesByName[name] == nil else { return nil }
+                axesByName[name] = axis
+            }
             for (key, value) in variations {
-                if let cgFloatValue = value as? CGFloat {
-                    coords[key] = cgFloatValue
-                } else if let doubleValue = value as? Double {
-                    coords[key] = CGFloat(doubleValue)
-                } else if let intValue = value as? Int {
-                    coords[key] = CGFloat(intValue)
+                guard let axis = axesByName[key],
+                      let numericValue = Self.variationValue(value), numericValue.isFinite else {
+                    return nil
                 }
+                coords[axis.tagString] = min(max(numericValue, axis.minValue), axis.maxValue)
             }
         }
 
@@ -541,11 +631,57 @@ public class CGFont: @unchecked Sendable {
             cachedName: cachedName,
             cachedLoca: cachedLoca,
             cachedFvar: cachedFvar,
+            cachedAvar: cachedAvar,
             cachedColr: cachedColr,
             cachedCpal: cachedCpal,
             cachedCFF: cachedCFF,
+            cachedCFF2: cachedCFF2,
             variationCoordinates: coords.isEmpty ? nil : coords
         )
+    }
+
+    private func variationAxisName(_ axis: FvarTable.VariationAxis) -> String {
+        getNameTable()?.records.first(where: { $0.nameID == axis.nameID })?.value ?? axis.tagString
+    }
+
+    private func normalizedVariationCoordinates() -> [CGFloat]? {
+        guard let fvar = getFvarTable() else {
+            return parser?.hasTable(FontTableTag.CFF2) == true ? [] : nil
+        }
+        let avar = getAvarTable()
+        var normalized: [CGFloat] = []
+        normalized.reserveCapacity(fvar.axes.count)
+        for (index, axis) in fvar.axes.enumerated() {
+            let requested = variationCoordinates?[axis.tagString] ?? axis.defaultValue
+            let clamped = min(max(requested, axis.minValue), axis.maxValue)
+            let value: CGFloat
+            if clamped == axis.defaultValue {
+                value = 0
+            } else if clamped < axis.defaultValue {
+                let distance = axis.defaultValue - axis.minValue
+                value = distance == 0 ? 0 : (clamped - axis.defaultValue) / distance
+            } else {
+                let distance = axis.maxValue - axis.defaultValue
+                value = distance == 0 ? 0 : (clamped - axis.defaultValue) / distance
+            }
+            if let avar {
+                guard let mapped = avar.map(value, axisIndex: index) else { return nil }
+                normalized.append(mapped)
+            } else {
+                normalized.append(value)
+            }
+        }
+        return normalized
+    }
+
+    private static func variationValue(_ value: Any) -> CGFloat? {
+        if let value = value as? CGFloat { return value }
+        if let value = value as? Double { return CGFloat(value) }
+        if let value = value as? Float { return CGFloat(value) }
+        if let value = value as? Int { return CGFloat(value) }
+        if let value = value as? Int32 { return CGFloat(value) }
+        if let value = value as? UInt { return CGFloat(value) }
+        return nil
     }
 
     // MARK: - Color Font Support (SF Symbols)

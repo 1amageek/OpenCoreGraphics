@@ -53,7 +53,7 @@ internal enum CFFDictionary {
         return integers
     }
 
-    private static func decodeNumber(data: Data, cursor: inout Int, end: Int) -> CGFloat? {
+    static func decodeNumber(data: Data, cursor: inout Int, end: Int) -> CGFloat? {
         guard cursor < end else { return nil }
         let byte = data.readUInt8(at: cursor)
         cursor += 1

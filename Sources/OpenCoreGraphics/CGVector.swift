@@ -112,7 +112,6 @@ extension CGVector {
 // MARK: - Equatable
 
 extension CGVector: @retroactive Equatable {
-    @inlinable
     public static func == (lhs: CGVector, rhs: CGVector) -> Bool {
         return lhs.dx == rhs.dx && lhs.dy == rhs.dy
     }
@@ -121,7 +120,6 @@ extension CGVector: @retroactive Equatable {
 // MARK: - Hashable
 
 extension CGVector: @retroactive Hashable {
-    @inlinable
     public func hash(into hasher: inout Hasher) {
         hasher.combine(dx)
         hasher.combine(dy)

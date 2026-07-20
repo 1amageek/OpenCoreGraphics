@@ -8,6 +8,8 @@
 
 import Foundation
 
+#if arch(wasm32)
+
 /// A structure that defines the decomposed components of an affine transformation matrix.
 @frozen
 public struct CGAffineTransformComponents: Sendable {
@@ -24,13 +26,22 @@ public struct CGAffineTransformComponents: Sendable {
     /// The translation component of the transformation.
     public var translation: CGVector
 
+    /// Creates transform components with zero values.
+    @inlinable
+    public init() {
+        self.scale = .zero
+        self.horizontalShear = 0
+        self.rotation = 0
+        self.translation = .zero
+    }
+
     /// Creates transform components with the specified values.
     @inlinable
     public init(
-        scale: CGSize = CGSize(width: 1, height: 1),
-        horizontalShear: CGFloat = 0,
-        rotation: CGFloat = 0,
-        translation: CGVector = .zero
+        scale: CGSize,
+        horizontalShear: CGFloat,
+        rotation: CGFloat,
+        translation: CGVector
     ) {
         self.scale = scale
         self.horizontalShear = horizontalShear
@@ -131,3 +142,56 @@ extension CGAffineTransformComponents: CustomDebugStringConvertible {
     }
 }
 
+#else
+
+public typealias CGAffineTransformComponents = Foundation.CGAffineTransformComponents
+
+extension CGAffineTransformComponents: @retroactive Equatable {
+    public static func == (lhs: CGAffineTransformComponents, rhs: CGAffineTransformComponents) -> Bool {
+        lhs.scale == rhs.scale &&
+        lhs.horizontalShear == rhs.horizontalShear &&
+        lhs.rotation == rhs.rotation &&
+        lhs.translation.dx == rhs.translation.dx &&
+        lhs.translation.dy == rhs.translation.dy
+    }
+}
+
+extension CGAffineTransformComponents: @retroactive Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(scale.width)
+        hasher.combine(scale.height)
+        hasher.combine(horizontalShear)
+        hasher.combine(rotation)
+        hasher.combine(translation.dx)
+        hasher.combine(translation.dy)
+    }
+}
+
+extension CGAffineTransformComponents: @retroactive Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: _CGAffineTransformComponentsCodingKeys.self)
+        self.init(
+            scale: try container.decode(CGSize.self, forKey: .scale),
+            horizontalShear: try container.decode(CGFloat.self, forKey: .horizontalShear),
+            rotation: try container.decode(CGFloat.self, forKey: .rotation),
+            translation: try container.decode(CGVector.self, forKey: .translation)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: _CGAffineTransformComponentsCodingKeys.self)
+        try container.encode(scale, forKey: .scale)
+        try container.encode(horizontalShear, forKey: .horizontalShear)
+        try container.encode(rotation, forKey: .rotation)
+        try container.encode(translation, forKey: .translation)
+    }
+}
+
+private enum _CGAffineTransformComponentsCodingKeys: String, CodingKey {
+    case scale
+    case horizontalShear
+    case rotation
+    case translation
+}
+
+#endif
