@@ -191,12 +191,22 @@ public class CGContext: @unchecked Sendable {
         self.currentState.fillColorSpace = space
         self.currentState.strokeColorSpace = space
 
-        // On WASM, create the WebGPU renderer
-        // Requires setupGraphicsContext() to be called before creating CGContext
+        // Select the renderer once at initialization.
         #if arch(wasm32)
         let renderer = CGWebGPUContextRenderer(width: width, height: height)
         renderer.setup()
         self.rendererDelegate = renderer
+        #else
+        if bitsPerComponent == 8,
+           bitsPerPixel == 32,
+           let pointer = self.data {
+            self.rendererDelegate = CGSoftwareContextRenderer(
+                pointer: pointer,
+                width: width,
+                height: height,
+                bytesPerRow: effectiveBytesPerRow
+            )
+        }
         #endif
     }
 
