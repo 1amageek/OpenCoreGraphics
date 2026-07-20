@@ -10,10 +10,10 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 894 tests passed |
+| Native package | 904 tests passed |
 | Browser | Real WebGPU path, image-mask, callback-pattern, HDR tone mapping, image rendering, and pixel readback passed |
-| Color management | Named RGB/gray, calibrated RGB/gray, and ICC matrix/TRC profiles convert through D50 PCS; unsupported ICC LUT and HLG OOTF transforms fail explicitly |
-| Remaining boundary | ICC LUT/multi-process transforms, coupled HLG OOTF, CFF/CFF2 and variable glyph outlines, and PDF are not complete |
+| Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC plus `mft1`/`mft2`/`mAB`/`mBA` profiles convert through D50 XYZ or Lab PCS; CICP HLG/PQ metadata uses its interoperable HDR rendering |
+| Remaining boundary | ICC floating-point multi-process (`D2B`/`B2D`/`mpet`) transforms, CFF/CFF2 and variable glyph outlines, and PDF are not complete |
 
 ## Installation
 
@@ -259,7 +259,7 @@ CGColorSpace.genericCMYK             // "kCGColorSpaceGenericCMYK"
 // ... and many more
 ```
 
-Named RGB/gray and calibrated spaces perform matrix/TRC conversion through a D50 profile connection space. ICC v2/v4 matrix/TRC profiles support `XYZType`, `curveType`, and all five `parametricCurveType` functions. Invalid tag tables and curves are rejected; ICC LUT/multi-process and HLG OOTF conversions return failure instead of applying a model-only fallback.
+Named RGB/gray/HDR and calibrated spaces convert through a D50 profile connection space. HLG uses the BT.2100 inverse OETF and luminance-coupled OOTF with the 203-nit extended-linear reference. ICC v2/v4 profiles support matrix/TRC, `mft1`, `mft2`, `mAB`, and `mBA` transforms, including multidimensional interpolation, XYZ/Lab PCS encoding, rendering-intent tables, CICP HDR metadata, and executable CMYK/DeviceN LUT profiles. Invalid tag tables, element combinations, curves, dimensions, and ranges are rejected. Floating-point `D2B`/`B2D` multi-process elements remain outside the executable profile path and do not receive a model-only fallback.
 
 ## Design Principles
 

@@ -96,10 +96,6 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
     /// Executable color profile used by managed color conversion.
     internal let colorProfile: CGColorProfile?
 
-    internal var hasUnavailableManagedTransform: Bool {
-        colorProfile == nil && name?.contains("HLG") == true
-    }
-
     /// Internal initializer
     internal init(
         model: CGColorSpaceModel,

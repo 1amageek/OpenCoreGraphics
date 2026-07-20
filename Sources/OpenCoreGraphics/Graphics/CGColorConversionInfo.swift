@@ -197,7 +197,7 @@ public class CGColorConversionInfo: @unchecked Sendable {
     }
 
     private static func supportsConversion(from source: CGColorSpace, to destination: CGColorSpace) -> Bool {
-        let unsupportedModels: Set<CGColorSpaceModel> = [.unknown, .deviceN, .indexed, .pattern]
+        let unsupportedModels: Set<CGColorSpaceModel> = [.unknown, .indexed, .pattern]
         guard !unsupportedModels.contains(source.model),
               !unsupportedModels.contains(destination.model),
               destination.supportsOutput else {
@@ -208,8 +208,8 @@ public class CGColorConversionInfo: @unchecked Sendable {
               destination.copyICCData() == nil || destination.colorProfile != nil else {
             return false
         }
-        guard !source.hasUnavailableManagedTransform,
-              !destination.hasUnavailableManagedTransform else {
+        guard source.model != .deviceN || source.colorProfile != nil,
+              destination.model != .deviceN || destination.colorProfile != nil else {
             return false
         }
 

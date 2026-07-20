@@ -119,16 +119,15 @@ public class CGColor: @unchecked Sendable {
 
         if let sourceProfile = sourceSpace.colorProfile,
            let destinationProfile = space.colorProfile {
-            guard let pcs = sourceProfile.toPCS(components),
-                  var convertedComponents = destinationProfile.fromPCS(pcs) else {
+            guard let pcs = sourceProfile.toPCS(components, intent: intent),
+                  var convertedComponents = destinationProfile.fromPCS(pcs, intent: intent) else {
                 return nil
             }
             convertedComponents.append(components[sourceSpace.numberOfComponents])
             return CGColor(space: space, componentArray: convertedComponents)
         }
 
-        if sourceSpace.copyICCData() != nil || space.copyICCData() != nil ||
-           sourceSpace.hasUnavailableManagedTransform || space.hasUnavailableManagedTransform {
+        if sourceSpace.copyICCData() != nil || space.copyICCData() != nil {
             return nil
         }
 

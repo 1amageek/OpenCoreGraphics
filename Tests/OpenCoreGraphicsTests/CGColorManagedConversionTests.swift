@@ -150,14 +150,30 @@ struct CGColorManagedConversionTests {
         #expect(abs(values[2] - 0.45441049) < 0.00002)
     }
 
-    @Test("HLG conversion fails until its luminance-dependent OOTF is available")
-    func hlgDoesNotUseScalarFallback() throws {
+    @Test("HLG applies the luminance-coupled BT.2100 OOTF")
+    func hlgCoupledOOTF() throws {
         let hlgSpace = try #require(CGColorSpace(name: CGColorSpace.itur_2100_HLG))
         let linearSpace = try #require(CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020))
-        let graySpace = try #require(CGColorSpace(name: CGColorSpace.genericGrayGamma2_2))
         let source = try #require(CGColor(colorSpace: hlgSpace, components: [0.5, 0.5, 0.5, 1]))
-        #expect(source.converted(to: linearSpace, intent: .relativeColorimetric, options: nil) == nil)
-        #expect(source.converted(to: graySpace, intent: .relativeColorimetric, options: nil) == nil)
-        #expect(CGColorConversionInfo(src: hlgSpace, dst: linearSpace) == nil)
+        let converted = try #require(source.converted(
+            to: linearSpace,
+            intent: .relativeColorimetric,
+            options: nil
+        ))
+        let values = try #require(converted.components)
+        #expect(abs(values[0] - 0.249739) < 0.00001)
+        #expect(abs(values[1] - 0.249739) < 0.00001)
+        #expect(abs(values[2] - 0.249739) < 0.00001)
+
+        let roundTrip = try #require(converted.converted(
+            to: hlgSpace,
+            intent: .relativeColorimetric,
+            options: nil
+        ))
+        let roundTripValues = try #require(roundTrip.components)
+        #expect(abs(roundTripValues[0] - 0.5) < 0.00001)
+        #expect(abs(roundTripValues[1] - 0.5) < 0.00001)
+        #expect(abs(roundTripValues[2] - 0.5) < 0.00001)
+        #expect(CGColorConversionInfo(src: hlgSpace, dst: linearSpace) != nil)
     }
 }

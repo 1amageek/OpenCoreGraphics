@@ -255,13 +255,31 @@ internal struct CGColorProfile: Hashable, Sendable {
     enum Model: Hashable, Sendable {
         case rgb(matrix: CGColorMatrix, curves: [CGTransferCurve])
         case gray(curve: CGTransferCurve)
+        case hlg(matrix: CGColorMatrix, luminance: CGColorVector)
+        case device(componentCount: Int)
     }
 
     let model: Model
     let whitePoint: CGColorVector
     let extendedRange: Bool
+    let iccTransforms: CGICCTransformSet?
 
-    func toPCS(_ components: [CGFloat]) -> CGColorVector? {
+    init(
+        model: Model,
+        whitePoint: CGColorVector,
+        extendedRange: Bool,
+        iccTransforms: CGICCTransformSet? = nil
+    ) {
+        self.model = model
+        self.whitePoint = whitePoint
+        self.extendedRange = extendedRange
+        self.iccTransforms = iccTransforms
+    }
+
+    func toPCS(_ components: [CGFloat], intent: CGColorRenderingIntent) -> CGColorVector? {
+        if let iccTransforms, iccTransforms.hasToPCS(intent: intent) {
+            return iccTransforms.toPCS(components, intent: intent)
+        }
         let nativeXYZ: CGColorVector
         switch model {
         case .rgb(let matrix, let curves):
@@ -278,12 +296,26 @@ internal struct CGColorProfile: Hashable, Sendable {
                 return nil
             }
             nativeXYZ = whitePoint * linear
+        case .hlg(let matrix, let luminance):
+            guard components.count >= 3,
+                  let linear = CGHLGTransfer.decoded(
+                    CGColorVector(x: components[0], y: components[1], z: components[2]),
+                    luminance: luminance
+                  ) else {
+                return nil
+            }
+            nativeXYZ = matrix.applying(to: linear)
+        case .device:
+            return nil
         }
         guard let adaptation = CGColorMatrix.chromaticAdaptation(from: whitePoint, to: .d50) else { return nil }
         return adaptation.applying(to: nativeXYZ)
     }
 
-    func fromPCS(_ pcs: CGColorVector) -> [CGFloat]? {
+    func fromPCS(_ pcs: CGColorVector, intent: CGColorRenderingIntent) -> [CGFloat]? {
+        if let iccTransforms, iccTransforms.hasFromPCS(intent: intent) {
+            return iccTransforms.fromPCS(pcs, intent: intent)
+        }
         guard let adaptation = CGColorMatrix.chromaticAdaptation(from: .d50, to: whitePoint) else { return nil }
         let nativeXYZ = adaptation.applying(to: pcs)
         switch model {
@@ -303,6 +335,14 @@ internal struct CGColorProfile: Hashable, Sendable {
                 return nil
             }
             return [extendedRange ? gray : min(max(gray, 0), 1)]
+        case .hlg(let matrix, let luminance):
+            guard let inverse = matrix.inverted(),
+                  let encoded = CGHLGTransfer.encoded(inverse.applying(to: nativeXYZ), luminance: luminance) else {
+                return nil
+            }
+            return [encoded.x, encoded.y, encoded.z]
+        case .device:
+            return nil
         }
     }
 }
@@ -368,10 +408,11 @@ internal enum CGNamedColorProfile {
         case CGColorSpace.linearDisplayP3, CGColorSpace.extendedLinearDisplayP3:
             (matrix, white, curve) = (displayP3Matrix, .d65, .identity)
         case CGColorSpace.displayP3_HLG:
-            // HLG requires a luminance-dependent RGB OOTF, so this named space currently has no
-            // executable profile and CGColor.converted returns nil for cross-space conversions.
-            // It must not report success until the coupled RGB transform is implemented.
-            return nil
+            return hlgProfile(matrix: displayP3Matrix, luminance: CGColorVector(
+                x: displayP3Matrix.m10,
+                y: displayP3Matrix.m11,
+                z: displayP3Matrix.m12
+            ))
         case CGColorSpace.displayP3_PQ:
             (matrix, white, curve) = (displayP3Matrix, .d65, .pq)
         case CGColorSpace.itur_709:
@@ -379,8 +420,7 @@ internal enum CGNamedColorProfile {
         case CGColorSpace.coreMedia709:
             (matrix, white, curve) = (sRGBMatrix, .d65, .coreMedia709)
         case CGColorSpace.itur_709_HLG:
-            // See the HLG contract above; a per-channel transfer curve is not a valid substitute.
-            return nil
+            return hlgProfile(matrix: sRGBMatrix, luminance: CGColorVector(x: 0.2126, y: 0.7152, z: 0.0722))
         case CGColorSpace.itur_709_PQ:
             (matrix, white, curve) = (sRGBMatrix, .d65, .pq)
         case CGColorSpace.itur_2020, CGColorSpace.extendedITUR_2020:
@@ -390,8 +430,7 @@ internal enum CGNamedColorProfile {
         case CGColorSpace.linearITUR_2020, CGColorSpace.extendedLinearITUR_2020:
             (matrix, white, curve) = (rec2020Matrix, .d65, .identity)
         case CGColorSpace.itur_2100_HLG:
-            // See the HLG contract above; a per-channel transfer curve is not a valid substitute.
-            return nil
+            return hlgProfile(matrix: rec2020Matrix, luminance: CGColorVector(x: 0.2627, y: 0.6780, z: 0.0593))
         case CGColorSpace.itur_2100_PQ:
             (matrix, white, curve) = (rec2020Matrix, .d65, .pq)
         case CGColorSpace.acescgLinear:
@@ -416,6 +455,14 @@ internal enum CGNamedColorProfile {
             model: .rgb(matrix: matrix, curves: [curve, curve, curve]),
             whitePoint: white,
             extendedRange: extended
+        )
+    }
+
+    private static func hlgProfile(matrix: CGColorMatrix, luminance: CGColorVector) -> CGColorProfile {
+        CGColorProfile(
+            model: .hlg(matrix: matrix, luminance: luminance),
+            whitePoint: .d65,
+            extendedRange: false
         )
     }
 }
@@ -469,16 +516,94 @@ internal enum CGICCProfileParser {
             tags[tagSignature] = Tag(offset: offset, size: size)
         }
 
-        let profile: CGColorProfile?
+        let matrixProfile: CGColorProfile?
         switch colorInfo.model {
         case .rgb where pcsSignature == signature("XYZ "):
-            profile = parseRGB(data, tags: tags)
+            matrixProfile = parseRGB(data, tags: tags)
         case .monochrome where pcsSignature == signature("XYZ "):
-            profile = parseGray(data, tags: tags)
+            matrixProfile = parseGray(data, tags: tags)
         default:
-            profile = nil
+            matrixProfile = nil
+        }
+        let profile: CGColorProfile?
+        switch parseCICP(data, tag: tags[signature("cicp")], colorInfo: colorInfo) {
+        case .profile(let cicpProfile):
+            profile = cicpProfile
+        case .invalid:
+            return nil
+        case .absentOrUnsupported:
+            let floatingTransformSignatures = [
+                "D2B0", "D2B1", "D2B2", "D2B3",
+                "B2D0", "B2D1", "B2D2", "B2D3"
+            ].map(signature)
+            if floatingTransformSignatures.contains(where: { tags[$0] != nil }) {
+                // D2B/B2D multi-process elements override the corresponding integer A2B/B2A
+                // tables. Until mpet execution is available, the current call path exposes the
+                // ICC data but no executable profile so conversion cannot report success through
+                // an older table or matrix/TRC fallback.
+                profile = nil
+                return Result(model: colorInfo.model, componentCount: colorInfo.count, profile: profile)
+            }
+            let transformResult = CGICCTransformParser.parse(
+                data,
+                tags: tags.mapValues { (offset: $0.offset, size: $0.size) },
+                deviceComponentCount: colorInfo.count,
+                pcsSignature: pcsSignature,
+                mediaWhitePoint: parseXYZ(data, tag: tags[signature("wtpt")]) ?? .d50
+            )
+            switch transformResult {
+            case .valid(let transforms):
+                profile = CGColorProfile(
+                    model: matrixProfile?.model ?? .device(componentCount: colorInfo.count),
+                    whitePoint: .d50,
+                    extendedRange: false,
+                    iccTransforms: transforms
+                )
+            case .absent:
+                profile = matrixProfile
+            case .invalid:
+                return nil
+            }
         }
         return Result(model: colorInfo.model, componentCount: colorInfo.count, profile: profile)
+    }
+
+    private enum CICPResult {
+        case absentOrUnsupported
+        case profile(CGColorProfile)
+        case invalid
+    }
+
+    private static func parseCICP(
+        _ data: Data,
+        tag: Tag?,
+        colorInfo: (model: CGColorSpaceModel, count: Int)
+    ) -> CICPResult {
+        guard let tag else { return .absentOrUnsupported }
+        guard tag.size >= 12,
+              readUInt32(data, at: tag.offset) == signature("cicp"),
+              data[tag.offset + 4..<tag.offset + 8].allSatisfy({ $0 == 0 }),
+              colorInfo.model == .rgb,
+              colorInfo.count == 3,
+              data[tag.offset + 10] == 0,
+              data[tag.offset + 11] <= 1 else {
+            return .invalid
+        }
+
+        let primaries = data[tag.offset + 8]
+        let transfer = data[tag.offset + 9]
+        let name: String
+        switch (primaries, transfer) {
+        case (1, 18): name = CGColorSpace.itur_709_HLG
+        case (9, 18): name = CGColorSpace.itur_2100_HLG
+        case (12, 18): name = CGColorSpace.displayP3_HLG
+        case (1, 16): name = CGColorSpace.itur_709_PQ
+        case (9, 16): name = CGColorSpace.itur_2100_PQ
+        case (12, 16): name = CGColorSpace.displayP3_PQ
+        default: return .absentOrUnsupported
+        }
+        guard let profile = CGNamedColorProfile.profile(named: name) else { return .invalid }
+        return .profile(profile)
     }
 
     private static func parseRGB(_ data: Data, tags: [UInt32: Tag]) -> CGColorProfile? {
