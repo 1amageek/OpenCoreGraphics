@@ -992,8 +992,20 @@ public class CGFont: @unchecked Sendable {
 
     /// Determines whether Core Graphics can create a subset of the font in PostScript format.
     public func canCreatePostScriptSubset(_ format: CGFontPostScriptFormat) -> Bool {
-        // PostScript subset creation is not implemented
-        return false
+        guard fontData != nil, parser != nil, numberOfGlyphs > 0 else { return false }
+        switch format {
+        case .type1:
+            let hasOutline = parser?.hasTable(FontTableTag.glyf) == true
+                || parser?.hasTable(FontTableTag.CFF) == true
+                || parser?.hasTable(FontTableTag.CFF2) == true
+            return hasOutline && getHmtxTable() != nil
+        case .type3:
+            return false
+        case .type42:
+            return parser?.hasTable(FontTableTag.glyf) == true
+                && parser?.hasTable(FontTableTag.loca) == true
+                && getHmtxTable() != nil
+        }
     }
 
     /// Creates a subset of the font in the specified PostScript format.
@@ -1004,14 +1016,55 @@ public class CGFont: @unchecked Sendable {
         count: Int,
         encoding: UnsafePointer<CGGlyph>?
     ) -> Data? {
-        // PostScript subset creation is not implemented
-        return nil
+        guard canCreatePostScriptSubset(format), count >= 0,
+              count == 0 || glyphs != nil,
+              let fontData else {
+            return nil
+        }
+
+        let requestedGlyphs: [CGGlyph]
+        if count == 0 {
+            requestedGlyphs = (0..<numberOfGlyphs).map(CGGlyph.init)
+        } else {
+            requestedGlyphs = Array(UnsafeBufferPointer(start: glyphs, count: count))
+        }
+
+        let requestedEncoding = encoding.map {
+            Array(UnsafeBufferPointer(start: $0, count: 256))
+        }
+        let encoder = PostScriptFontEncoder(
+            fontData: fontData,
+            glyphCount: numberOfGlyphs,
+            unitsPerEm: Int(unitsPerEm),
+            fontBoundingBox: fontBBox,
+            italicAngle: italicAngle,
+            defaultFontName: postScriptName ?? fullName ?? "SubsetFont",
+            path: { [self] in path(for: $0) },
+            glyphName: { [self] in name(for: $0) },
+            advance: { [self] glyph in
+                var glyph = glyph
+                var value: Int32 = 0
+                return getGlyphAdvances(glyphs: &glyph, count: 1, advances: &value) ? value : nil
+            },
+            leftSideBearing: { [self] in horizontalLeftSideBearing(for: $0) }
+        )
+        return encoder.subset(
+            name: subsetName,
+            format: format,
+            glyphs: requestedGlyphs,
+            encoding: requestedEncoding
+        )
     }
 
     /// Creates a PostScript encoding of a font.
     public func createPostScriptEncoding(encoding: UnsafePointer<CGGlyph>?) -> Data? {
-        // PostScript encoding creation is not implemented
-        return nil
+        let requestedEncoding = encoding.map {
+            Array(UnsafeBufferPointer(start: $0, count: 256))
+        } ?? [CGGlyph](repeating: 0, count: 256)
+        return PostScriptFontEncoder.encodingData(
+            encoding: requestedEncoding,
+            glyphName: { [self] in name(for: $0) }
+        )
     }
 
     // MARK: - Type ID
