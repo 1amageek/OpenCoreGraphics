@@ -6,6 +6,8 @@ import Synchronization
 
 /// CPU rasterizer for bitmap CGContext instances on native test platforms.
 internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegate {
+    let storesPixelsInContextBuffer = true
+
     private struct Storage {
         let pointerAddress: UInt
         let width: Int

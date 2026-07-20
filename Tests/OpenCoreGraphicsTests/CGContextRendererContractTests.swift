@@ -314,6 +314,16 @@ struct CGContextRendererContractTests {
         #expect(clipRules == [.winding])
     }
 
+    @Test("Renderer readback failure is not replaced by stale context storage")
+    func rendererReadbackFailureIsExplicit() async throws {
+        let context = try #require(createContext(width: 2, height: 2))
+        let renderer = RecordingRenderer()
+        context.rendererDelegate = renderer
+
+        #expect(context.makeImage() != nil)
+        #expect(await context.makeImageAsync() == nil)
+    }
+
     @Test("Aggregated drawing operations preserve transformed parameters and state")
     func aggregatedDrawingOperationsPreserveState() {
         guard let context = createContext(),

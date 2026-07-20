@@ -692,6 +692,20 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard let target = effectiveRenderTarget,
               let textureView = getOrCreateTextureView(for: image) else { return }
 
+        if state.hasShadow, let shadowColor = state.shadowColor {
+            renderTextureShadow(
+                textureView: textureView,
+                in: rect,
+                alpha: alpha,
+                interpolationQuality: interpolationQuality,
+                to: target,
+                shadowColor: shadowColor,
+                shadowOffset: state.shadowOffset,
+                shadowBlur: state.shadowBlur,
+                shouldAntialias: state.shouldAntialias
+            )
+        }
+
         drawTexture(
             textureView,
             in: rect,
@@ -2089,12 +2103,80 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         shouldAntialias: Bool
     ) {
         pipelineRegistry.setSampleCount(1)
+        guard let normalPipeline = getPipeline(for: .copy) else { return }
+        let shadowBuffer = createVertexBuffer(from: batch)
+
+        renderShadowMask(
+            to: textureView,
+            shadowColor: shadowColor,
+            shadowOffset: shadowOffset,
+            shadowBlur: shadowBlur,
+            shouldAntialias: shouldAntialias
+        ) { maskPass in
+            maskPass.setPipeline(normalPipeline)
+            maskPass.setVertexBuffer(0, buffer: shadowBuffer)
+            maskPass.draw(vertexCount: UInt32(batch.vertices.count))
+        }
+    }
+
+    /// Renders an image's actual alpha channel into the shadow mask before blur.
+    /// Transparent source pixels therefore produce no shadow coverage.
+    private func renderTextureShadow(
+        textureView: GPUTextureView,
+        in rect: CGRect,
+        alpha: CGFloat,
+        interpolationQuality: CGInterpolationQuality,
+        to target: GPUTextureView,
+        shadowColor: CGColor,
+        shadowOffset: CGSize,
+        shadowBlur: CGFloat,
+        shouldAntialias: Bool
+    ) {
+        pipelineRegistry.setSampleCount(1)
+        guard let pipeline = getImagePipeline(for: .copy),
+              let sampler = interpolationQuality == .none ? nearestSampler : linearSampler else {
+            return
+        }
+
+        let vertexBuffer = createImageVertexBuffer(from: createImageQuadVertices(rect: rect))
+        let uniformBuffer = createImageUniformBuffer(alpha: alpha)
+        let bindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
+            layout: pipeline.getBindGroupLayout(index: 0),
+            entries: [
+                GPUBindGroupEntry(binding: 0, resource: .sampler(sampler)),
+                GPUBindGroupEntry(binding: 1, resource: .textureView(textureView)),
+                GPUBindGroupEntry(binding: 2, resource: .bufferBinding(GPUBufferBinding(buffer: uniformBuffer)))
+            ]
+        ))
+
+        renderShadowMask(
+            to: target,
+            shadowColor: shadowColor,
+            shadowOffset: shadowOffset,
+            shadowBlur: shadowBlur,
+            shouldAntialias: shouldAntialias
+        ) { maskPass in
+            maskPass.setPipeline(pipeline)
+            maskPass.setBindGroup(0, bindGroup: bindGroup)
+            maskPass.setVertexBuffer(0, buffer: vertexBuffer)
+            maskPass.draw(vertexCount: 6)
+        }
+    }
+
+    /// Runs the shared mask, blur, and composite passes for every shadow source.
+    private func renderShadowMask(
+        to textureView: GPUTextureView,
+        shadowColor: CGColor,
+        shadowOffset: CGSize,
+        shadowBlur: CGFloat,
+        shouldAntialias: Bool,
+        encodeMask: (GPURenderPassEncoder) -> Void
+    ) {
         guard let shadowMaskView = shadowMaskTextureView,
               let blurIntermediateView = blurIntermediateTextureView,
               let blurHPipeline = getBlurHorizontalPipeline(),
               let blurVPipeline = getBlurVerticalPipeline(),
-              let sampler = linearSampler,
-              let normalPipeline = getPipeline(for: .copy) else { return }
+              let sampler = linearSampler else { return }
 
         let usesMSAA = shouldAntialias && renderTarget == nil
         pipelineRegistry.setSampleCount(usesMSAA ? msaaSampleCount : 1)
@@ -2104,8 +2186,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let encoder = device.createCommandEncoder()
 
-        // Pass 1: Render shape to shadow mask
-        let shadowBuffer = createVertexBuffer(from: batch)
+        // Pass 1: Render source alpha to shadow mask
         let maskClearAttachment = GPURenderPassColorAttachment(
             view: shadowMaskView,
             clearValue: GPUColor(r: 0, g: 0, b: 0, a: 0),
@@ -2116,9 +2197,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         let maskPass = encoder.beginRenderPass(descriptor: GPURenderPassDescriptor(
             colorAttachments: [maskClearAttachment]
         ))
-        maskPass.setPipeline(normalPipeline)
-        maskPass.setVertexBuffer(0, buffer: shadowBuffer)
-        maskPass.draw(vertexCount: UInt32(batch.vertices.count))
+        encodeMask(maskPass)
         maskPass.end()
 
         // Only apply blur if shadowBlur > 0
@@ -2230,7 +2309,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     /// Creates a uniform buffer for shadow composite parameters.
     private func createShadowUniformBuffer(shadowColor: CGColor, offset: CGSize) -> GPUBuffer {
-        let components = shadowColor.components ?? [0, 0, 0, 0.5]
+        let rgbColor = shadowColor.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
+        let components = rgbColor?.components ?? [0, 0, 0, 0.5]
         let r = Float(components.count > 0 ? components[0] : 0)
         let g = Float(components.count > 1 ? components[1] : 0)
         let b = Float(components.count > 2 ? components[2] : 0)

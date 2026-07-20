@@ -148,6 +148,11 @@ internal struct CGDrawingState: Sendable {
 /// ```
 internal protocol CGContextRendererDelegate: AnyObject, Sendable {
 
+    /// Whether drawing commands update CGContext's owned or borrowed pixel storage.
+    /// GPU renderers return false because a failed readback must not be replaced by
+    /// a stale context buffer that incorrectly appears to be a successful image.
+    var storesPixelsInContextBuffer: Bool { get }
+
     // MARK: - Path Drawing
 
     /// Called when `fillPath()` is invoked on the context.
@@ -405,6 +410,8 @@ internal protocol CGLayerRendererDelegate: AnyObject, Sendable {
 // MARK: - Default Implementations
 
 extension CGContextRendererDelegate {
+    public var storesPixelsInContextBuffer: Bool { false }
+
     /// Default implementation does nothing.
     public func clear(rect: CGRect) {}
 

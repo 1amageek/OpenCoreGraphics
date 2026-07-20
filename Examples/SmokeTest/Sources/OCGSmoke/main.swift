@@ -28,6 +28,7 @@ nonisolated(unsafe) var maskPixelData: Data?
 nonisolated(unsafe) var patternPixelData: Data?
 nonisolated(unsafe) var maskedImagePixelData: Data?
 nonisolated(unsafe) var mixedDrawingPixelData: Data?
+nonisolated(unsafe) var imageShadowPixelData: Data?
 
 @_cdecl("setup")
 public func setup() {
@@ -41,6 +42,7 @@ public func setup() {
             patternPixelData = nil
             maskedImagePixelData = nil
             mixedDrawingPixelData = nil
+            imageShadowPixelData = nil
         },
         then: {
             await performSetup()
@@ -125,6 +127,12 @@ func performSetup() async {
         return
     }
     mixedDrawingPixelData = mixedDrawing
+
+    guard let imageShadow = await captureImageShadow(space: space, bitmapInfo: bitmapInfo) else {
+        statusText = "error: image-shadow capture failed"
+        return
+    }
+    imageShadowPixelData = imageShadow
 
     statusText = "ready"
     print("OCGSmoke ready: \(image.width)x\(image.height), \(data.count) bytes")
@@ -331,6 +339,39 @@ private func captureMixedDrawing(space: CGColorSpace, bitmapInfo: CGBitmapInfo) 
     return await context.makeImageAsync()?.data
 }
 
+@MainActor
+private func captureImageShadow(space: CGColorSpace, bitmapInfo: CGBitmapInfo) async -> Data? {
+    guard let context = CGContext(
+        data: nil,
+        width: 8,
+        height: 2,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: space,
+        bitmapInfo: bitmapInfo
+    ), let source = CGImage(
+        width: 2,
+        height: 1,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: 8,
+        space: space,
+        bitmapInfo: bitmapInfo,
+        provider: CGDataProvider(data: Data([255, 255, 255, 255, 0, 0, 0, 0])),
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+    ) else {
+        return nil
+    }
+
+    context.setShouldAntialias(false)
+    context.setInterpolationQuality(.none)
+    context.setShadow(offset: CGSize(width: 4, height: 0), blur: 0, color: .black)
+    context.draw(source, in: CGRect(x: 0, y: 0, width: 4, height: 2))
+    return await context.makeImageAsync()?.data
+}
+
 @inline(__always)
 private func absDiff(_ a: UInt8, _ b: UInt8) -> UInt8 {
     return a >= b ? a - b : b - a
@@ -376,6 +417,7 @@ struct OCGSmokeTests {
         try #require(patternPixelData != nil, "patternPixelData is nil after capture")
         try #require(maskedImagePixelData != nil, "maskedImagePixelData is nil after capture")
         try #require(mixedDrawingPixelData != nil, "mixedDrawingPixelData is nil after capture")
+        try #require(imageShadowPixelData != nil, "imageShadowPixelData is nil after capture")
     }
 
     @Test func imageHasExpectedDimensions() {
@@ -461,5 +503,21 @@ struct OCGSmokeTests {
         #expect(red >= 4, "mixed red pixels (got \(red))")
         #expect(green >= 6, "mixed green pixels (got \(green))")
         #expect(blue >= 2, "mixed blue pixels (got \(blue))")
+    }
+
+    @Test func imageShadowUsesSourceAlphaInsteadOfImageBounds() throws {
+        let data = try #require(imageShadowPixelData)
+        let bytesPerRow = data.count / 2
+        let opaqueShadowOffset = 4 * 4
+        let transparentShadowOffset = 6 * 4
+        for row in 0..<2 {
+            let opaque = row * bytesPerRow + opaqueShadowOffset
+            let transparent = row * bytesPerRow + transparentShadowOffset
+            #expect(data[opaque] < 8)
+            #expect(data[opaque + 1] < 8)
+            #expect(data[opaque + 2] < 8)
+            #expect(data[opaque + 3] > 247)
+            #expect(data[transparent + 3] < 8)
+        }
     }
 }

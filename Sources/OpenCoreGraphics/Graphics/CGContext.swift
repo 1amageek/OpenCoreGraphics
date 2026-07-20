@@ -282,15 +282,16 @@ public class CGContext: @unchecked Sendable {
     ///
     /// - Returns: A `CGImage` containing the rendered content, or `nil` if readback fails.
     public func makeImageAsync() async -> CGImage? {
-        // If we have a delegate, try GPU readback first
-        if let delegate = rendererDelegate, let colorSpace = colorSpace {
-            if let image = await delegate.makeImage(width: width, height: height, colorSpace: colorSpace) {
-                return image
-            }
+        guard let delegate = rendererDelegate else {
+            return makeImage()
         }
 
-        // Fall back to bitmap buffer
-        return makeImage()
+        if delegate.storesPixelsInContextBuffer {
+            return makeImage()
+        }
+
+        guard let colorSpace = colorSpace else { return nil }
+        return await delegate.makeImage(width: width, height: height, colorSpace: colorSpace)
     }
 
     // MARK: - Managing Graphics State
