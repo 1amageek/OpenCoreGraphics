@@ -188,7 +188,7 @@ GPU readback を実装：
 
 - `CGContext.clip(to:mask:)`: image mask の逆 alpha、DeviceGray の通常 alpha、decode、補間、複数 mask の積算を実装済み。path・gradient・shading・image・layer・pattern の WebGPU pipeline に連続値を適用し、ブラウザ画素 readback で検証済み
 - `CGPattern`: callback を独立した GPU context の cell texture へ描画し、matrix / phase / step、colored / uncolored、path clip、image-mask clip を反映する tiling を実装済み。手続き的 checkerboard と非互換な `renderCell*` API は削除済み
-- ICC: RGB/Gray matrix/TRC、`mft1`/`mft2`、`mAB`/`mBA`、XYZ/Lab PCS、intent table、CICP HDR、CMYK/DeviceN LUT の実行経路は実装済み。`D2B`/`B2D`/`mpet` の floating-point multi-process は未実装であり、model-only fallback を使わず明示的に失敗する
+- ICC: RGB/Gray matrix/TRC、`mft1`/`mft2`、`mAB`/`mBA`、`D2B`/`B2D`/`mpet`、XYZ/Lab PCS、intent table、CICP HDR、CMYK/DeviceN の実行経路は実装済み。未知の将来要素は ICC 仕様に従い integer table へ fallback し、壊れた既知要素と channel 契約は拒否する
 - HLG color-space conversion: BT.2100 inverse OETF と luminance-coupled RGB OOTF、1000-nit nominal peak / 203-nit extended-linear reference の双方向変換を実装済み
 - PDF: package の責務境界上、parser / writer / renderer は実装していない
 

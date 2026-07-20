@@ -14,6 +14,18 @@ internal enum CGICCTransformParser {
 
     typealias Tag = (offset: Int, size: Int)
 
+    private enum OverrideResult {
+        case fallback
+        case valid(CGICCTransform)
+        case invalid
+    }
+
+    private enum TableResult {
+        case absent
+        case valid(CGICCTransform)
+        case invalid
+    }
+
     static func parse(
         _ data: Data,
         tags: [UInt32: Tag],
@@ -21,12 +33,15 @@ internal enum CGICCTransformParser {
         pcsSignature: UInt32,
         mediaWhitePoint: CGColorVector
     ) -> Result {
-        let signatures = ["A2B0", "A2B1", "A2B2", "B2A0", "B2A1", "B2A2"].map(signature)
+        let signatures = [
+            "A2B0", "A2B1", "A2B2", "B2A0", "B2A1", "B2A2",
+            "D2B0", "D2B1", "D2B2", "D2B3", "B2D0", "B2D1", "B2D2", "B2D3"
+        ].map(signature)
         guard signatures.contains(where: { tags[$0] != nil }) else { return .absent }
         guard pcsSignature == signature("XYZ ") || pcsSignature == signature("Lab ") else { return .invalid }
 
-        func transform(_ name: String, direction: CGICCTransform.Direction) -> CGICCTransform?? {
-            guard let tag = tags[signature(name)] else { return .some(nil) }
+        func table(_ name: String, direction: CGICCTransform.Direction) -> TableResult {
+            guard let tag = tags[signature(name)] else { return .absent }
             guard let value = parseTransform(
                 data,
                 tag: tag,
@@ -34,28 +49,85 @@ internal enum CGICCTransformParser {
                 deviceComponentCount: deviceComponentCount,
                 pcsSignature: pcsSignature
             ) else {
-                return nil
+                return .invalid
             }
-            return .some(value)
+            return .valid(value)
         }
 
-        guard let a2b0 = transform("A2B0", direction: .toPCS),
-              let a2b1 = transform("A2B1", direction: .toPCS),
-              let a2b2 = transform("A2B2", direction: .toPCS),
-              let b2a0 = transform("B2A0", direction: .fromPCS),
-              let b2a1 = transform("B2A1", direction: .fromPCS),
-              let b2a2 = transform("B2A2", direction: .fromPCS) else {
-            return .invalid
+        let a2b0 = table("A2B0", direction: .toPCS)
+        let a2b1 = table("A2B1", direction: .toPCS)
+        let a2b2 = table("A2B2", direction: .toPCS)
+        let b2a0 = table("B2A0", direction: .fromPCS)
+        let b2a1 = table("B2A1", direction: .fromPCS)
+        let b2a2 = table("B2A2", direction: .fromPCS)
+
+        func override(_ name: String, direction: CGICCTransform.Direction) -> OverrideResult {
+            guard let tag = tags[signature(name)] else { return .fallback }
+            switch CGICCMultiProcessParser.parse(
+                data,
+                tag: tag,
+                direction: direction,
+                deviceComponentCount: deviceComponentCount,
+                pcsSignature: pcsSignature
+            ) {
+            case .valid(let transform): return .valid(transform)
+            case .unsupported: return .fallback
+            case .invalid: return .invalid
+            }
+        }
+
+        let d2b0 = override("D2B0", direction: .toPCS)
+        let d2b1 = override("D2B1", direction: .toPCS)
+        let d2b2 = override("D2B2", direction: .toPCS)
+        let d2b3 = override("D2B3", direction: .toPCS)
+        let b2d0 = override("B2D0", direction: .fromPCS)
+        let b2d1 = override("B2D1", direction: .fromPCS)
+        let b2d2 = override("B2D2", direction: .fromPCS)
+        let b2d3 = override("B2D3", direction: .fromPCS)
+        func resolved(_ override: OverrideResult, fallback: TableResult = .absent) -> TableResult {
+            switch override {
+            case .valid(let transform): return .valid(transform)
+            case .fallback: return fallback
+            case .invalid: return .invalid
+            }
+        }
+
+        let perceptualToPCS = resolved(d2b0, fallback: a2b0)
+        let colorimetricToPCS = resolved(d2b1, fallback: a2b1)
+        let saturationToPCS = resolved(d2b2, fallback: a2b2)
+        let absoluteToPCS = resolved(d2b3)
+        let perceptualFromPCS = resolved(b2d0, fallback: b2a0)
+        let colorimetricFromPCS = resolved(b2d1, fallback: b2a1)
+        let saturationFromPCS = resolved(b2d2, fallback: b2a2)
+        let absoluteFromPCS = resolved(b2d3)
+        let results = [
+            perceptualToPCS, colorimetricToPCS, saturationToPCS, absoluteToPCS,
+            perceptualFromPCS, colorimetricFromPCS, saturationFromPCS, absoluteFromPCS
+        ]
+        guard !results.contains(where: {
+            if case .invalid = $0 { return true }
+            return false
+        }) else { return .invalid }
+        guard results.contains(where: {
+            if case .valid = $0 { return true }
+            return false
+        }) else { return .absent }
+
+        func transform(_ result: TableResult) -> CGICCTransform? {
+            if case .valid(let value) = result { return value }
+            return nil
         }
 
         return .valid(CGICCTransformSet(
             mediaWhitePoint: mediaWhitePoint,
-            perceptualToPCS: a2b0,
-            colorimetricToPCS: a2b1,
-            saturationToPCS: a2b2,
-            perceptualFromPCS: b2a0,
-            colorimetricFromPCS: b2a1,
-            saturationFromPCS: b2a2
+            perceptualToPCS: transform(perceptualToPCS),
+            colorimetricToPCS: transform(colorimetricToPCS),
+            saturationToPCS: transform(saturationToPCS),
+            absoluteToPCS: transform(absoluteToPCS),
+            perceptualFromPCS: transform(perceptualFromPCS),
+            colorimetricFromPCS: transform(colorimetricFromPCS),
+            saturationFromPCS: transform(saturationFromPCS),
+            absoluteFromPCS: transform(absoluteFromPCS)
         ))
     }
 

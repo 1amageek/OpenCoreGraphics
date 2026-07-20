@@ -10,21 +10,24 @@ internal struct CGICCTransformSet: Hashable, Sendable {
     let perceptualToPCS: CGICCTransform?
     let colorimetricToPCS: CGICCTransform?
     let saturationToPCS: CGICCTransform?
+    let absoluteToPCS: CGICCTransform?
     let perceptualFromPCS: CGICCTransform?
     let colorimetricFromPCS: CGICCTransform?
     let saturationFromPCS: CGICCTransform?
+    let absoluteFromPCS: CGICCTransform?
 
     func toPCS(_ components: [CGFloat], intent: CGColorRenderingIntent) -> CGColorVector? {
-        guard let transform = select(
-            intent: intent,
-            perceptual: perceptualToPCS,
-            colorimetric: colorimetricToPCS,
-            saturation: saturationToPCS
-        ) else {
-            return nil
-        }
+        let usesExplicitAbsolute = intent == .absoluteColorimetric && absoluteToPCS != nil
+        guard let transform = usesExplicitAbsolute
+            ? absoluteToPCS
+            : select(
+                intent: intent,
+                perceptual: perceptualToPCS,
+                colorimetric: colorimetricToPCS,
+                saturation: saturationToPCS
+            ) else { return nil }
         guard var pcs = transform.toPCS(components) else { return nil }
-        if intent == .absoluteColorimetric {
+        if intent == .absoluteColorimetric && !usesExplicitAbsolute {
             pcs = CGColorVector(
                 x: pcs.x * mediaWhitePoint.x / CGColorVector.d50.x,
                 y: pcs.y * mediaWhitePoint.y / CGColorVector.d50.y,
@@ -35,7 +38,8 @@ internal struct CGICCTransformSet: Hashable, Sendable {
     }
 
     func hasToPCS(intent: CGColorRenderingIntent) -> Bool {
-        select(
+        if intent == .absoluteColorimetric, absoluteToPCS != nil { return true }
+        return select(
             intent: intent,
             perceptual: perceptualToPCS,
             colorimetric: colorimetricToPCS,
@@ -44,16 +48,17 @@ internal struct CGICCTransformSet: Hashable, Sendable {
     }
 
     func fromPCS(_ pcs: CGColorVector, intent: CGColorRenderingIntent) -> [CGFloat]? {
-        guard let transform = select(
-            intent: intent,
-            perceptual: perceptualFromPCS,
-            colorimetric: colorimetricFromPCS,
-            saturation: saturationFromPCS
-        ) else {
-            return nil
-        }
+        let usesExplicitAbsolute = intent == .absoluteColorimetric && absoluteFromPCS != nil
+        guard let transform = usesExplicitAbsolute
+            ? absoluteFromPCS
+            : select(
+                intent: intent,
+                perceptual: perceptualFromPCS,
+                colorimetric: colorimetricFromPCS,
+                saturation: saturationFromPCS
+            ) else { return nil }
         let input: CGColorVector
-        if intent == .absoluteColorimetric {
+        if intent == .absoluteColorimetric && !usesExplicitAbsolute {
             guard mediaWhitePoint.x > 0, mediaWhitePoint.y > 0, mediaWhitePoint.z > 0 else { return nil }
             input = CGColorVector(
                 x: pcs.x * CGColorVector.d50.x / mediaWhitePoint.x,
@@ -67,7 +72,8 @@ internal struct CGICCTransformSet: Hashable, Sendable {
     }
 
     func hasFromPCS(intent: CGColorRenderingIntent) -> Bool {
-        select(
+        if intent == .absoluteColorimetric, absoluteFromPCS != nil { return true }
+        return select(
             intent: intent,
             perceptual: perceptualFromPCS,
             colorimetric: colorimetricFromPCS,
@@ -100,6 +106,8 @@ internal struct CGICCTransform: Hashable, Sendable {
         case xyz
         case lab
         case legacyLab16
+        case floatXYZ
+        case floatLab
     }
 
     let pipeline: CGICCTransformPipeline
@@ -146,6 +154,14 @@ internal struct CGICCTransform: Hashable, Sendable {
                 a: values[1] * 65_535 / 256 - 128,
                 b: values[2] * 65_535 / 256 - 128
             )
+        case .floatXYZ:
+            guard values.allSatisfy(\.isFinite) else { return nil }
+            return CGColorVector(x: values[0], y: values[1], z: values[2])
+        case .floatLab:
+            guard values.allSatisfy(\.isFinite) else { return nil }
+            let xyz = Self.labToXYZ(lightness: values[0], a: values[1], b: values[2])
+            guard xyz.x.isFinite, xyz.y.isFinite, xyz.z.isFinite else { return nil }
+            return xyz
         }
     }
 
@@ -167,7 +183,15 @@ internal struct CGICCTransform: Hashable, Sendable {
                 ].map(Self.clamp)
             case .xyz:
                 return nil
+            case .floatXYZ, .floatLab:
+                return nil
             }
+        case .floatXYZ:
+            guard pcs.x.isFinite, pcs.y.isFinite, pcs.z.isFinite else { return nil }
+            return [pcs.x, pcs.y, pcs.z]
+        case .floatLab:
+            guard let lab = Self.xyzToLab(pcs) else { return nil }
+            return [lab.x, lab.y, lab.z]
         }
     }
 
@@ -214,12 +238,14 @@ internal enum CGICCTransformPipeline: Hashable, Sendable {
     case aToB(CGICCComplexLUT)
     case bToA(CGICCComplexLUT)
     case legacy(CGICCLegacyLUT)
+    case multiProcess(CGICCMultiProcessPipeline)
 
     func applying(to input: [CGFloat]) -> [CGFloat]? {
         switch self {
         case .aToB(let lut): return lut.applyAToB(input)
         case .bToA(let lut): return lut.applyBToA(input)
         case .legacy(let lut): return lut.apply(input)
+        case .multiProcess(let pipeline): return pipeline.apply(input)
         }
     }
 }
@@ -353,6 +379,7 @@ internal struct CGICCCLUT: Hashable, Sendable {
     func interpolate(_ input: [CGFloat]) -> [CGFloat]? {
         guard input.count == gridPoints.count,
               !gridPoints.isEmpty,
+              input.allSatisfy({ !$0.isNaN }),
               gridPoints.allSatisfy({ $0 >= 2 }),
               gridPoints.count < Int.bitWidth - 1 else {
             return nil

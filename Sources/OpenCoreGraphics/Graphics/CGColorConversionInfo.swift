@@ -208,6 +208,14 @@ public class CGColorConversionInfo: @unchecked Sendable {
               destination.copyICCData() == nil || destination.colorProfile != nil else {
             return false
         }
+        if source.copyICCData() != nil || destination.copyICCData() != nil {
+            guard let sourceProfile = source.colorProfile,
+                  let destinationProfile = destination.colorProfile,
+                  sourceProfile.supportsToPCS(intent: .defaultIntent),
+                  destinationProfile.supportsFromPCS(intent: .defaultIntent) else {
+                return false
+            }
+        }
         guard source.model != .deviceN || source.colorProfile != nil,
               destination.model != .deviceN || destination.colorProfile != nil else {
             return false

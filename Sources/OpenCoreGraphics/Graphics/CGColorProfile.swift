@@ -312,6 +312,14 @@ internal struct CGColorProfile: Hashable, Sendable {
         return adaptation.applying(to: nativeXYZ)
     }
 
+    func supportsToPCS(intent: CGColorRenderingIntent) -> Bool {
+        if let iccTransforms, iccTransforms.hasToPCS(intent: intent) { return true }
+        switch model {
+        case .rgb, .gray, .hlg: return true
+        case .device: return false
+        }
+    }
+
     func fromPCS(_ pcs: CGColorVector, intent: CGColorRenderingIntent) -> [CGFloat]? {
         if let iccTransforms, iccTransforms.hasFromPCS(intent: intent) {
             return iccTransforms.fromPCS(pcs, intent: intent)
@@ -343,6 +351,14 @@ internal struct CGColorProfile: Hashable, Sendable {
             return [encoded.x, encoded.y, encoded.z]
         case .device:
             return nil
+        }
+    }
+
+    func supportsFromPCS(intent: CGColorRenderingIntent) -> Bool {
+        if let iccTransforms, iccTransforms.hasFromPCS(intent: intent) { return true }
+        switch model {
+        case .rgb, .gray, .hlg: return true
+        case .device: return false
         }
     }
 }
@@ -532,18 +548,6 @@ internal enum CGICCProfileParser {
         case .invalid:
             return nil
         case .absentOrUnsupported:
-            let floatingTransformSignatures = [
-                "D2B0", "D2B1", "D2B2", "D2B3",
-                "B2D0", "B2D1", "B2D2", "B2D3"
-            ].map(signature)
-            if floatingTransformSignatures.contains(where: { tags[$0] != nil }) {
-                // D2B/B2D multi-process elements override the corresponding integer A2B/B2A
-                // tables. Until mpet execution is available, the current call path exposes the
-                // ICC data but no executable profile so conversion cannot report success through
-                // an older table or matrix/TRC fallback.
-                profile = nil
-                return Result(model: colorInfo.model, componentCount: colorInfo.count, profile: profile)
-            }
             let transformResult = CGICCTransformParser.parse(
                 data,
                 tags: tags.mapValues { (offset: $0.offset, size: $0.size) },

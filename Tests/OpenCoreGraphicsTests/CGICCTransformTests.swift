@@ -36,6 +36,7 @@ struct CGICCTransformTests {
             outputChannels: 3,
             values: Self.identityCLUT(inputChannels: 3, outputChannels: 3)
         )
+        #expect(clut.interpolate([.nan, 0.5, 0.5]) == nil)
         let matrix = CGColorMatrix(
             m00: 0.5, m01: 0, m02: 0,
             m10: 0, m11: 1, m12: 0,
@@ -133,6 +134,15 @@ struct CGICCTransformTests {
 
         let destination = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         #expect(CGColorConversionInfo(src: space, dst: destination) != nil)
+
+        let forwardOnlyData = Self.makeProfile(
+            colorSpace: "CMYK",
+            pcs: "XYZ ",
+            tags: [("A2B0", forward)]
+        )
+        let forwardOnly = try #require(CGColorSpace(iccData: forwardOnlyData))
+        #expect(CGColorConversionInfo(src: forwardOnly, dst: destination) != nil)
+        #expect(CGColorConversionInfo(src: destination, dst: forwardOnly) == nil)
     }
 
     @Test("mft1 executes an eight-bit PCSLAB transform")
@@ -168,9 +178,11 @@ struct CGICCTransformTests {
             perceptualToPCS: identity,
             colorimetricToPCS: squared,
             saturationToPCS: nil,
+            absoluteToPCS: nil,
             perceptualFromPCS: nil,
             colorimetricFromPCS: nil,
-            saturationFromPCS: nil
+            saturationFromPCS: nil,
+            absoluteFromPCS: nil
         )
         let perceptual = try #require(transforms.toPCS([0.5, 0.5, 0.5], intent: .perceptual))
         let relative = try #require(transforms.toPCS([0.5, 0.5, 0.5], intent: .relativeColorimetric))
@@ -196,9 +208,11 @@ struct CGICCTransformTests {
             perceptualToPCS: forward,
             colorimetricToPCS: forward,
             saturationToPCS: nil,
+            absoluteToPCS: nil,
             perceptualFromPCS: reverse,
             colorimetricFromPCS: reverse,
-            saturationFromPCS: nil
+            saturationFromPCS: nil,
+            absoluteFromPCS: nil
         )
         let relative = try #require(transforms.toPCS([0.5, 0.5, 0.5], intent: .relativeColorimetric))
         let absolute = try #require(transforms.toPCS([0.5, 0.5, 0.5], intent: .absoluteColorimetric))
@@ -210,6 +224,173 @@ struct CGICCTransformTests {
         #expect(abs(roundTrip[0] - 0.5) < 0.000001)
         #expect(abs(roundTrip[1] - 0.5) < 0.000001)
         #expect(abs(roundTrip[2] - 0.5) < 0.000001)
+    }
+
+    @Test("Float curve formulas and sampled segments execute over their declared domains")
+    func floatCurveSegments() throws {
+        let power = CGICCFloatFormula(function: 0, parameters: [2, 1, 0, 0])
+        let logarithm = CGICCFloatFormula(function: 1, parameters: [1, 1, 1, 1, 0])
+        let exponential = CGICCFloatFormula(function: 2, parameters: [2, 3, 1, 0, 1])
+        let zeroBase = CGICCFloatFormula(function: 2, parameters: [1, 0, 0, 1, 0])
+        #expect(abs(try #require(power.evaluate(0.5)) - 0.25) < 0.000001)
+        #expect(abs(try #require(logarithm.evaluate(9)) - 1) < 0.000001)
+        #expect(abs(try #require(exponential.evaluate(2)) - 19) < 0.000001)
+        #expect(abs(try #require(zeroBase.evaluate(2))) < 0.000001)
+
+        let curve = CGICCFloatCurve(
+            breakpoints: [0, 1],
+            segments: [
+                .formula(CGICCFloatFormula(function: 0, parameters: [1, 1, 0, 0])),
+                .sampled([0.25, 1]),
+                .formula(CGICCFloatFormula(function: 0, parameters: [1, 1, 0, 0]))
+            ]
+        )
+        #expect(abs(try #require(curve.evaluate(-0.5)) + 0.5) < 0.000001)
+        #expect(abs(try #require(curve.evaluate(0.25)) - 0.125) < 0.000001)
+        #expect(abs(try #require(curve.evaluate(0.75)) - 0.625) < 0.000001)
+        #expect(abs(try #require(curve.evaluate(1.5)) - 1.5) < 0.000001)
+    }
+
+    @Test("Segmented float curves parse and interpolate inside an mpet curve set")
+    func parsedSegmentedFloatCurve() throws {
+        let curve = Self.segmentedFloatCurve()
+        let transform = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [Self.floatCurveSet(curves: [curve, curve, curve], storageOrder: [2, 0, 1])]
+        )
+        let data = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("D2B0", transform)]
+        )
+        let space = try #require(CGColorSpace(iccData: data))
+        let profile = try #require(space.colorProfile)
+        let pcs = try #require(profile.toPCS([0.25, 0.75, 1.5], intent: .perceptual))
+        #expect(abs(pcs.x - 0.125) < 0.000001)
+        #expect(abs(pcs.y - 0.625) < 0.000001)
+        #expect(abs(pcs.z - 1.5) < 0.000001)
+    }
+
+    @Test("D2B and B2D multi-process elements override integer transforms")
+    func multiProcessOverrides() throws {
+        let gammaCurve = Self.floatCurve(function: 0, parameters: [2, 1, 0, 0])
+        let curveSet = Self.floatCurveSet(curves: [gammaCurve, gammaCurve, gammaCurve])
+        let matrix = Self.floatMatrix(
+            inputChannels: 3,
+            outputChannels: 3,
+            coefficients: Self.identityMatrixValues,
+            offsets: [0.1, 0, 0]
+        )
+        let clut = Self.floatCLUT(
+            inputChannels: 3,
+            outputChannels: 3,
+            values: Self.identityCLUT(inputChannels: 3, outputChannels: 3)
+        )
+        let forward = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [curveSet, matrix, clut, Self.passThrough(channels: 3)],
+            storageOrder: [1, 0, 2, 3]
+        )
+        let reverse = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [Self.floatIdentityMatrix(channels: 3)]
+        )
+        let data = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [
+                ("A2B0", Data(repeating: 0, count: 8)),
+                ("D2B0", forward),
+                ("B2D0", reverse)
+            ]
+        )
+        let space = try #require(CGColorSpace(iccData: data))
+        let profile = try #require(space.colorProfile)
+        let pcs = try #require(profile.toPCS([0.5, 0.5, 0.5], intent: .perceptual))
+        #expect(abs(pcs.x - 0.35) < 0.000001)
+        #expect(abs(pcs.y - 0.25) < 0.000001)
+        #expect(abs(pcs.z - 0.25) < 0.000001)
+
+        let device = try #require(profile.fromPCS(
+            CGColorVector(x: 0.2, y: 0.4, z: 0.6),
+            intent: .perceptual
+        ))
+        #expect(abs(device[0] - 0.2) < 0.000001)
+        #expect(abs(device[1] - 0.4) < 0.000001)
+        #expect(abs(device[2] - 0.6) < 0.000001)
+    }
+
+    @Test("D2B3 and B2D3 provide direct absolute-colorimetric transforms")
+    func explicitAbsoluteMultiProcess() throws {
+        let relative = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [Self.floatIdentityMatrix(channels: 3)]
+        )
+        let absoluteForward = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [Self.floatMatrix(
+                inputChannels: 3,
+                outputChannels: 3,
+                coefficients: Self.identityMatrixValues.map { $0 * 0.5 },
+                offsets: [0, 0, 0]
+            )]
+        )
+        let absoluteReverse = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [Self.floatMatrix(
+                inputChannels: 3,
+                outputChannels: 3,
+                coefficients: Self.identityMatrixValues.map { $0 * 2 },
+                offsets: [0, 0, 0]
+            )]
+        )
+        let data = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [
+                ("D2B1", relative),
+                ("D2B3", absoluteForward),
+                ("B2D1", relative),
+                ("B2D3", absoluteReverse)
+            ]
+        )
+        let space = try #require(CGColorSpace(iccData: data))
+        let profile = try #require(space.colorProfile)
+        let relativePCS = try #require(profile.toPCS([0.4, 0.4, 0.4], intent: .relativeColorimetric))
+        let absolutePCS = try #require(profile.toPCS([0.4, 0.4, 0.4], intent: .absoluteColorimetric))
+        #expect(abs(relativePCS.y - 0.4) < 0.000001)
+        #expect(abs(absolutePCS.y - 0.2) < 0.000001)
+        let roundTrip = try #require(profile.fromPCS(absolutePCS, intent: .absoluteColorimetric))
+        #expect(abs(roundTrip[0] - 0.4) < 0.000001)
+        #expect(abs(roundTrip[1] - 0.4) < 0.000001)
+        #expect(abs(roundTrip[2] - 0.4) < 0.000001)
+    }
+
+    @Test("Float PCSLAB values convert directly to the D50 XYZ connection space")
+    func floatLabPCS() throws {
+        let transform = Self.multiProcess(
+            inputChannels: 3,
+            outputChannels: 3,
+            elements: [Self.floatIdentityMatrix(channels: 3)]
+        )
+        let data = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "Lab ",
+            tags: [("D2B0", transform)]
+        )
+        let space = try #require(CGColorSpace(iccData: data))
+        let profile = try #require(space.colorProfile)
+        let pcs = try #require(profile.toPCS([50, 0, 0], intent: .perceptual))
+        let neutralY = pow(CGFloat(66) / 116, 3)
+        #expect(abs(pcs.x - CGColorVector.d50.x * neutralY) < 0.00001)
+        #expect(abs(pcs.y - neutralY) < 0.00001)
+        #expect(abs(pcs.z - CGColorVector.d50.z * neutralY) < 0.00001)
     }
 
     @Test("Malformed LUT combinations and ranges reject the ICC profile")
@@ -233,10 +414,13 @@ struct CGICCTransformTests {
         #expect(CGColorSpace(iccData: invalidPrecisionProfile) == nil)
     }
 
-    @Test("Floating multi-process overrides do not fall back to older ICC tables")
-    func floatingOverrideFailsExplicitly() throws {
-        var multiProcess = Data(repeating: 0, count: 16)
-        Self.writeSignature("mpet", to: &multiProcess, at: 0)
+    @Test("Unknown multi-process elements use the ICC-defined integer-table fallback")
+    func unknownMultiProcessFallsBack() throws {
+        var unknown = Data(repeating: 0, count: 12)
+        Self.writeSignature("zzzz", to: &unknown, at: 0)
+        Self.writeUInt16(3, to: &unknown, at: 8)
+        Self.writeUInt16(3, to: &unknown, at: 10)
+        let multiProcess = Self.multiProcess(inputChannels: 3, outputChannels: 3, elements: [unknown])
         let data = Self.makeProfile(
             colorSpace: "RGB ",
             pcs: "XYZ ",
@@ -246,11 +430,65 @@ struct CGICCTransformTests {
             ]
         )
         let space = try #require(CGColorSpace(iccData: data))
-        #expect(space.colorProfile == nil)
+        let profile = try #require(space.colorProfile)
+        let pcs = try #require(profile.toPCS([0.5, 0.5, 0.5], intent: .perceptual))
+        let expected = CGFloat(0.5) * 65_535 / 32_768
+        #expect(abs(pcs.x - expected) < 0.000001)
+        #expect(abs(pcs.y - expected) < 0.000001)
+        #expect(abs(pcs.z - expected) < 0.000001)
+
+        let unknownOnlyData = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("D2B0", multiProcess)]
+        )
+        let unknownOnly = try #require(CGColorSpace(iccData: unknownOnlyData))
+        #expect(unknownOnly.colorProfile == nil)
         let destination = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let source = try #require(CGColor(colorSpace: space, components: [0.5, 0.5, 0.5, 1]))
-        #expect(source.converted(to: destination, intent: .perceptual, options: nil) == nil)
-        #expect(CGColorConversionInfo(src: space, dst: destination) == nil)
+        #expect(CGColorConversionInfo(src: unknownOnly, dst: destination) == nil)
+    }
+
+    @Test("Malformed known multi-process elements reject the ICC profile")
+    func malformedMultiProcessFails() {
+        var malformed = Data(repeating: 0, count: 16)
+        Self.writeSignature("mpet", to: &malformed, at: 0)
+        let data = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [
+                ("A2B0", Self.complexTag(type: "mAB ")),
+                ("D2B0", malformed)
+            ]
+        )
+        #expect(CGColorSpace(iccData: data) == nil)
+
+        var subnormalMatrix = Self.floatIdentityMatrix(channels: 3)
+        Self.writeUInt32(1, to: &subnormalMatrix, at: 12)
+        let subnormalData = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("D2B0", Self.multiProcess(
+                inputChannels: 3,
+                outputChannels: 3,
+                elements: [subnormalMatrix]
+            ))]
+        )
+        #expect(CGColorSpace(iccData: subnormalData) == nil)
+
+        var oversizedPassThrough = Data(repeating: 0, count: 20)
+        Self.writeSignature("bACS", to: &oversizedPassThrough, at: 0)
+        Self.writeUInt16(3, to: &oversizedPassThrough, at: 8)
+        Self.writeUInt16(3, to: &oversizedPassThrough, at: 10)
+        let oversizedData = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("D2B0", Self.multiProcess(
+                inputChannels: 3,
+                outputChannels: 3,
+                elements: [oversizedPassThrough]
+            ))]
+        )
+        #expect(CGColorSpace(iccData: oversizedData) == nil)
     }
 
     private static func bOnlyLUT(curve: CGTransferCurve) -> CGICCComplexLUT {
@@ -273,6 +511,162 @@ struct CGICCTransformTests {
         data[9] = transfer
         data[10] = 0
         data[11] = 1
+        return data
+    }
+
+    private static let identityMatrixValues: [CGFloat] = [
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1
+    ]
+
+    private static func multiProcess(
+        inputChannels: Int,
+        outputChannels: Int,
+        elements: [Data],
+        storageOrder: [Int]? = nil
+    ) -> Data {
+        let order = storageOrder ?? Array(elements.indices)
+        precondition(order.sorted() == Array(elements.indices))
+        let tableEnd = 16 + elements.count * 8
+        let size = elements.reduce(tableEnd) { $0 + $1.count }
+        var data = Data(repeating: 0, count: size)
+        writeSignature("mpet", to: &data, at: 0)
+        writeUInt16(UInt16(inputChannels), to: &data, at: 8)
+        writeUInt16(UInt16(outputChannels), to: &data, at: 10)
+        writeUInt32(UInt32(elements.count), to: &data, at: 12)
+        var payloadOffset = tableEnd
+        var positions = Array(repeating: 0, count: elements.count)
+        for index in order {
+            positions[index] = payloadOffset
+            let element = elements[index]
+            data.replaceSubrange(payloadOffset..<(payloadOffset + element.count), with: element)
+            payloadOffset += element.count
+        }
+        for (index, element) in elements.enumerated() {
+            let entry = 16 + index * 8
+            writeUInt32(UInt32(positions[index]), to: &data, at: entry)
+            writeUInt32(UInt32(element.count), to: &data, at: entry + 4)
+        }
+        return data
+    }
+
+    private static func floatCurveSet(curves: [Data], storageOrder: [Int]? = nil) -> Data {
+        let order = storageOrder ?? Array(curves.indices)
+        precondition(order.sorted() == Array(curves.indices))
+        let tableEnd = 12 + curves.count * 8
+        let size = curves.reduce(tableEnd) { $0 + $1.count }
+        var data = Data(repeating: 0, count: size)
+        writeSignature("cvst", to: &data, at: 0)
+        writeUInt16(UInt16(curves.count), to: &data, at: 8)
+        writeUInt16(UInt16(curves.count), to: &data, at: 10)
+        var payloadOffset = tableEnd
+        var positions = Array(repeating: 0, count: curves.count)
+        for index in order {
+            positions[index] = payloadOffset
+            let curve = curves[index]
+            data.replaceSubrange(payloadOffset..<(payloadOffset + curve.count), with: curve)
+            payloadOffset += curve.count
+        }
+        for (index, curve) in curves.enumerated() {
+            let entry = 12 + index * 8
+            writeUInt32(UInt32(positions[index]), to: &data, at: entry)
+            writeUInt32(UInt32(curve.count), to: &data, at: entry + 4)
+        }
+        return data
+    }
+
+    private static func floatCurve(function: UInt16, parameters: [CGFloat]) -> Data {
+        let parameterCount = function == 0 ? 4 : 5
+        precondition(parameters.count == parameterCount)
+        var data = Data(repeating: 0, count: 12 + 12 + parameterCount * 4)
+        writeSignature("curf", to: &data, at: 0)
+        writeUInt16(1, to: &data, at: 8)
+        writeSignature("parf", to: &data, at: 12)
+        writeUInt16(function, to: &data, at: 20)
+        for (index, value) in parameters.enumerated() {
+            writeFloat32(value, to: &data, at: 24 + index * 4)
+        }
+        return data
+    }
+
+    private static func segmentedFloatCurve() -> Data {
+        var data = Data(repeating: 0, count: 96)
+        writeSignature("curf", to: &data, at: 0)
+        writeUInt16(3, to: &data, at: 8)
+        writeFloat32(0, to: &data, at: 12)
+        writeFloat32(1, to: &data, at: 16)
+
+        writeSignature("parf", to: &data, at: 20)
+        writeUInt16(0, to: &data, at: 28)
+        for (index, value) in [CGFloat(1), 1, 0, 0].enumerated() {
+            writeFloat32(value, to: &data, at: 32 + index * 4)
+        }
+
+        writeSignature("samf", to: &data, at: 48)
+        writeUInt32(2, to: &data, at: 56)
+        writeFloat32(0.25, to: &data, at: 60)
+        writeFloat32(1, to: &data, at: 64)
+
+        writeSignature("parf", to: &data, at: 68)
+        writeUInt16(0, to: &data, at: 76)
+        for (index, value) in [CGFloat(1), 1, 0, 0].enumerated() {
+            writeFloat32(value, to: &data, at: 80 + index * 4)
+        }
+        return data
+    }
+
+    private static func floatMatrix(
+        inputChannels: Int,
+        outputChannels: Int,
+        coefficients: [CGFloat],
+        offsets: [CGFloat]
+    ) -> Data {
+        precondition(coefficients.count == inputChannels * outputChannels)
+        precondition(offsets.count == outputChannels)
+        let values = coefficients + offsets
+        var data = Data(repeating: 0, count: 12 + values.count * 4)
+        writeSignature("matf", to: &data, at: 0)
+        writeUInt16(UInt16(inputChannels), to: &data, at: 8)
+        writeUInt16(UInt16(outputChannels), to: &data, at: 10)
+        for (index, value) in values.enumerated() {
+            writeFloat32(value, to: &data, at: 12 + index * 4)
+        }
+        return data
+    }
+
+    private static func floatIdentityMatrix(channels: Int) -> Data {
+        var coefficients = Array(repeating: CGFloat.zero, count: channels * channels)
+        for channel in 0..<channels { coefficients[channel * channels + channel] = 1 }
+        return floatMatrix(
+            inputChannels: channels,
+            outputChannels: channels,
+            coefficients: coefficients,
+            offsets: Array(repeating: 0, count: channels)
+        )
+    }
+
+    private static func floatCLUT(
+        inputChannels: Int,
+        outputChannels: Int,
+        values: [CGFloat]
+    ) -> Data {
+        var data = Data(repeating: 0, count: 28 + values.count * 4)
+        writeSignature("clut", to: &data, at: 0)
+        writeUInt16(UInt16(inputChannels), to: &data, at: 8)
+        writeUInt16(UInt16(outputChannels), to: &data, at: 10)
+        for channel in 0..<inputChannels { data[12 + channel] = 2 }
+        for (index, value) in values.enumerated() {
+            writeFloat32(value, to: &data, at: 28 + index * 4)
+        }
+        return data
+    }
+
+    private static func passThrough(channels: Int) -> Data {
+        var data = Data(repeating: 0, count: 16)
+        writeSignature("bACS", to: &data, at: 0)
+        writeUInt16(UInt16(channels), to: &data, at: 8)
+        writeUInt16(UInt16(channels), to: &data, at: 10)
         return data
     }
 
@@ -464,5 +858,9 @@ struct CGICCTransformTests {
 
     private static func writeS15Fixed16(_ value: CGFloat, to data: inout Data, at offset: Int) {
         writeUInt32(UInt32(bitPattern: Int32((value * 65_536).rounded())), to: &data, at: offset)
+    }
+
+    private static func writeFloat32(_ value: CGFloat, to data: inout Data, at offset: Int) {
+        writeUInt32(Float(value).bitPattern, to: &data, at: offset)
     }
 }
