@@ -144,9 +144,45 @@ public class CGContext: @unchecked Sendable {
     // MARK: - Initializers
 
     /// Creates a bitmap graphics context.
-    public init?(data: UnsafeMutableRawPointer?, width: Int, height: Int,
-                 bitsPerComponent: Int, bytesPerRow: Int, space: CGColorSpace,
-                 bitmapInfo: CGBitmapInfo) {
+    public convenience init?(data: UnsafeMutableRawPointer?, width: Int, height: Int,
+                             bitsPerComponent: Int, bytesPerRow: Int, space: CGColorSpace,
+                             bitmapInfo: CGBitmapInfo) {
+        self.init(
+            data: data,
+            width: width,
+            height: height,
+            bitsPerComponent: bitsPerComponent,
+            bytesPerRow: bytesPerRow,
+            space: space,
+            bitmapInfo: bitmapInfo,
+            backend: .platformDefault
+        )
+    }
+
+    @_spi(SoftwareBitmapContext)
+    public convenience init?(softwareData data: UnsafeMutableRawPointer?, width: Int, height: Int,
+                             bitsPerComponent: Int, bytesPerRow: Int, space: CGColorSpace,
+                             bitmapInfo: CGBitmapInfo) {
+        self.init(
+            data: data,
+            width: width,
+            height: height,
+            bitsPerComponent: bitsPerComponent,
+            bytesPerRow: bytesPerRow,
+            space: space,
+            bitmapInfo: bitmapInfo,
+            backend: .software
+        )
+    }
+
+    private enum BitmapBackend {
+        case platformDefault
+        case software
+    }
+
+    private init?(data: UnsafeMutableRawPointer?, width: Int, height: Int,
+                  bitsPerComponent: Int, bytesPerRow: Int, space: CGColorSpace,
+                  bitmapInfo: CGBitmapInfo, backend: BitmapBackend) {
         guard width > 0, height > 0 else { return nil }
         guard bitsPerComponent > 0 else { return nil }
 
@@ -196,9 +232,19 @@ public class CGContext: @unchecked Sendable {
 
         // Select the renderer once at initialization.
         #if arch(wasm32)
-        let renderer = CGWebGPUContextRenderer(width: width, height: height)
-        renderer.setup()
-        self.rendererDelegate = renderer
+        if backend == .software, bitsPerComponent == 8, bitsPerPixel == 32,
+           let pointer = self.data {
+            self.rendererDelegate = CGSoftwareContextRenderer(
+                pointer: pointer,
+                width: width,
+                height: height,
+                bytesPerRow: effectiveBytesPerRow
+            )
+        } else {
+            let renderer = CGWebGPUContextRenderer(width: width, height: height)
+            renderer.setup()
+            self.rendererDelegate = renderer
+        }
         #else
         if bitsPerComponent == 8,
            bitsPerPixel == 32,
