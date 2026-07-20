@@ -17,16 +17,18 @@ import JavaScriptKit
 ///
 /// ## Identity & Ownership
 ///
-/// The cache is keyed by `ObjectIdentifier(CGImage)`, but a raw pointer
-/// identifier is only stable while the underlying object is alive. To
-/// guarantee key uniqueness, every cache entry holds a strong reference
-/// to its `CGImage`; without this, the source image could be released by
-/// ARC, its heap address reused by a fresh allocation, and a subsequent
-/// lookup would incorrectly return the stale `GPUTextureView`
-/// (cross-image identity collision symptom).
+/// Cache identity includes the source image, destination color space, and
+/// rendering intent. A single image may therefore have distinct GPU textures
+/// when it is drawn into contexts with different color-management state.
 internal final class TextureManager: @unchecked Sendable {
 
     // MARK: - Types
+
+    struct TextureKey: Hashable {
+        let imageIdentifier: ObjectIdentifier
+        let destinationColorSpace: CGColorSpace
+        let intent: CGColorRenderingIntent
+    }
 
     /// Cached texture entry.
     ///
@@ -55,14 +57,11 @@ internal final class TextureManager: @unchecked Sendable {
     /// Maximum number of textures to cache
     private let capacity: Int
 
-    /// Cached textures keyed by `ObjectIdentifier(CGImage)`.
-    ///
-    /// Each entry retains its `CGImage` (see `TextureEntry.cgImage`) so
-    /// the identifier remains unique for the cached lifetime.
-    private var cache: [ObjectIdentifier: TextureEntry] = [:]
+    /// Cached textures keyed by image identity and color conversion state.
+    private var cache: [TextureKey: TextureEntry] = [:]
 
     /// Access order for LRU eviction (oldest first)
-    private var accessOrder: [ObjectIdentifier] = []
+    private var accessOrder: [TextureKey] = []
 
     /// Current access counter for LRU tracking
     private var accessCounter: UInt64 = 0
@@ -98,10 +97,21 @@ internal final class TextureManager: @unchecked Sendable {
 
     /// Gets a cached texture view for an image.
     ///
-    /// - Parameter image: The source CGImage
+    /// - Parameters:
+    ///   - image: The source CGImage.
+    ///   - destinationColorSpace: The context destination color space.
+    ///   - intent: The resolved sampled-image rendering intent.
     /// - Returns: The texture view, or nil if not cached
-    func getTexture(for image: CGImage) -> GPUTextureView? {
-        let key = ObjectIdentifier(image)
+    func getTexture(
+        for image: CGImage,
+        destinationColorSpace: CGColorSpace,
+        intent: CGColorRenderingIntent
+    ) -> GPUTextureView? {
+        let key = TextureKey(
+            imageIdentifier: ObjectIdentifier(image),
+            destinationColorSpace: destinationColorSpace,
+            intent: intent
+        )
 
         guard var entry = cache[key] else {
             return nil
@@ -123,20 +133,39 @@ internal final class TextureManager: @unchecked Sendable {
 
     /// Gets or creates a texture for the specified image.
     ///
-    /// - Parameter image: The source CGImage
+    /// - Parameters:
+    ///   - image: The source CGImage.
+    ///   - destinationColorSpace: The context destination color space.
+    ///   - intent: The resolved sampled-image rendering intent.
     /// - Returns: The texture view, or nil if creation failed
-    func getOrCreateTexture(for image: CGImage) -> GPUTextureView? {
+    func getOrCreateTexture(
+        for image: CGImage,
+        destinationColorSpace: CGColorSpace,
+        intent: CGColorRenderingIntent
+    ) -> GPUTextureView? {
         // Check cache first
-        if let existing = getTexture(for: image) {
+        if let existing = getTexture(
+            for: image,
+            destinationColorSpace: destinationColorSpace,
+            intent: intent
+        ) {
             return existing
         }
 
         // Create new texture
-        guard let entry = createTextureEntry(for: image) else {
+        guard let entry = createTextureEntry(
+            for: image,
+            destinationColorSpace: destinationColorSpace,
+            intent: intent
+        ) else {
             return nil
         }
 
-        let key = ObjectIdentifier(image)
+        let key = TextureKey(
+            imageIdentifier: ObjectIdentifier(image),
+            destinationColorSpace: destinationColorSpace,
+            intent: intent
+        )
 
         // Evict if necessary
         evictIfNeeded()
@@ -152,7 +181,11 @@ internal final class TextureManager: @unchecked Sendable {
     // MARK: - Texture Creation
 
     /// Creates a texture entry from a CGImage.
-    private func createTextureEntry(for image: CGImage) -> TextureEntry? {
+    private func createTextureEntry(
+        for image: CGImage,
+        destinationColorSpace: CGColorSpace,
+        intent: CGColorRenderingIntent
+    ) -> TextureEntry? {
         let width = image.width
         let height = image.height
 
@@ -167,7 +200,11 @@ internal final class TextureManager: @unchecked Sendable {
         ))
 
         // Extract and upload pixel data
-        guard let pixelData = extractPixelData(from: image) else {
+        guard let pixelData = extractPixelData(
+            from: image,
+            destinationColorSpace: destinationColorSpace,
+            intent: intent
+        ) else {
             return nil
         }
 
@@ -187,8 +224,15 @@ internal final class TextureManager: @unchecked Sendable {
     }
 
     /// Extracts RGBA pixel data from a CGImage.
-    private func extractPixelData(from image: CGImage) -> Data? {
-        guard let data = image.data ?? image.dataProvider?.data else {
+    private func extractPixelData(
+        from image: CGImage,
+        destinationColorSpace: CGColorSpace,
+        intent: CGColorRenderingIntent
+    ) -> Data? {
+        guard let data = image.data ?? image.dataProvider?.data,
+              let sourceColorSpace = image.colorSpace,
+              destinationColorSpace.model == .rgb,
+              destinationColorSpace.numberOfComponents == 3 else {
             return nil
         }
 
@@ -197,91 +241,48 @@ internal final class TextureManager: @unchecked Sendable {
         let bytesPerPixel = 4
         let packedBytesPerRow = width * bytesPerPixel
 
-        guard width > 0,
-              height > 0,
-              image.bitsPerComponent == 8,
-              image.bitsPerPixel == 32,
-              image.bytesPerRow >= packedBytesPerRow else {
+        guard width > 0, height > 0 else {
             return nil
         }
 
-        let requiredByteCount = image.bytesPerRow * (height - 1) + packedBytesPerRow
+        let sourceBytesPerPixel = (image.bitsPerPixel + 7) / 8
+        let requiredByteCount = image.bytesPerRow * (height - 1) + width * sourceBytesPerPixel
         guard data.count >= requiredByteCount else { return nil }
 
-        var result = [UInt8](repeating: 0, count: packedBytesPerRow * height)
-        data.withUnsafeBytes { raw in
-            guard let source = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-
-            for y in 0..<height {
-                let sourceRow = y * image.bytesPerRow
-                let destinationRow = y * packedBytesPerRow
-
-                for x in 0..<width {
-                    let sourceOffset = sourceRow + x * bytesPerPixel
-                    let destinationOffset = destinationRow + x * bytesPerPixel
-                    let b0 = source[sourceOffset]
-                    let b1 = source[sourceOffset + 1]
-                    let b2 = source[sourceOffset + 2]
-                    let b3 = source[sourceOffset + 3]
-                    let pixel = rgbaPixel(
-                        b0,
-                        b1,
-                        b2,
-                        b3,
-                        alphaInfo: image.alphaInfo,
-                        byteOrderInfo: image.byteOrderInfo
-                    )
-
-                    result[destinationOffset] = pixel.r
-                    result[destinationOffset + 1] = pixel.g
-                    result[destinationOffset + 2] = pixel.b
-                    result[destinationOffset + 3] = pixel.a
-                }
+        let destinationFormat = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: packedBytesPerRow
+        )
+        let sourceFormat = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: image.bitmapInfo,
+            bitsPerComponent: image.bitsPerComponent,
+            bitsPerPixel: image.bitsPerPixel,
+            bytesPerRow: image.bytesPerRow
+        )
+        var result = Data(count: packedBytesPerRow * height)
+        let converted = data.withUnsafeBytes { sourceBuffer -> Bool in
+            guard let source = sourceBuffer.baseAddress else { return false }
+            return result.withUnsafeMutableBytes { destinationBuffer -> Bool in
+                guard let destination = destinationBuffer.baseAddress else { return false }
+                return CGColorBufferConverter.convert(
+                    width: width,
+                    height: height,
+                    destinationBuffer: destination,
+                    destinationFormat: destinationFormat,
+                    destinationColorSpace: destinationColorSpace,
+                    sourceBuffer: source,
+                    sourceFormat: sourceFormat,
+                    sourceColorSpace: sourceColorSpace,
+                    intent: intent,
+                    options: nil
+                )
             }
         }
-
-        return Data(result)
-    }
-
-    private func rgbaPixel(
-        _ b0: UInt8,
-        _ b1: UInt8,
-        _ b2: UInt8,
-        _ b3: UInt8,
-        alphaInfo: CGImageAlphaInfo,
-        byteOrderInfo: CGImageByteOrderInfo
-    ) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
-        let hasAlpha: Bool
-        switch alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast:
-            hasAlpha = false
-        case .premultipliedLast, .premultipliedFirst, .last, .first, .alphaOnly:
-            hasAlpha = true
-        }
-
-        switch byteOrderInfo {
-        case .order32Little:
-            switch alphaInfo {
-            case .premultipliedLast, .last, .noneSkipLast:
-                return (b3, b2, b1, hasAlpha ? b0 : 255)
-            case .premultipliedFirst, .first, .noneSkipFirst:
-                return (b2, b1, b0, hasAlpha ? b3 : 255)
-            case .none:
-                return (b2, b1, b0, 255)
-            case .alphaOnly:
-                return (255, 255, 255, b0)
-            }
-
-        case .order32Big, .orderDefault, .order16Little, .order16Big:
-            switch alphaInfo {
-            case .premultipliedFirst, .first, .noneSkipFirst:
-                return (b1, b2, b3, hasAlpha ? b0 : 255)
-            case .premultipliedLast, .last, .noneSkipLast, .none:
-                return (b0, b1, b2, hasAlpha ? b3 : 255)
-            case .alphaOnly:
-                return (255, 255, 255, b0)
-            }
-        }
+        return converted ? result : nil
     }
 
     /// Uploads pixel data to a GPU texture.
@@ -347,9 +348,10 @@ internal final class TextureManager: @unchecked Sendable {
 
     /// Removes a specific image from the cache.
     func remove(image: CGImage) {
-        let key = ObjectIdentifier(image)
-
-        if let entry = cache.removeValue(forKey: key) {
+        let identifier = ObjectIdentifier(image)
+        let keys = cache.keys.filter { $0.imageIdentifier == identifier }
+        for key in keys {
+            guard let entry = cache.removeValue(forKey: key) else { continue }
             totalMemoryUsage -= entry.memorySize
 
             if let index = accessOrder.firstIndex(of: key) {

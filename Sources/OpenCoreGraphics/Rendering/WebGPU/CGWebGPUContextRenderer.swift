@@ -444,11 +444,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         blendMode: CGBlendMode,
         rule: CGPathFillRule
     ) {
+        let state = CGDrawingState()
         guard let target = effectiveRenderTarget,
-              let pipeline = getPipeline(for: blendMode) else { return }
-
-        // Apply alpha to color
-        let effectiveColor = applyAlpha(color, alpha: alpha)
+              let pipeline = getPipeline(for: blendMode),
+              let convertedColor = state.convertedColor(color),
+              let effectiveColor = applyAlpha(convertedColor, alpha: alpha) else { return }
 
         // Tessellate the path
         // Note: GeometryCache is available for future optimization of static paths
@@ -471,11 +471,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         alpha: CGFloat,
         blendMode: CGBlendMode
     ) {
+        let state = CGDrawingState()
         guard let target = effectiveRenderTarget,
-              let pipeline = getPipeline(for: blendMode) else { return }
-
-        // Apply alpha to color
-        let effectiveColor = applyAlpha(color, alpha: alpha)
+              let pipeline = getPipeline(for: blendMode),
+              let convertedColor = state.convertedColor(color),
+              let effectiveColor = applyAlpha(convertedColor, alpha: alpha) else { return }
 
         // Convert line cap/join types
         let cap = convertLineCap(lineCap)
@@ -519,8 +519,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         blendMode: CGBlendMode,
         interpolationQuality: CGInterpolationQuality
     ) {
+        let state = CGDrawingState()
         guard let target = effectiveRenderTarget,
-              let textureView = getOrCreateTextureView(for: image) else { return }
+              let textureView = getOrCreateTextureView(for: image, state: state) else { return }
         let effectiveInterpolationQuality = image.shouldInterpolate ? interpolationQuality : .none
 
         drawTexture(
@@ -541,11 +542,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         end: CGPoint,
         options: CGGradientDrawingOptions
     ) {
+        let state = CGDrawingState()
         guard let target = effectiveRenderTarget,
-              let pipeline = getPipeline(for: .normal) else { return }
+              let pipeline = getPipeline(for: .normal),
+              let convertedGradient = state.convertedGradient(gradient) else { return }
 
         let vertices = createLinearGradientVertices(
-            gradient: gradient,
+            gradient: convertedGradient,
             start: start,
             end: end,
             options: options,
@@ -565,11 +568,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         endRadius: CGFloat,
         options: CGGradientDrawingOptions
     ) {
+        let state = CGDrawingState()
         guard let target = effectiveRenderTarget,
-              let pipeline = getPipeline(for: .normal) else { return }
+              let pipeline = getPipeline(for: .normal),
+              let convertedGradient = state.convertedGradient(gradient) else { return }
 
         let vertices = createRadialGradientVertices(
-            gradient: gradient,
+            gradient: convertedGradient,
             startCenter: startCenter,
             startRadius: startRadius,
             endCenter: endCenter,
@@ -593,21 +598,22 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         rule: CGPathFillRule,
         state: CGDrawingState
     ) {
-        guard let target = effectiveRenderTarget else { return }
-
-        // Apply alpha to color
-        let effectiveColor = applyAlpha(color, alpha: alpha)
+        guard let target = effectiveRenderTarget,
+              let convertedColor = state.convertedColor(color),
+              let effectiveColor = applyAlpha(convertedColor, alpha: alpha) else { return }
 
         // Tessellate the path
         let batch = tessellator.tessellateFill(path, color: effectiveColor, rule: rule)
         guard !batch.vertices.isEmpty else { return }
 
         // Render shadow first if needed
-        if state.hasShadow, let shadowColor = state.shadowColor {
+        if state.hasShadow,
+           let shadowColor = state.shadowColor,
+           let convertedShadowColor = state.convertedColor(shadowColor) {
             renderShadow(
                 batch: batch,
                 to: target,
-                shadowColor: shadowColor,
+                shadowColor: convertedShadowColor,
                 shadowOffset: state.shadowOffset,
                 shadowBlur: state.shadowBlur,
                 clipPaths: state.clipPaths,
@@ -630,10 +636,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         blendMode: CGBlendMode,
         state: CGDrawingState
     ) {
-        guard let target = effectiveRenderTarget else { return }
-
-        // Apply alpha to color
-        let effectiveColor = applyAlpha(color, alpha: alpha)
+        guard let target = effectiveRenderTarget,
+              let convertedColor = state.convertedColor(color),
+              let effectiveColor = applyAlpha(convertedColor, alpha: alpha) else { return }
 
         // Convert line cap/join types
         let cap = convertLineCap(lineCap)
@@ -651,11 +656,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard !batch.vertices.isEmpty else { return }
 
         // Render shadow first if needed
-        if state.hasShadow, let shadowColor = state.shadowColor {
+        if state.hasShadow,
+           let shadowColor = state.shadowColor,
+           let convertedShadowColor = state.convertedColor(shadowColor) {
             renderShadow(
                 batch: batch,
                 to: target,
-                shadowColor: shadowColor,
+                shadowColor: convertedShadowColor,
                 shadowOffset: state.shadowOffset,
                 shadowBlur: state.shadowBlur,
                 clipPaths: state.clipPaths,
@@ -691,17 +698,19 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         state: CGDrawingState
     ) {
         guard let target = effectiveRenderTarget,
-              let textureView = getOrCreateTextureView(for: image) else { return }
+              let textureView = getOrCreateTextureView(for: image, state: state) else { return }
         let effectiveInterpolationQuality = image.shouldInterpolate ? interpolationQuality : .none
 
-        if state.hasShadow, let shadowColor = state.shadowColor {
+        if state.hasShadow,
+           let shadowColor = state.shadowColor,
+           let convertedShadowColor = state.convertedColor(shadowColor) {
             renderTextureShadow(
                 textureView: textureView,
                 in: rect,
                 alpha: alpha,
                 interpolationQuality: effectiveInterpolationQuality,
                 to: target,
-                shadowColor: shadowColor,
+                shadowColor: convertedShadowColor,
                 shadowOffset: state.shadowOffset,
                 shadowBlur: state.shadowBlur,
                 shouldAntialias: state.shouldAntialias
@@ -756,10 +765,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         options: CGGradientDrawingOptions,
         state: CGDrawingState
     ) {
-        guard let target = effectiveRenderTarget else { return }
+        guard let target = effectiveRenderTarget,
+              let convertedGradient = state.convertedGradient(gradient) else { return }
 
         let vertices = createLinearGradientVertices(
-            gradient: gradient,
+            gradient: convertedGradient,
             start: start,
             end: end,
             options: options,
@@ -781,10 +791,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         options: CGGradientDrawingOptions,
         state: CGDrawingState
     ) {
-        guard let target = effectiveRenderTarget else { return }
+        guard let target = effectiveRenderTarget,
+              let convertedGradient = state.convertedGradient(gradient) else { return }
 
         let vertices = createRadialGradientVertices(
-            gradient: gradient,
+            gradient: convertedGradient,
             startCenter: startCenter,
             startRadius: startRadius,
             endCenter: endCenter,
@@ -827,8 +838,14 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard let target = effectiveRenderTarget else { return }
 
         // Generate color stops from the shading function
-        let colorStops = shading.generateColorStops(steps: 64)
-        guard !colorStops.isEmpty else { return }
+        let sourceStops = shading.generateColorStops(steps: 64)
+        guard !sourceStops.isEmpty else { return }
+        var colorStops: [(location: CGFloat, color: CGColor)] = []
+        colorStops.reserveCapacity(sourceStops.count)
+        for stop in sourceStops {
+            guard let color = state.convertedColor(stop.color) else { return }
+            colorStops.append((location: stop.location, color: color))
+        }
 
         // For now, we'll render the shading as a series of triangles
         // spanning the viewport. This is a simplified implementation.
@@ -874,7 +891,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle extendStart: extend shading before start point
         if shading.extendStart, let firstStop = colorStops.first {
-            let firstColor = applyAlpha(firstStop.color, alpha: alpha)
+            guard let firstColor = applyAlpha(firstStop.color, alpha: alpha) else { return [] }
             // Extend from a point far before start to start
             let extendStart = CGPoint(x: start.x - dx, y: start.y - dy)
 
@@ -895,8 +912,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         for i in 0..<(colorStops.count - 1) {
             let t0 = colorStops[i].location
             let t1 = colorStops[i + 1].location
-            let color0 = applyAlpha(colorStops[i].color, alpha: alpha)
-            let color1 = applyAlpha(colorStops[i + 1].color, alpha: alpha)
+            guard let color0 = applyAlpha(colorStops[i].color, alpha: alpha),
+                  let color1 = applyAlpha(colorStops[i + 1].color, alpha: alpha) else {
+                return []
+            }
 
             // Points along the gradient axis
             let p0 = CGPoint(x: start.x + dx * t0, y: start.y + dy * t0)
@@ -920,7 +939,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle extendEnd: extend shading after end point
         if shading.extendEnd, let lastStop = colorStops.last {
-            let lastColor = applyAlpha(lastStop.color, alpha: alpha)
+            guard let lastColor = applyAlpha(lastStop.color, alpha: alpha) else { return [] }
             // Extend from end to a point far after end
             let extendEnd = CGPoint(x: end.x + dx, y: end.y + dy)
 
@@ -955,7 +974,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle extendStart: fill the center circle with the first color
         if shading.extendStart, let firstStop = colorStops.first, startRadius > 0 {
-            let firstColor = applyAlpha(firstStop.color, alpha: alpha)
+            guard let firstColor = applyAlpha(firstStop.color, alpha: alpha) else { return [] }
 
             // Fill center circle with first color
             for j in 0..<segments {
@@ -978,8 +997,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         for i in 0..<(colorStops.count - 1) {
             let t0 = colorStops[i].location
             let t1 = colorStops[i + 1].location
-            let color0 = applyAlpha(colorStops[i].color, alpha: alpha)
-            let color1 = applyAlpha(colorStops[i + 1].color, alpha: alpha)
+            guard let color0 = applyAlpha(colorStops[i].color, alpha: alpha),
+                  let color1 = applyAlpha(colorStops[i + 1].color, alpha: alpha) else {
+                return []
+            }
 
             // Interpolate centers and radii
             let center0 = CGPoint(
@@ -1024,7 +1045,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle extendEnd: extend beyond the end radius
         if shading.extendEnd, let lastStop = colorStops.last {
-            let lastColor = applyAlpha(lastStop.color, alpha: alpha)
+            guard let lastColor = applyAlpha(lastStop.color, alpha: alpha) else { return [] }
             let extendRadius = endRadius + max(viewportWidth, viewportHeight)
 
             // Extend from end radius to a much larger radius
@@ -1097,7 +1118,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle drawsBeforeStartLocation option
         if options.contains(.drawsBeforeStartLocation), colors.count > 0 {
-            let firstColor = applyAlpha(colors[0], alpha: alpha)
+            guard let firstColor = applyAlpha(colors[0], alpha: alpha) else { return [] }
             // Extend from a point far before start to start
             let extendStart = CGPoint(x: start.x - dx, y: start.y - dy)
 
@@ -1118,8 +1139,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         for i in 0..<(colors.count - 1) {
             let t0 = locations[i]
             let t1 = locations[i + 1]
-            let color0 = applyAlpha(colors[i], alpha: alpha)
-            let color1 = applyAlpha(colors[i + 1], alpha: alpha)
+            guard let color0 = applyAlpha(colors[i], alpha: alpha),
+                  let color1 = applyAlpha(colors[i + 1], alpha: alpha) else {
+                return []
+            }
 
             // Points along the gradient axis
             let p0 = CGPoint(x: start.x + dx * t0, y: start.y + dy * t0)
@@ -1143,7 +1166,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle drawsAfterEndLocation option
         if options.contains(.drawsAfterEndLocation), colors.count > 0 {
-            let lastColor = applyAlpha(colors[colors.count - 1], alpha: alpha)
+            guard let lastColor = applyAlpha(colors[colors.count - 1], alpha: alpha) else { return [] }
             // Extend from end to a point far after end
             let extendEnd = CGPoint(x: end.x + dx, y: end.y + dy)
 
@@ -1183,7 +1206,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle drawsBeforeStartLocation option
         if options.contains(.drawsBeforeStartLocation), startRadius > 0 {
-            let firstColor = applyAlpha(colors[0], alpha: alpha)
+            guard let firstColor = applyAlpha(colors[0], alpha: alpha) else { return [] }
 
             // Fill center circle with first color
             for j in 0..<segments {
@@ -1206,8 +1229,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         for i in 0..<(colors.count - 1) {
             let t0 = locations[i]
             let t1 = locations[i + 1]
-            let color0 = applyAlpha(colors[i], alpha: alpha)
-            let color1 = applyAlpha(colors[i + 1], alpha: alpha)
+            guard let color0 = applyAlpha(colors[i], alpha: alpha),
+                  let color1 = applyAlpha(colors[i + 1], alpha: alpha) else {
+                return []
+            }
 
             // Interpolate centers and radii
             let center0 = CGPoint(
@@ -1252,7 +1277,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         // Handle drawsAfterEndLocation option
         if options.contains(.drawsAfterEndLocation) {
-            let lastColor = applyAlpha(colors[colors.count - 1], alpha: alpha)
+            guard let lastColor = applyAlpha(colors[colors.count - 1], alpha: alpha) else { return [] }
             let extendRadius = endRadius + max(viewportWidth, viewportHeight)
 
             // Extend from end radius to a much larger radius
@@ -1299,6 +1324,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         renderPatternFill(
             path: path,
             pattern: pattern,
+            patternSpace: patternSpace,
             colorComponents: colorComponents,
             patternPhase: patternPhase,
             alpha: alpha,
@@ -1322,6 +1348,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         renderPatternFill(
             path: path,
             pattern: pattern,
+            patternSpace: patternSpace,
             colorComponents: colorComponents,
             patternPhase: patternPhase,
             alpha: alpha,
@@ -1352,6 +1379,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         renderPatternStroke(
             path: path,
             pattern: pattern,
+            patternSpace: patternSpace,
             colorComponents: colorComponents,
             patternPhase: patternPhase,
             lineWidth: lineWidth,
@@ -1383,6 +1411,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         renderPatternStroke(
             path: path,
             pattern: pattern,
+            patternSpace: patternSpace,
             colorComponents: colorComponents,
             patternPhase: patternPhase,
             lineWidth: lineWidth,
@@ -1462,6 +1491,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     private func renderPatternFill(
         path: CGPath,
         pattern: CGPattern,
+        patternSpace: CGColorSpace,
         colorComponents: [CGFloat]?,
         patternPhase: CGSize,
         alpha: CGFloat,
@@ -1469,8 +1499,15 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         rule: CGPathFillRule,
         state: CGDrawingState
     ) {
-        let color = patternTintColor(components: colorComponents)
-        let batch = tessellator.tessellateFill(path, color: color, rule: rule)
+        guard let tint = patternTintColor(
+            pattern: pattern,
+            components: colorComponents,
+            colorSpace: patternSpace,
+            state: state
+        ) else {
+            return
+        }
+        let batch = tessellator.tessellateFill(path, color: tint, rule: rule)
         renderPatternBatch(
             batch,
             pattern: pattern,
@@ -1484,6 +1521,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     private func renderPatternStroke(
         path: CGPath,
         pattern: CGPattern,
+        patternSpace: CGColorSpace,
         colorComponents: [CGFloat]?,
         patternPhase: CGSize,
         lineWidth: CGFloat,
@@ -1494,9 +1532,17 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         blendMode: CGBlendMode,
         state: CGDrawingState
     ) {
+        guard let tint = patternTintColor(
+            pattern: pattern,
+            components: colorComponents,
+            colorSpace: patternSpace,
+            state: state
+        ) else {
+            return
+        }
         let batch = tessellator.tessellateStroke(
             path,
-            color: patternTintColor(components: colorComponents),
+            color: tint,
             lineWidth: lineWidth,
             lineCap: convertLineCap(lineCap),
             lineJoin: convertLineJoin(lineJoin),
@@ -1580,19 +1626,28 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         }
     }
 
-    private func patternTintColor(components: [CGFloat]?) -> CGColor {
-        guard let components = components, !components.isEmpty else { return .black }
-
-        if components.count == 2 {
-            return CGColor(gray: components[0], alpha: components[1])
+    private func patternTintColor(
+        pattern: CGPattern,
+        components: [CGFloat]?,
+        colorSpace: CGColorSpace,
+        state: CGDrawingState
+    ) -> CGColor? {
+        if pattern.isColored {
+            // The cell supplies all visible color; the vertex tint is ignored by
+            // the colored-pattern shader and only needs a valid destination shape.
+            let components = Array(
+                repeating: CGFloat.zero,
+                count: state.destinationColorSpace.numberOfComponents
+            ) + [1]
+            return CGColor(space: state.destinationColorSpace, componentArray: components)
         }
-
-        return CGColor(
-            red: components[0],
-            green: components.count > 1 ? components[1] : components[0],
-            blue: components.count > 2 ? components[2] : components[0],
-            alpha: components.count > 3 ? components[3] : 1
-        )
+        guard let baseSpace = colorSpace.baseColorSpace,
+              let components,
+              components.count == baseSpace.numberOfComponents + 1 else {
+            return nil
+        }
+        let source = CGColor(space: baseSpace, componentArray: components)
+        return state.convertedColor(source)
     }
 
     private func patternCell(for pattern: CGPattern) -> PatternCell? {
@@ -2178,7 +2233,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
               let blurIntermediateView = blurIntermediateTextureView,
               let blurHPipeline = getBlurHorizontalPipeline(),
               let blurVPipeline = getBlurVerticalPipeline(),
-              let sampler = linearSampler else { return }
+              let sampler = linearSampler,
+              let shadowUniforms = createShadowUniformBuffer(
+                shadowColor: shadowColor,
+                offset: shadowOffset
+              ) else { return }
 
         let usesMSAA = shouldAntialias && renderTarget == nil
         pipelineRegistry.setSampleCount(usesMSAA ? msaaSampleCount : 1)
@@ -2257,11 +2316,6 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         }
 
         // Pass 4: Composite shadow to target
-        let shadowUniforms = createShadowUniformBuffer(
-            shadowColor: shadowColor,
-            offset: shadowOffset
-        )
-
         let shadowBindGroup = device.createBindGroup(descriptor: GPUBindGroupDescriptor(
             layout: shadowPipeline.getBindGroupLayout(index: 0),
             entries: [
@@ -2310,13 +2364,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     }
 
     /// Creates a uniform buffer for shadow composite parameters.
-    private func createShadowUniformBuffer(shadowColor: CGColor, offset: CGSize) -> GPUBuffer {
-        let rgbColor = shadowColor.converted(to: .deviceRGB, intent: .defaultIntent, options: nil)
-        let components = rgbColor?.components ?? [0, 0, 0, 0.5]
-        let r = Float(components.count > 0 ? components[0] : 0)
-        let g = Float(components.count > 1 ? components[1] : 0)
-        let b = Float(components.count > 2 ? components[2] : 0)
-        let a = Float(components.count > 3 ? components[3] : 0.5)
+    private func createShadowUniformBuffer(shadowColor: CGColor, offset: CGSize) -> GPUBuffer? {
+        guard let components = shadowColor.components, components.count == 4 else { return nil }
+        let r = Float(components[0])
+        let g = Float(components[1])
+        let b = Float(components[2])
+        let a = Float(components[3])
 
         // Normalize offset to texture coordinates
         let offsetX = Float(offset.width / viewportWidth)
@@ -2364,25 +2417,14 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         return buffer
     }
 
-    private func applyAlpha(_ color: CGColor, alpha: CGFloat) -> CGColor {
-        guard alpha < 1.0 else { return color }
-
-        let components = color.components ?? [0, 0, 0, 1]
-        let colorAlpha = components.count > 3 ? components[3] : 1.0
-        let newAlpha = colorAlpha * alpha
-
-        if components.count >= 4 {
-            return CGColor(
-                red: components[0],
-                green: components[1],
-                blue: components[2],
-                alpha: newAlpha
-            )
-        } else if components.count >= 2 {
-            return CGColor(gray: components[0], alpha: newAlpha)
-        } else {
-            return color
+    private func applyAlpha(_ color: CGColor, alpha: CGFloat) -> CGColor? {
+        guard let colorSpace = color.colorSpace,
+              var components = color.components,
+              components.count == colorSpace.numberOfComponents + 1 else {
+            return nil
         }
+        components[components.count - 1] *= alpha
+        return CGColor(space: colorSpace, componentArray: components)
     }
 
     /// Creates uniforms that map device coordinates back into pattern space.
@@ -2530,8 +2572,15 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     // MARK: - Image Rendering Helpers (via TextureManager)
 
     /// Gets or creates a GPU texture view for the given CGImage.
-    private func getOrCreateTextureView(for image: CGImage) -> GPUTextureView? {
-        return textureManager.getOrCreateTexture(for: image)
+    private func getOrCreateTextureView(
+        for image: CGImage,
+        state: CGDrawingState
+    ) -> GPUTextureView? {
+        return textureManager.getOrCreateTexture(
+            for: image,
+            destinationColorSpace: state.destinationColorSpace,
+            intent: state.resolvedRenderingIntent(forSampledImage: true)
+        )
     }
 
     /// Extracts RGBA pixel data from a CGImage.

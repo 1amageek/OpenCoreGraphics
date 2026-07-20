@@ -78,7 +78,7 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         rule: CGPathFillRule,
         state: CGDrawingState
     ) {
-        let source = rgba(color: color, alpha: alpha)
+        guard let source = rgba(color: color, alpha: alpha, state: state) else { return }
         rasterize(bounds: path.boundingBoxOfPath, state: state) { point in
             path.contains(point, using: rule) ? source : nil
         } blendMode: { blendMode }
@@ -104,7 +104,7 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
             lineJoin: lineJoin,
             miterLimit: miterLimit
         )
-        let source = rgba(color: color, alpha: alpha)
+        guard let source = rgba(color: color, alpha: alpha, state: state) else { return }
         rasterize(bounds: strokedPath.boundingBoxOfPath, state: state) { point in
             strokedPath.contains(point) ? source : nil
         } blendMode: { blendMode }
@@ -137,7 +137,8 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
                 u: u,
                 v: v,
                 linear: interpolationQuality != .none && image.shouldInterpolate,
-                alpha: alpha
+                alpha: alpha,
+                state: state
             )
         } blendMode: { blendMode }
     }
@@ -185,19 +186,18 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         return true
     }
 
-    private func rgba(color: CGColor, alpha: CGFloat) -> RGBA {
-        let converted = color.converted(to: .deviceRGB, intent: .defaultIntent, options: nil) ?? color
-        let components = converted.components ?? [0, 0, 0, 1]
-        if components.count >= 4 {
-            return RGBA(
-                red: components[0],
-                green: components[1],
-                blue: components[2],
-                alpha: components[3] * alpha
-            )
+    private func rgba(color: CGColor, alpha: CGFloat, state: CGDrawingState) -> RGBA? {
+        guard let converted = state.convertedColor(color),
+              let components = converted.components,
+              components.count == 4 else {
+            return nil
         }
-        let gray = components.first ?? 0
-        return RGBA(red: gray, green: gray, blue: gray, alpha: (components.last ?? 1) * alpha)
+        return RGBA(
+            red: components[0],
+            green: components[1],
+            blue: components[2],
+            alpha: components[3] * alpha
+        )
     }
 
     private func sample(
@@ -206,20 +206,28 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         u: CGFloat,
         v: CGFloat,
         linear: Bool,
-        alpha: CGFloat
+        alpha: CGFloat,
+        state: CGDrawingState
     ) -> RGBA? {
         guard image.bitsPerComponent == 8 else { return nil }
         let x = min(max(u, 0), 1) * CGFloat(max(image.width - 1, 0))
         let y = (1 - min(max(v, 0), 1)) * CGFloat(max(image.height - 1, 0))
         if !linear {
-            return decode(image: image, data: data, x: Int(x.rounded()), y: Int(y.rounded()), alpha: alpha)
+            return decode(
+                image: image,
+                data: data,
+                x: Int(x.rounded()),
+                y: Int(y.rounded()),
+                alpha: alpha,
+                state: state
+            )
         }
         let x0 = Int(floor(x)), y0 = Int(floor(y))
         let x1 = min(x0 + 1, image.width - 1), y1 = min(y0 + 1, image.height - 1)
-        guard let c00 = decode(image: image, data: data, x: x0, y: y0, alpha: alpha),
-              let c10 = decode(image: image, data: data, x: x1, y: y0, alpha: alpha),
-              let c01 = decode(image: image, data: data, x: x0, y: y1, alpha: alpha),
-              let c11 = decode(image: image, data: data, x: x1, y: y1, alpha: alpha) else { return nil }
+        guard let c00 = decode(image: image, data: data, x: x0, y: y0, alpha: alpha, state: state),
+              let c10 = decode(image: image, data: data, x: x1, y: y0, alpha: alpha, state: state),
+              let c01 = decode(image: image, data: data, x: x0, y: y1, alpha: alpha, state: state),
+              let c11 = decode(image: image, data: data, x: x1, y: y1, alpha: alpha, state: state) else { return nil }
         return interpolate(
             interpolate(c00, c10, t: x - CGFloat(x0)),
             interpolate(c01, c11, t: x - CGFloat(x0)),
@@ -227,10 +235,22 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         )
     }
 
-    private func decode(image: CGImage, data: Data, x: Int, y: Int, alpha: CGFloat) -> RGBA? {
+    private func decode(
+        image: CGImage,
+        data: Data,
+        x: Int,
+        y: Int,
+        alpha: CGFloat,
+        state: CGDrawingState
+    ) -> RGBA? {
         guard x >= 0, x < image.width, y >= 0, y < image.height else { return nil }
         let bytesPerPixel = image.bitsPerPixel / 8
-        guard bytesPerPixel == 3 || bytesPerPixel == 4 else { return nil }
+        guard bytesPerPixel == 3 || bytesPerPixel == 4,
+              let sourceSpace = image.colorSpace,
+              sourceSpace.model == .rgb,
+              sourceSpace.numberOfComponents == 3 else {
+            return nil
+        }
         let offset = y * image.bytesPerRow + x * bytesPerPixel
         guard offset + bytesPerPixel <= data.count else { return nil }
         return data.withUnsafeBytes { raw -> RGBA? in
@@ -245,11 +265,29 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
             } else {
                 imageAlpha = 1
             }
+            var red = CGFloat(bytes[offset + redIndex]) / 255
+            var green = CGFloat(bytes[offset + redIndex + 1]) / 255
+            var blue = CGFloat(bytes[offset + redIndex + 2]) / 255
+            if imageAlpha > 0,
+               image.alphaInfo == .premultipliedFirst || image.alphaInfo == .premultipliedLast {
+                red /= imageAlpha
+                green /= imageAlpha
+                blue /= imageAlpha
+            }
+            let source = CGColor(
+                space: sourceSpace,
+                componentArray: [red, green, blue, imageAlpha]
+            )
+            guard let converted = state.convertedColor(source, forSampledImage: true),
+                  let components = converted.components,
+                  components.count == 4 else {
+                return nil
+            }
             return RGBA(
-                red: CGFloat(bytes[offset + redIndex]) / 255,
-                green: CGFloat(bytes[offset + redIndex + 1]) / 255,
-                blue: CGFloat(bytes[offset + redIndex + 2]) / 255,
-                alpha: imageAlpha * alpha
+                red: components[0],
+                green: components[1],
+                blue: components[2],
+                alpha: components[3] * alpha
             )
         }
     }

@@ -194,6 +194,14 @@ internal struct CGColorBufferConverter {
             return (components, alpha)
         }
 
+        if sourceColorSpace.isDeviceDependent,
+           sourceColorSpace.model == destinationColorSpace.model,
+           components.count == destinationColorSpace.numberOfComponents {
+            // Device components are already expressed for the current output
+            // device. The caller supplies that device as destinationColorSpace.
+            return (components, alpha)
+        }
+
         let sourceColor = CGColor(
             space: sourceColorSpace,
             componentArray: components + [alpha]

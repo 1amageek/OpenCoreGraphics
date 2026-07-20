@@ -519,6 +519,11 @@ public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
         return iccProfileData
     }
 
+    /// Whether values in this space are interpreted relative to an output device.
+    internal var isDeviceDependent: Bool {
+        name == "DeviceGray" || name == "DeviceRGB" || name == "DeviceCMYK"
+    }
+
     /// Returns a copy of the color space's properties.
     public func copyPropertyList() -> Any? {
         var dict: [String: Any] = [

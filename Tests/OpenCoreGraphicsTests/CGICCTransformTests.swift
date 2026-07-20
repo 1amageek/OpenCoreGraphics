@@ -190,6 +190,161 @@ struct CGICCTransformTests {
         #expect(abs(relative.y - 0.49999237) < 0.00001)
     }
 
+    @Test
+    func deviceRGBDrawingResolvesInManagedContextSpace() throws {
+        let destination = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let state = CGDrawingState(
+            destinationColorSpace: destination,
+            clipPaths: [],
+            ctm: .identity,
+            shadowOffset: .zero,
+            shadowBlur: 0,
+            shadowColor: nil
+        )
+        let converted = try #require(state.convertedColor(
+            CGColor(red: 0.25, green: 0.5, blue: 0.75, alpha: 0.8)
+        ))
+
+        #expect(converted.colorSpace == destination)
+        #expect(converted.components == [0.25, 0.5, 0.75, 0.8])
+    }
+
+    @Test("Bitmap drawing applies and restores the context rendering intent")
+    func contextRenderingIntentAffectsPixels() throws {
+        let identity = Self.legacyTag(inputChannels: 3, outputChannels: 3) { $0 }
+        let halved = Self.legacyTag(inputChannels: 3, outputChannels: 3) { input in
+            input.map { $0 * 0.5 }
+        }
+        let sourceData = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("A2B0", identity), ("A2B1", halved)]
+        )
+        let destinationData = Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("B2A0", identity), ("B2A1", identity)]
+        )
+        let sourceSpace = try #require(CGColorSpace(iccData: sourceData))
+        let destinationSpace = try #require(CGColorSpace(iccData: destinationData))
+        let sourceColor = CGColor(
+            space: sourceSpace,
+            componentArray: [0.5, 0.5, 0.5, 1]
+        )
+
+        func renderedRed(intent: CGColorRenderingIntent) throws -> UInt8 {
+            let optionalContext: OpenCoreGraphics.CGContext? = .init(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: destinationSpace,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            )
+            let context = try #require(optionalContext)
+            context.setFillColor(sourceColor)
+            context.setRenderingIntent(intent)
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+            let image = try #require(context.makeImage())
+            let data = try #require(image.data)
+            return data[0]
+        }
+
+        let perceptual = try renderedRed(intent: .perceptual)
+        let relative = try renderedRed(intent: .relativeColorimetric)
+        let contextDefault = try renderedRed(intent: .defaultIntent)
+        #expect(abs(Int(perceptual) - 128) <= 1)
+        #expect(abs(Int(relative) - 64) <= 1)
+        #expect(contextDefault == relative)
+    }
+
+    @Test("Sampled images use perceptual intent by default and honor context overrides")
+    func sampledImageRenderingIntentAffectsPixels() throws {
+        let identity = Self.legacyTag(inputChannels: 3, outputChannels: 3) { $0 }
+        let halved = Self.legacyTag(inputChannels: 3, outputChannels: 3) { input in
+            input.map { $0 * 0.5 }
+        }
+        let sourceSpace = try #require(CGColorSpace(iccData: Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("A2B0", identity), ("A2B1", halved)]
+        )))
+        let destinationSpace = try #require(CGColorSpace(iccData: Self.makeProfile(
+            colorSpace: "RGB ",
+            pcs: "XYZ ",
+            tags: [("B2A0", identity), ("B2A1", identity)]
+        )))
+        let provider = CGDataProvider(data: Data([128, 128, 128, 255]))
+        let optionalImage: OpenCoreGraphics.CGImage? = .init(
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 4,
+            space: sourceSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+        let image = try #require(optionalImage)
+
+        func renderedRed(intent: CGColorRenderingIntent) throws -> UInt8 {
+            let optionalContext: OpenCoreGraphics.CGContext? = .init(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: destinationSpace,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            )
+            let context = try #require(optionalContext)
+            context.setRenderingIntent(intent)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            let output = try #require(context.makeImage())
+            let data = try #require(output.data)
+            return data[0]
+        }
+
+        let perceptual = try renderedRed(intent: .perceptual)
+        let relative = try renderedRed(intent: .relativeColorimetric)
+        let contextDefault = try renderedRed(intent: .defaultIntent)
+        #expect(abs(Int(perceptual) - 128) <= 1)
+        #expect(abs(Int(relative) - 64) <= 1)
+        #expect(contextDefault == perceptual)
+    }
+
+    @Test("Bitmap drawing does not substitute source components when ICC conversion fails")
+    func contextRenderingRejectsUnconvertibleColor() throws {
+        let unsupportedData = Self.makeProfile(colorSpace: "RGB ", pcs: "XYZ ", tags: [])
+        let unsupportedSpace = try #require(CGColorSpace(iccData: unsupportedData))
+        #expect(unsupportedSpace.colorProfile == nil)
+        let color = CGColor(
+            space: unsupportedSpace,
+            componentArray: [1, 0, 0, 1]
+        )
+        let optionalContext: OpenCoreGraphics.CGContext? = .init(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        )
+        let context = try #require(optionalContext)
+
+        context.setFillColor(color)
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data)
+        #expect(Array(data.prefix(4)) == [0, 0, 0, 0])
+    }
+
     @Test("Absolute colorimetry scales through each profile media white point")
     func absoluteColorimetry() throws {
         let forward = CGICCTransform(

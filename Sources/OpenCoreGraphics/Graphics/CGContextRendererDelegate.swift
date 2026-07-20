@@ -15,6 +15,12 @@ import Foundation
 /// render drawing operations, including clipping, shadows, and transformations.
 internal struct CGDrawingState: Sendable {
 
+    /// The destination color space of the graphics context.
+    var destinationColorSpace: CGColorSpace
+
+    /// The rendering intent stored in the current graphics state.
+    var renderingIntent: CGColorRenderingIntent
+
     /// The current clipping paths with their fill rules.
     ///
     /// Multiple clip paths represent successive `clip()` calls that should be intersected.
@@ -69,6 +75,8 @@ internal struct CGDrawingState: Sendable {
 
     /// Creates a drawing state with default values (no clipping, no shadow, identity CTM).
     init() {
+        self.destinationColorSpace = .deviceRGB
+        self.renderingIntent = .defaultIntent
         self.clipPaths = []
         self.imageMaskClips = []
         self.ctm = .identity
@@ -80,6 +88,8 @@ internal struct CGDrawingState: Sendable {
 
     /// Creates a drawing state with the specified values.
     init(
+        destinationColorSpace: CGColorSpace = .deviceRGB,
+        renderingIntent: CGColorRenderingIntent = .defaultIntent,
         clipPaths: [CGClipPath],
         imageMaskClips: [CGImageMaskClip] = [],
         ctm: CGAffineTransform,
@@ -88,6 +98,8 @@ internal struct CGDrawingState: Sendable {
         shadowColor: CGColor?,
         shouldAntialias: Bool = true
     ) {
+        self.destinationColorSpace = destinationColorSpace
+        self.renderingIntent = renderingIntent
         self.clipPaths = clipPaths
         self.imageMaskClips = imageMaskClips
         self.ctm = ctm
@@ -99,6 +111,8 @@ internal struct CGDrawingState: Sendable {
 
     /// Creates a drawing state with a single clip path (convenience initializer).
     init(
+        destinationColorSpace: CGColorSpace = .deviceRGB,
+        renderingIntent: CGColorRenderingIntent = .defaultIntent,
         clipPath: CGPath?,
         clipRule: CGPathFillRule = .winding,
         ctm: CGAffineTransform,
@@ -107,6 +121,8 @@ internal struct CGDrawingState: Sendable {
         shadowColor: CGColor?,
         shouldAntialias: Bool = true
     ) {
+        self.destinationColorSpace = destinationColorSpace
+        self.renderingIntent = renderingIntent
         self.clipPaths = clipPath.map { [CGClipPath(path: $0, rule: clipRule)] } ?? []
         self.imageMaskClips = []
         self.ctm = ctm
@@ -119,6 +135,46 @@ internal struct CGDrawingState: Sendable {
     /// Returns whether a shadow should be drawn.
     var hasShadow: Bool {
         return shadowColor != nil && (shadowOffset != .zero || shadowBlur > 0)
+    }
+
+    /// Resolves Core Graphics' operation-specific default rendering intent.
+    func resolvedRenderingIntent(forSampledImage: Bool) -> CGColorRenderingIntent {
+        guard renderingIntent == .defaultIntent else { return renderingIntent }
+        return forSampledImage ? .perceptual : .relativeColorimetric
+    }
+
+    /// Converts a drawing color into the context destination color space.
+    func convertedColor(_ color: CGColor, forSampledImage: Bool = false) -> CGColor? {
+        if let sourceSpace = color.colorSpace,
+           sourceSpace.isDeviceDependent,
+           sourceSpace.model == destinationColorSpace.model,
+           let components = color.components,
+           components.count == destinationColorSpace.numberOfComponents + 1 {
+            // Device colors are defined relative to the current output device. The
+            // context destination is that device, so equal-model components are
+            // resolved in the destination space rather than profile-converted.
+            return CGColor(space: destinationColorSpace, componentArray: components)
+        }
+        return color.converted(
+            to: destinationColorSpace,
+            intent: resolvedRenderingIntent(forSampledImage: forSampledImage),
+            options: nil
+        )
+    }
+
+    /// Converts every gradient stop into the context destination color space.
+    func convertedGradient(_ gradient: CGGradient) -> CGGradient? {
+        var colors: [CGColor] = []
+        colors.reserveCapacity(gradient.colors.count)
+        for color in gradient.colors {
+            guard let converted = convertedColor(color) else { return nil }
+            colors.append(converted)
+        }
+        return CGGradient(
+            colorSpace: destinationColorSpace,
+            colors: colors,
+            locations: gradient.locations
+        )
     }
 }
 

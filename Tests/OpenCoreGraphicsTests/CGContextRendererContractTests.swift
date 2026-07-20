@@ -43,9 +43,14 @@ struct CGContextRendererContractTests {
 
     private final class RecordingRenderer: CGContextStatefulRendererDelegate, CGLayerRendererDelegate {
         private let operations = Mutex<[Operation]>([])
+        private let drawingStates = Mutex<[CGDrawingState]>([])
 
         func snapshot() -> [Operation] {
             operations.withLock { $0 }
+        }
+
+        func stateSnapshot() -> [CGDrawingState] {
+            drawingStates.withLock { $0 }
         }
 
         func fill(path: CGPath, color: CGColor, alpha: CGFloat, blendMode: CGBlendMode, rule: CGPathFillRule) {}
@@ -140,6 +145,7 @@ struct CGContextRendererContractTests {
         ) {}
 
         func fill(path: CGPath, color: CGColor, alpha: CGFloat, blendMode: CGBlendMode, rule: CGPathFillRule, state: CGDrawingState) {
+            drawingStates.withLock { $0.append(state) }
             operations.withLock {
                 $0.append(
                     .fill(
@@ -322,6 +328,27 @@ struct CGContextRendererContractTests {
 
         #expect(context.makeImage() != nil)
         #expect(await context.makeImageAsync() == nil)
+    }
+
+    @Test("Rendering intent is part of the saved graphics state")
+    func renderingIntentIsSavedAndRestored() throws {
+        let context = try #require(createContext())
+        let renderer = RecordingRenderer()
+        context.rendererDelegate = renderer
+
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        context.saveGState()
+        context.setRenderingIntent(.saturation)
+        context.fill(CGRect(x: 1, y: 0, width: 1, height: 1))
+        context.restoreGState()
+        context.fill(CGRect(x: 2, y: 0, width: 1, height: 1))
+
+        let states = renderer.stateSnapshot()
+        #expect(states.count == 3)
+        #expect(states[0].renderingIntent == .defaultIntent)
+        #expect(states[1].renderingIntent == .saturation)
+        #expect(states[2].renderingIntent == .defaultIntent)
+        #expect(states.allSatisfy { $0.destinationColorSpace == .deviceRGB })
     }
 
     @Test("Aggregated drawing operations preserve transformed parameters and state")

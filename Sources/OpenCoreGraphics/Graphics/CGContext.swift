@@ -94,6 +94,7 @@ public class CGContext: @unchecked Sendable {
         var flatness: CGFloat = 0.5
         var alpha: CGFloat = 1.0
         var blendMode: CGBlendMode = .normal
+        var renderingIntent: CGColorRenderingIntent = .defaultIntent
         var interpolationQuality: CGInterpolationQuality = .default
         var shouldAntialias: Bool = true
         var shouldSmoothFonts: Bool = true
@@ -128,6 +129,8 @@ public class CGContext: @unchecked Sendable {
     /// Returns the current drawing state for delegate calls.
     private var currentDrawingState: CGDrawingState {
         return CGDrawingState(
+            destinationColorSpace: colorSpace ?? .deviceRGB,
+            renderingIntent: currentState.renderingIntent,
             clipPaths: currentState.clipPaths,
             imageMaskClips: currentState.imageMaskClips,
             ctm: currentState.ctm,
@@ -1120,7 +1123,7 @@ public class CGContext: @unchecked Sendable {
     ///
     /// - Parameter intent: The rendering intent to use.
     public func setRenderingIntent(_ intent: CGColorRenderingIntent) {
-        // In a real implementation, this would affect color rendering
+        currentState.renderingIntent = intent
     }
 
     // MARK: - Image Quality
