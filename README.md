@@ -10,11 +10,12 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 942 tests passed |
+| Native package | 947 tests passed |
 | Browser | Real WebGPU path, image-mask, callback-pattern, HDR tone mapping, image rendering, and pixel readback passed |
 | Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC, LUT, and floating-point multi-process profiles convert through D50 XYZ or Lab PCS; graphics-state rendering intents reach solid, gradient, shading, pattern, image, and shadow rendering without silent source-color fallback |
 | Font outlines and metrics | Static and `gvar`-variable TrueType `glyf`, OpenType CFF1/Type2, and CFF2 variable outlines execute through the normal `CGContext` path; `gvar` tuple decoding, IUP interpolation, composite placement, phantom-point metrics, and shared ItemVariationStore HVAR/VVAR processing are active. Skia variable bounds and advances plus CFF1/CFF2 conformance are checked against Apple CoreText/CoreGraphics |
 | PostScript fonts | Type 1 subsets are generated from TrueType, CFF1, and CFF2 outlines with encrypted CharStrings; Type 42 produces a physically subsetted, checksum-correct TrueType SFNT; 256-entry encodings preserve source glyph names where available and use explicit `gidN` names otherwise. Generated Type 1 fonts and embedded Type 42 SFNTs are validated by Apple CoreGraphics/CoreText |
+| Path normalization | Winding and even-odd normalization resolves overlapping contours into filled boundaries; connected-component separation keeps holes with their direct outer contour and emits filled islands independently. Nested-contour behavior is checked against Apple Core Graphics |
 | Scope boundary | PDF parsing, writing, and rendering are intentionally outside the project scope |
 
 ## Installation

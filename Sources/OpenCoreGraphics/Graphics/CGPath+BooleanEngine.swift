@@ -359,11 +359,10 @@ private func _assembleOpenChains(_ edges: [_Edge]) -> CGPath {
 /// non-self-intersecting closed subpaths whose winding interpretation matches
 /// the requested fill rule.
 ///
-/// This is the workhorse used by the tessellator to honour even-odd fills:
-/// ear-clipping triangulation cannot evaluate winding numbers, so we first
-/// reduce an even-odd path to an equivalent set of simple rings. For a
-/// winding fill we pass through unchanged — self-intersection handling is
-/// already implicit in how ear-clipping treats the boundary.
+/// This is the workhorse used by normalization and by the tessellator to turn
+/// either fill rule into an equivalent set of simple rings. Ear-clipping
+/// triangulation cannot evaluate winding numbers on overlapping contours, so
+/// the boundary must be resolved before triangulation.
 ///
 /// Algorithm: flatten to edges, split at every pairwise intersection, then
 /// retain each atomic edge whose midpoint-left and midpoint-right probes

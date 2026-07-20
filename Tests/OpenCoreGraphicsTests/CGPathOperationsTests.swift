@@ -223,6 +223,20 @@ struct CGPathOperationsTests {
         #expect(boundingBoxIsApproximately(n, expected, tolerance: 0.01))
     }
 
+    @Test("normalized applies winding and even-odd rules to nested contours")
+    func normalizedAppliesFillRule() {
+        let path = CGMutablePath()
+        addOrientedRect(CGRect(x: 0, y: 0, width: 10, height: 10), clockwise: false, to: path)
+        addOrientedRect(CGRect(x: 2, y: 2, width: 6, height: 6), clockwise: false, to: path)
+
+        let winding = path.normalized(using: .winding)
+        let evenOdd = path.normalized(using: .evenOdd)
+        #expect(winding.contains(CGPoint(x: 5, y: 5), using: .winding))
+        #expect(!evenOdd.contains(CGPoint(x: 5, y: 5), using: .winding))
+        #expect(winding.commands.count == 5)
+        #expect(evenOdd.commands.count == 10)
+    }
+
 
     // MARK: - Components Separated
 
@@ -251,6 +265,31 @@ struct CGPathOperationsTests {
             let matches = components.contains { boundingBoxIsApproximately($0, expected, tolerance: 0.01) }
             #expect(matches)
         }
+    }
+
+    @Test("componentsSeparated keeps a hole with its enclosing component")
+    func componentsSeparatedGroupsHole() throws {
+        let path = CGMutablePath()
+        addOrientedRect(CGRect(x: 0, y: 0, width: 20, height: 20), clockwise: false, to: path)
+        addOrientedRect(CGRect(x: 3, y: 3, width: 14, height: 14), clockwise: true, to: path)
+
+        let component = try #require(path.componentsSeparated(using: .winding).only)
+        #expect(component.contains(CGPoint(x: 1, y: 1), using: .winding))
+        #expect(!component.contains(CGPoint(x: 5, y: 5), using: .winding))
+        #expect(component.commands.count == 10)
+    }
+
+    @Test("componentsSeparated returns filled islands as independent components")
+    func componentsSeparatedExtractsIsland() {
+        let path = CGMutablePath()
+        addOrientedRect(CGRect(x: 0, y: 0, width: 20, height: 20), clockwise: false, to: path)
+        addOrientedRect(CGRect(x: 3, y: 3, width: 14, height: 14), clockwise: true, to: path)
+        addOrientedRect(CGRect(x: 7, y: 7, width: 6, height: 6), clockwise: false, to: path)
+
+        let components = path.componentsSeparated(using: .winding)
+        #expect(components.count == 2)
+        #expect(components.contains { $0.contains(CGPoint(x: 1, y: 1), using: .winding) })
+        #expect(components.contains { $0.contains(CGPoint(x: 10, y: 10), using: .winding) })
     }
 
 
@@ -284,5 +323,27 @@ struct CGPathOperationsTests {
         #expect(abs(bb.minX - -10) < 0.01)
         #expect(abs(bb.maxX - 30) < 0.01)
         #expect(abs(bb.minY - 5) < 0.01)
+    }
+}
+
+private extension CGPathOperationsTests {
+    func addOrientedRect(_ rect: CGRect, clockwise: Bool, to path: CGMutablePath) {
+        let counterclockwise = [
+            CGPoint(x: rect.minX, y: rect.minY),
+            CGPoint(x: rect.maxX, y: rect.minY),
+            CGPoint(x: rect.maxX, y: rect.maxY),
+            CGPoint(x: rect.minX, y: rect.maxY),
+        ]
+        let points = clockwise ? Array(counterclockwise.reversed()) : counterclockwise
+        guard let first = points.first else { return }
+        path.move(to: first)
+        for point in points.dropFirst() { path.addLine(to: point) }
+        path.closeSubpath()
+    }
+}
+
+private extension Array {
+    var only: Element? {
+        count == 1 ? self[0] : nil
     }
 }

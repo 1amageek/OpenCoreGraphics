@@ -166,33 +166,48 @@ extension CGPath {
 
     /// Returns a normalized copy of this path.
     ///
-    /// Normalization flattens curves, removes zero-length and duplicate
-    /// segments, orients every subpath counter-clockwise and drops subpaths
-    /// that the requested fill rule considers fully empty.
+    /// Normalization resolves intersections and overlapping contours into the
+    /// actual boundary of the area selected by `rule`. Result contours are
+    /// oriented with their filled side on the left, so holes retain the
+    /// opposite orientation from their enclosing contour.
     public func normalized(using rule: CGPathFillRule = .winding) -> CGPath {
-        var subpaths = _flattenToSubpaths(threshold: 0.6)
-        // Remove degenerate subpaths (area == 0).
-        subpaths.removeAll { sub in
-            sub.isClosed ? abs(_polygonSignedArea(sub.points)) < 1e-9 : sub.points.count < 2
-        }
-        // Orient closed subpaths CCW (canonical direction).
-        subpaths = subpaths.map { sub -> FlattenedSubpath in
-            if sub.isClosed, _polygonSignedArea(sub.points) < 0 {
-                return FlattenedSubpath(points: Array(sub.points.reversed()), isClosed: true)
-            }
-            return sub
-        }
-        _ = rule  // fill rule currently informs only degeneracy checks
-        return CGPath._path(fromSubpaths: subpaths)
+        _resolveSelfIntersections(path: self, rule: rule)
     }
 
     /// Returns each connected component of the path as a separate path.
     ///
-    /// A "component" corresponds to one subpath of the original path.
+    /// Each component contains one filled outer contour together with the hole
+    /// contours directly enclosed by it. Filled islands inside holes are
+    /// returned as independent components.
     public func componentsSeparated(using rule: CGPathFillRule = .winding) -> [CGPath] {
-        _ = rule  // rule parameter reserved for future hole-vs-shell grouping
-        let subpaths = _flattenToSubpaths(threshold: 0.6)
-        return subpaths.map { CGPath._path(fromSubpaths: [$0]) }
+        let normalizedPath = normalized(using: rule)
+        let normalizedSubpaths = normalizedPath._flattenToSubpaths(threshold: 0.6)
+        let outerContours = normalizedSubpaths.filter { _polygonSignedArea($0.points) > 1e-9 }
+        let holeContours = normalizedSubpaths.filter { _polygonSignedArea($0.points) < -1e-9 }
+        guard !outerContours.isEmpty else { return [] }
+
+        var holesByOuter = [[FlattenedSubpath]](repeating: [], count: outerContours.count)
+        for hole in holeContours {
+            guard let sample = _polygonInteriorPoint(hole.points) else {
+                assertionFailure("A normalized hole contour must have a finite interior point")
+                return [normalizedPath]
+            }
+            let owner = outerContours.indices
+                .filter { _isInside(sample, in: [outerContours[$0]], rule: .evenOdd) }
+                .min { lhs, rhs in
+                    abs(_polygonSignedArea(outerContours[lhs].points))
+                        < abs(_polygonSignedArea(outerContours[rhs].points))
+                }
+            guard let owner else {
+                assertionFailure("A normalized hole contour must be enclosed by an outer contour")
+                return [normalizedPath]
+            }
+            holesByOuter[owner].append(hole)
+        }
+
+        return outerContours.indices.map { index in
+            CGPath._path(fromSubpaths: [outerContours[index]] + holesByOuter[index])
+        }
     }
 }
 
@@ -208,6 +223,70 @@ private func _combinedBoundingBox(_ subpaths: [FlattenedSubpath]) -> CGRect {
         }
     }
     return result
+}
+
+/// Returns a point strictly inside a simple polygon by intersecting a
+/// horizontal scanline placed between vertex Y coordinates.
+private func _polygonInteriorPoint(_ points: [CGPoint]) -> CGPoint? {
+    guard points.count >= 3 else { return nil }
+    let signedArea = _polygonSignedArea(points)
+    guard abs(signedArea) > 1e-9 else { return nil }
+    let interiorNormalScale: CGFloat = signedArea > 0 ? 1 : -1
+    let polygon = FlattenedSubpath(points: points, isClosed: true)
+
+    for index in points.indices {
+        let start = points[index]
+        let end = points[(index + 1) % points.count]
+        let deltaX = end.x - start.x
+        let deltaY = end.y - start.y
+        let length = hypot(deltaX, deltaY)
+        guard length > 1e-9 else { continue }
+        let midpoint = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        var offset = min(length * 1e-4, 1e-3)
+        for _ in 0..<8 {
+            let candidate = CGPoint(
+                x: midpoint.x - deltaY / length * offset * interiorNormalScale,
+                y: midpoint.y + deltaX / length * offset * interiorNormalScale
+            )
+            if _isInside(candidate, in: [polygon], rule: .evenOdd) {
+                return candidate
+            }
+            offset /= 10
+        }
+    }
+
+    let yCoordinates = Array(Set(points.map(\.y))).sorted()
+    guard yCoordinates.count >= 2 else { return nil }
+
+    for index in 0..<(yCoordinates.count - 1) {
+        let lower = yCoordinates[index]
+        let upper = yCoordinates[index + 1]
+        guard upper - lower > 1e-9 else { continue }
+        let y = (lower + upper) / 2
+        var intersections: [CGFloat] = []
+        intersections.reserveCapacity(points.count)
+        for edgeIndex in points.indices {
+            let start = points[edgeIndex]
+            let end = points[(edgeIndex + 1) % points.count]
+            guard (start.y > y) != (end.y > y) else { continue }
+            let x = start.x + (y - start.y) * (end.x - start.x) / (end.y - start.y)
+            intersections.append(x)
+        }
+        intersections.sort()
+        var pairIndex = 0
+        while pairIndex + 1 < intersections.count {
+            let left = intersections[pairIndex]
+            let right = intersections[pairIndex + 1]
+            if right - left > 1e-9 {
+                let candidate = CGPoint(x: (left + right) / 2, y: y)
+                if _isInside(candidate, in: [polygon], rule: .evenOdd) {
+                    return candidate
+                }
+            }
+            pairIndex += 2
+        }
+    }
+    return nil
 }
 
 private func appendDashedSubpath(
