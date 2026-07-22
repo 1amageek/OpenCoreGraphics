@@ -15,6 +15,7 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         let bytesPerRow: Int
         let colorSpace: CGColorSpace
         let layout: CGColorBufferConverter.Layout
+        var transparencyLayers: [Data]
     }
 
     private struct RGBA {
@@ -56,8 +57,94 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
             height: height,
             bytesPerRow: bytesPerRow,
             colorSpace: colorSpace,
-            layout: layout
+            layout: layout,
+            transparencyLayers: []
         ))
+    }
+
+    func beginTransparencyLayer(
+        in rect: CGRect?,
+        auxiliaryInfo: [String: Any]?,
+        state: CGDrawingState
+    ) {
+        storage.withLock { storage in
+            guard let pointer = UnsafeMutableRawPointer(bitPattern: storage.pointerAddress) else {
+                return
+            }
+            let byteCount = storage.bytesPerRow * storage.height
+            // A transparency group needs an independent backing store because
+            // nested groups reuse the context's single destination buffer.
+            storage.transparencyLayers.append(Data(bytes: pointer, count: byteCount))
+            pointer.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
+        }
+    }
+
+    func endTransparencyLayer(
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        state: CGDrawingState
+    ) {
+        storage.withLock { storage in
+            guard let background = storage.transparencyLayers.popLast(),
+                  let pointer = UnsafeMutableRawPointer(bitPattern: storage.pointerAddress) else {
+                return
+            }
+            let byteCount = storage.bytesPerRow * storage.height
+            let foreground = Data(bytes: pointer, count: byteCount)
+            background.withUnsafeBytes { source in
+                guard let sourceAddress = source.baseAddress else { return }
+                pointer.copyMemory(from: sourceAddress, byteCount: byteCount)
+            }
+
+            let destinationBytes = pointer.assumingMemoryBound(to: UInt8.self)
+            foreground.withUnsafeBytes { foregroundBuffer in
+                guard let foregroundBytes = foregroundBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return
+                }
+                for y in 0..<storage.height {
+                    for x in 0..<storage.width {
+                        let offset = y * storage.bytesPerRow + x * storage.layout.bytesPerPixel
+                        guard let foregroundPixel = CGColorBufferConverter.decodePixel(
+                            foregroundBytes,
+                            offset: offset,
+                            layout: storage.layout
+                        ), let backgroundPixel = CGColorBufferConverter.decodePixel(
+                            UnsafePointer(destinationBytes),
+                            offset: offset,
+                            layout: storage.layout
+                        ), var source = rgba(
+                            components: foregroundPixel.components,
+                            alpha: foregroundPixel.alpha,
+                            colorSpace: storage.colorSpace
+                        ), let destination = rgba(
+                            components: backgroundPixel.components,
+                            alpha: backgroundPixel.alpha,
+                            colorSpace: storage.colorSpace
+                        ) else {
+                            continue
+                        }
+                        source.alpha *= alpha
+                        let output = blend(source: source, destination: destination, mode: blendMode)
+                        let outputComponents: [CGFloat]
+                        switch storage.colorSpace.model {
+                        case .rgb:
+                            outputComponents = [output.red, output.green, output.blue]
+                        case .monochrome:
+                            outputComponents = [output.red]
+                        default:
+                            continue
+                        }
+                        _ = CGColorBufferConverter.encodePixel(
+                            outputComponents,
+                            alpha: output.alpha,
+                            into: destinationBytes,
+                            offset: offset,
+                            layout: storage.layout
+                        )
+                    }
+                }
+            }
+        }
     }
 
     func fill(
@@ -171,6 +258,118 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
                 state: state
             )
         } blendMode: { blendMode }
+    }
+
+    func drawLinearGradient(
+        _ gradient: CGGradient,
+        start: CGPoint,
+        end: CGPoint,
+        options: CGGradientDrawingOptions,
+        state: CGDrawingState
+    ) {
+        guard let convertedGradient = state.convertedGradient(gradient) else { return }
+        let deltaX = end.x - start.x
+        let deltaY = end.y - start.y
+        let squaredLength = deltaX * deltaX + deltaY * deltaY
+        let bounds = storage.withLock {
+            CGRect(x: 0, y: 0, width: CGFloat($0.width), height: CGFloat($0.height))
+        }
+
+        rasterize(bounds: bounds, state: state) { point in
+            let parameter = squaredLength > 0
+                ? ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / squaredLength
+                : 0
+            guard self.gradientIncludes(parameter, options: options),
+                  let color = convertedGradient.color(at: parameter) else {
+                return nil
+            }
+            return self.rgba(color: color, alpha: state.alpha, state: state)
+        } blendMode: { state.blendMode }
+    }
+
+    func drawRadialGradient(
+        _ gradient: CGGradient,
+        startCenter: CGPoint,
+        startRadius: CGFloat,
+        endCenter: CGPoint,
+        endRadius: CGFloat,
+        options: CGGradientDrawingOptions,
+        state: CGDrawingState
+    ) {
+        guard startRadius.isFinite,
+              endRadius.isFinite,
+              startRadius >= 0,
+              endRadius >= 0,
+              let convertedGradient = state.convertedGradient(gradient) else {
+            return
+        }
+        let bounds = storage.withLock {
+            CGRect(x: 0, y: 0, width: CGFloat($0.width), height: CGFloat($0.height))
+        }
+
+        rasterize(bounds: bounds, state: state) { point in
+            guard let parameter = self.radialGradientParameter(
+                at: point,
+                startCenter: startCenter,
+                startRadius: startRadius,
+                endCenter: endCenter,
+                endRadius: endRadius
+            ), self.gradientIncludes(parameter, options: options),
+            let color = convertedGradient.color(at: parameter) else {
+                return nil
+            }
+            return self.rgba(color: color, alpha: state.alpha, state: state)
+        } blendMode: { state.blendMode }
+    }
+
+    private func gradientIncludes(
+        _ parameter: CGFloat,
+        options: CGGradientDrawingOptions
+    ) -> Bool {
+        guard parameter.isFinite else { return false }
+        if parameter < 0 {
+            return options.contains(.drawsBeforeStartLocation)
+        }
+        if parameter > 1 {
+            return options.contains(.drawsAfterEndLocation)
+        }
+        return true
+    }
+
+    private func radialGradientParameter(
+        at point: CGPoint,
+        startCenter: CGPoint,
+        startRadius: CGFloat,
+        endCenter: CGPoint,
+        endRadius: CGFloat
+    ) -> CGFloat? {
+        let centerDeltaX = endCenter.x - startCenter.x
+        let centerDeltaY = endCenter.y - startCenter.y
+        let radiusDelta = endRadius - startRadius
+        let pointDeltaX = point.x - startCenter.x
+        let pointDeltaY = point.y - startCenter.y
+        let a = centerDeltaX * centerDeltaX
+            + centerDeltaY * centerDeltaY
+            - radiusDelta * radiusDelta
+        let b = -2 * (
+            pointDeltaX * centerDeltaX
+                + pointDeltaY * centerDeltaY
+                + startRadius * radiusDelta
+        )
+        let c = pointDeltaX * pointDeltaX
+            + pointDeltaY * pointDeltaY
+            - startRadius * startRadius
+
+        if abs(a) < .ulpOfOne {
+            guard abs(b) >= .ulpOfOne else {
+                return abs(c) < .ulpOfOne ? 0 : nil
+            }
+            return -c / b
+        }
+        let discriminant = b * b - 4 * a * c
+        guard discriminant >= 0 else { return nil }
+        let root = sqrt(discriminant)
+        return max((-b + root) / (2 * a), (-b - root) / (2 * a))
     }
 
     private func rasterize(
@@ -345,8 +544,42 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
     }
 
     private func blend(source: RGBA, destination: RGBA, mode: CGBlendMode) -> RGBA {
-        if mode == .clear { return RGBA(red: 0, green: 0, blue: 0, alpha: 0) }
-        if mode == .copy { return source }
+        let sourceAlpha = min(max(source.alpha, 0), 1)
+        let destinationAlpha = min(max(destination.alpha, 0), 1)
+
+        let porterDuffFactors: (source: CGFloat, destination: CGFloat)?
+        switch mode {
+        case .clear:
+            porterDuffFactors = (0, 0)
+        case .copy:
+            porterDuffFactors = (1, 0)
+        case .sourceIn:
+            porterDuffFactors = (destinationAlpha, 0)
+        case .sourceOut:
+            porterDuffFactors = (1 - destinationAlpha, 0)
+        case .sourceAtop:
+            porterDuffFactors = (destinationAlpha, 1 - sourceAlpha)
+        case .destinationOver:
+            porterDuffFactors = (1 - destinationAlpha, 1)
+        case .destinationIn:
+            porterDuffFactors = (0, sourceAlpha)
+        case .destinationOut:
+            porterDuffFactors = (0, 1 - sourceAlpha)
+        case .destinationAtop:
+            porterDuffFactors = (1 - destinationAlpha, sourceAlpha)
+        case .xor:
+            porterDuffFactors = (1 - destinationAlpha, 1 - sourceAlpha)
+        default:
+            porterDuffFactors = nil
+        }
+        if let porterDuffFactors {
+            return composite(
+                source: source,
+                destination: destination,
+                sourceFactor: porterDuffFactors.source,
+                destinationFactor: porterDuffFactors.destination
+            )
+        }
 
         let blendedRGB: (CGFloat, CGFloat, CGFloat)
         switch mode {
@@ -378,14 +611,42 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
             blendedRGB = (source.red, source.green, source.blue)
         }
 
-        let sourceAlpha = min(max(source.alpha, 0), 1)
-        let destinationAlpha = min(max(destination.alpha, 0), 1)
         let outputAlpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha)
         guard outputAlpha > 0 else { return RGBA(red: 0, green: 0, blue: 0, alpha: 0) }
         return RGBA(
             red: (blendedRGB.0 * sourceAlpha + destination.red * destinationAlpha * (1 - sourceAlpha)) / outputAlpha,
             green: (blendedRGB.1 * sourceAlpha + destination.green * destinationAlpha * (1 - sourceAlpha)) / outputAlpha,
             blue: (blendedRGB.2 * sourceAlpha + destination.blue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha,
+            alpha: outputAlpha
+        )
+    }
+
+    private func composite(
+        source: RGBA,
+        destination: RGBA,
+        sourceFactor: CGFloat,
+        destinationFactor: CGFloat
+    ) -> RGBA {
+        let sourceAlpha = min(max(source.alpha, 0), 1)
+        let destinationAlpha = min(max(destination.alpha, 0), 1)
+        let outputAlpha = sourceAlpha * sourceFactor + destinationAlpha * destinationFactor
+        guard outputAlpha > 0 else {
+            return RGBA(red: 0, green: 0, blue: 0, alpha: 0)
+        }
+
+        return RGBA(
+            red: (
+                source.red * sourceAlpha * sourceFactor
+                    + destination.red * destinationAlpha * destinationFactor
+            ) / outputAlpha,
+            green: (
+                source.green * sourceAlpha * sourceFactor
+                    + destination.green * destinationAlpha * destinationFactor
+            ) / outputAlpha,
+            blue: (
+                source.blue * sourceAlpha * sourceFactor
+                    + destination.blue * destinationAlpha * destinationFactor
+            ) / outputAlpha,
             alpha: outputAlpha
         )
     }

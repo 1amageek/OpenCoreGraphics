@@ -309,6 +309,22 @@ struct CGContextTests {
             #expect(context.ctm.tx == 50)
             #expect(context.ctm.ty == 50)
         }
+
+        @Test("Concatenation preserves translated rotation pivot ordering")
+        func concatenationOrder() throws {
+            let context = try #require(createTestContext())
+
+            context.translateBy(x: 10, y: 10)
+            context.concatenate(CGAffineTransform(rotationAngle: .pi / 2))
+            context.translateBy(x: -5, y: -6)
+
+            #expect(abs(context.ctm.a) < 0.0001)
+            #expect(abs(context.ctm.b - 1) < 0.0001)
+            #expect(abs(context.ctm.c + 1) < 0.0001)
+            #expect(abs(context.ctm.d) < 0.0001)
+            #expect(abs(context.ctm.tx - 16) < 0.0001)
+            #expect(abs(context.ctm.ty - 5) < 0.0001)
+        }
     }
 
     // MARK: - Path Operations Tests

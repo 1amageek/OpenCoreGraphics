@@ -137,7 +137,9 @@ public class CGContext: @unchecked Sendable {
             shadowOffset: currentState.shadowOffset,
             shadowBlur: currentState.shadowBlur,
             shadowColor: currentState.shadowColor,
-            shouldAntialias: currentState.shouldAntialias
+            shouldAntialias: currentState.shouldAntialias,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode
         )
     }
 
@@ -396,7 +398,7 @@ public class CGContext: @unchecked Sendable {
 
     /// Concatenates the current transformation matrix with an affine transformation.
     public func concatenate(_ transform: CGAffineTransform) {
-        currentState.ctm = currentState.ctm.concatenating(transform)
+        currentState.ctm = transform.concatenating(currentState.ctm)
     }
 
     // MARK: - Path Operations

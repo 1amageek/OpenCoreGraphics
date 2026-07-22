@@ -10,13 +10,14 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 968 tests passed |
+| Native package | 974 tests passed |
 | Browser | 10 real-browser tests passed through WebGPU readback, including fills, image masks, callback patterns, HDR tone mapping, image rendering, and cap/join/dash stroke geometry |
 | Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC, LUT, and floating-point multi-process profiles convert through D50 XYZ or Lab PCS; graphics-state rendering intents reach solid, gradient, shading, pattern, image, and shadow rendering without silent source-color fallback |
 | Font outlines and metrics | Static and `gvar`-variable TrueType `glyf`, OpenType CFF1/Type2, and CFF2 variable outlines execute through the normal `CGContext` path; `gvar` tuple decoding, IUP interpolation, composite placement, phantom-point metrics, and shared ItemVariationStore HVAR/VVAR processing are active. Skia variable bounds and advances plus CFF1/CFF2 conformance are checked against Apple CoreText/CoreGraphics |
 | PostScript fonts | PFA and PFB Type 1 fonts load through encrypted eexec/CharStrings parsing with Subrs, Flex, `seac`, metrics, names, and FontMatrix normalization. Type 1 subsets are generated from TrueType, CFF1, and CFF2 outlines; Type 42 produces a physically subsetted, checksum-correct TrueType SFNT. Generated and reloaded fonts are validated by Apple CoreGraphics/CoreText |
 | Path normalization | Winding and even-odd normalization resolves overlapping contours into filled boundaries; connected-component separation keeps holes with their direct outer contour and emits filled islands independently. Nested-contour behavior is checked against Apple Core Graphics |
 | Path geometry | Tight Bézier bounds, containment, dashing, transforms, caps, joins, miter limits, and adaptive stroke outlines are checked against Apple Core Graphics; software and WebGPU renderers consume the same stroke geometry |
+| Bitmap compositing | The software bitmap renderer uses nested transparency backing stores, applies group opacity once, implements every Porter-Duff operator, and renders axial/radial gradients with current alpha, blend mode, clipping, and destination color conversion. WebGPU gradients consume the same graphics-state alpha and blend contract |
 | Scope boundary | PDF parsing, writing, and rendering are intentionally outside the project scope |
 
 ## Installation

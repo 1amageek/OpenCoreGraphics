@@ -73,6 +73,12 @@ internal struct CGDrawingState: Sendable {
     /// Whether anti-aliasing should be applied.
     var shouldAntialias: Bool
 
+    /// Global alpha applied to the current drawing operation.
+    var alpha: CGFloat
+
+    /// Compositing mode applied to the current drawing operation.
+    var blendMode: CGBlendMode
+
     /// Creates a drawing state with default values (no clipping, no shadow, identity CTM).
     init() {
         self.destinationColorSpace = .deviceRGB
@@ -84,6 +90,8 @@ internal struct CGDrawingState: Sendable {
         self.shadowBlur = 0
         self.shadowColor = nil
         self.shouldAntialias = true
+        self.alpha = 1
+        self.blendMode = .normal
     }
 
     /// Creates a drawing state with the specified values.
@@ -96,7 +104,9 @@ internal struct CGDrawingState: Sendable {
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
         shadowColor: CGColor?,
-        shouldAntialias: Bool = true
+        shouldAntialias: Bool = true,
+        alpha: CGFloat = 1,
+        blendMode: CGBlendMode = .normal
     ) {
         self.destinationColorSpace = destinationColorSpace
         self.renderingIntent = renderingIntent
@@ -107,6 +117,8 @@ internal struct CGDrawingState: Sendable {
         self.shadowBlur = shadowBlur
         self.shadowColor = shadowColor
         self.shouldAntialias = shouldAntialias
+        self.alpha = alpha
+        self.blendMode = blendMode
     }
 
     /// Creates a drawing state with a single clip path (convenience initializer).
@@ -119,7 +131,9 @@ internal struct CGDrawingState: Sendable {
         shadowOffset: CGSize,
         shadowBlur: CGFloat,
         shadowColor: CGColor?,
-        shouldAntialias: Bool = true
+        shouldAntialias: Bool = true,
+        alpha: CGFloat = 1,
+        blendMode: CGBlendMode = .normal
     ) {
         self.destinationColorSpace = destinationColorSpace
         self.renderingIntent = renderingIntent
@@ -130,6 +144,8 @@ internal struct CGDrawingState: Sendable {
         self.shadowBlur = shadowBlur
         self.shadowColor = shadowColor
         self.shouldAntialias = shouldAntialias
+        self.alpha = alpha
+        self.blendMode = blendMode
     }
 
     /// Returns whether a shadow should be drawn.

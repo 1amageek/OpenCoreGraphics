@@ -551,7 +551,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             start: start,
             end: end,
             options: options,
-            alpha: 1.0
+            alpha: state.alpha
         )
         guard !vertices.isEmpty else { return }
 
@@ -777,7 +777,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
         let batch = CGWebGPUVertexBatch(vertices: vertices)
 
-        renderStatefulBatch(batch, to: target, blendMode: .normal, state: state)
+        renderStatefulBatch(batch, to: target, blendMode: state.blendMode, state: state)
     }
 
     func drawRadialGradient(
@@ -799,13 +799,13 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             endCenter: endCenter,
             endRadius: endRadius,
             options: options,
-            alpha: 1.0
+            alpha: state.alpha
         )
         guard !vertices.isEmpty else { return }
 
         let batch = CGWebGPUVertexBatch(vertices: vertices)
 
-        renderStatefulBatch(batch, to: target, blendMode: .normal, state: state)
+        renderStatefulBatch(batch, to: target, blendMode: state.blendMode, state: state)
     }
 
     // MARK: - Shading Drawing

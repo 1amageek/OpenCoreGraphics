@@ -135,6 +135,69 @@ struct CGSoftwareContextRendererTests {
         #expect(data.first == 128)
     }
 
+    @Test("Transparency layers composite group opacity once")
+    func transparencyLayerGroupOpacity() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+
+        context.setAlpha(0.5)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        context.setAlpha(1)
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        context.endTransparencyLayer()
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data ?? image.dataProvider?.data)
+        #expect(Array(data.prefix(4)) == [128, 0, 128, 255])
+    }
+
+    @Test("Porter-Duff modes use source and destination alpha factors")
+    func porterDuffBlendModes() throws {
+        let expectations: [(CGBlendMode, [UInt8])] = [
+            (.clear, [0, 0, 0, 0]),
+            (.copy, [128, 0, 0, 128]),
+            (.sourceIn, [64, 0, 0, 64]),
+            (.sourceOut, [64, 0, 0, 64]),
+            (.sourceAtop, [64, 0, 64, 128]),
+            (.destinationOver, [64, 0, 128, 192]),
+            (.destinationIn, [0, 0, 64, 64]),
+            (.destinationOut, [0, 0, 64, 64]),
+            (.destinationAtop, [64, 0, 64, 128]),
+            (.xor, [64, 0, 64, 128]),
+        ]
+
+        for (blendMode, expectedPixel) in expectations {
+            let context = try #require(CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: .deviceRGB,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            ))
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 0.5))
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+            context.setBlendMode(blendMode)
+            context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 0.5))
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+
+            let image = try #require(context.makeImage())
+            let data = try #require(image.data ?? image.dataProvider?.data)
+            #expect(Array(data.prefix(4)) == expectedPixel, "Unexpected output for \(blendMode)")
+        }
+    }
+
     @Test("Image drawing samples source pixels")
     func imageDrawing() throws {
         let sourceData = Data([
@@ -170,6 +233,108 @@ struct CGSoftwareContextRendererTests {
         let data = try #require(image.data ?? image.dataProvider?.data)
         #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 0, y: 0) == [255, 0, 0, 255])
         #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 3, y: 0) == [0, 255, 0, 255])
+    }
+
+    @Test("Linear gradients interpolate stops and honor extension options")
+    func linearGradientDrawing() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 4,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 16,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ))
+        let gradient = try #require(CGGradient(
+            colors: [
+                CGColor(red: 0, green: 0, blue: 0, alpha: 1),
+                CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+            ],
+            locations: [0, 1]
+        ))
+        context.drawLinearGradient(
+            gradient,
+            start: CGPoint(x: 1, y: 0),
+            end: CGPoint(x: 3, y: 0),
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        )
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data ?? image.dataProvider?.data)
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 0, y: 0) == [0, 0, 0, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 1, y: 0) == [64, 64, 64, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 2, y: 0) == [191, 191, 191, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 3, y: 0) == [255, 255, 255, 255])
+    }
+
+    @Test("Radial gradients solve concentric circle parameters")
+    func radialGradientDrawing() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 5,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 20,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ))
+        let gradient = try #require(CGGradient(
+            colors: [
+                CGColor(red: 0, green: 0, blue: 0, alpha: 1),
+                CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+            ],
+            locations: [0, 1]
+        ))
+        context.drawRadialGradient(
+            gradient,
+            startCenter: CGPoint(x: 2.5, y: 0.5),
+            startRadius: 0,
+            endCenter: CGPoint(x: 2.5, y: 0.5),
+            endRadius: 2,
+            options: []
+        )
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data ?? image.dataProvider?.data)
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 0, y: 0) == [255, 255, 255, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 1, y: 0) == [128, 128, 128, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 2, y: 0) == [0, 0, 0, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 4, y: 0) == [255, 255, 255, 255])
+    }
+
+    @Test("Gradient drawing receives the current alpha and blend mode")
+    func gradientDrawingState() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        context.setAlpha(0.5)
+        context.setBlendMode(.copy)
+        let gradient = try #require(CGGradient(
+            colors: [
+                CGColor(red: 0, green: 0, blue: 0, alpha: 1),
+                CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+            ],
+            locations: [0, 1]
+        ))
+        context.drawLinearGradient(
+            gradient,
+            start: .zero,
+            end: CGPoint(x: 1, y: 0),
+            options: []
+        )
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data ?? image.dataProvider?.data)
+        #expect(Array(data.prefix(4)) == [64, 64, 64, 128])
     }
 
     @Test("Image drawing preserves extended half-float source pixels")
