@@ -221,12 +221,6 @@ public class CGColorConversionInfo: @unchecked Sendable {
             return false
         }
 
-        let deviceNames: Set<String> = ["DeviceGray", "DeviceRGB", "DeviceCMYK"]
-        guard !deviceNames.contains(source.name ?? ""),
-              !deviceNames.contains(destination.name ?? "") else {
-            return false
-        }
-
         return true
     }
 

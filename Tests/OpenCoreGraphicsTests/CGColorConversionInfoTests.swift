@@ -417,9 +417,71 @@ struct CGColorConversionInfoTests {
             #expect(destination == [9, 9, 9, 9])
         }
 
-        @Test("Rejects device color spaces")
-        func rejectsDeviceColorSpaces() {
-            #expect(CGColorConversionInfo(src: .deviceRGB, dst: .deviceGray) == nil)
+        @Test("Converts device RGB extended values to half-float RGB")
+        func convertsDeviceRGBToExtendedLinearHalfFloat() throws {
+            let destinationSpace = try #require(
+                CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+            )
+            let conversion = try #require(
+                CGColorConversionInfo(src: .deviceRGB, dst: destinationSpace)
+            )
+            let sourceFormat = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: CGBitmapInfo(
+                    alpha: .last,
+                    component: .float,
+                    byteOrder: .order32Little
+                ),
+                bitsPerComponent: 32,
+                bitsPerPixel: 128,
+                bytesPerRow: 16
+            )
+            let destinationFormat = CGColorBufferFormat(
+                version: 0,
+                bitmapInfo: CGBitmapInfo(
+                    alpha: .last,
+                    component: .float,
+                    byteOrder: .order16Little
+                ),
+                bitsPerComponent: 16,
+                bitsPerPixel: 64,
+                bytesPerRow: 8
+            )
+            let sourceComponents: [Float] = [2, 0.5, 0.25, 1]
+            var source = Data()
+            for component in sourceComponents {
+                var bits = component.bitPattern.littleEndian
+                withUnsafeBytes(of: &bits) { source.append(contentsOf: $0) }
+            }
+            var destination = Data(count: 8)
+
+            let succeeded = source.withUnsafeBytes { sourceBytes in
+                destination.withUnsafeMutableBytes { destinationBytes in
+                    guard let sourceAddress = sourceBytes.baseAddress,
+                          let destinationAddress = destinationBytes.baseAddress else {
+                        return false
+                    }
+                    return conversion.convert(
+                        width: 1,
+                        height: 1,
+                        to: destinationAddress,
+                        format: destinationFormat,
+                        from: sourceAddress,
+                        format: sourceFormat,
+                        options: nil
+                    )
+                }
+            }
+
+            #expect(succeeded)
+            let converted = destination.withUnsafeBytes { bytes in
+                (0..<4).map { componentIndex -> Float16 in
+                    let offset = componentIndex * 2
+                    let bits = UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
+                    return Float16(bitPattern: bits)
+                }
+            }
+            #expect(converted == [2, 0.5, 0.25, 1])
         }
     }
 }
