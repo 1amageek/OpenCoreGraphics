@@ -231,31 +231,30 @@ public class CGContext: @unchecked Sendable {
         self.currentState.strokeColorSpace = space
 
         // Select the renderer once at initialization.
-        #if arch(wasm32)
-        if backend == .software, bitsPerComponent == 8, bitsPerPixel == 32,
-           let pointer = self.data {
-            self.rendererDelegate = CGSoftwareContextRenderer(
+        let softwareRenderer = self.data.flatMap { pointer in
+            CGSoftwareContextRenderer(
                 pointer: pointer,
                 width: width,
                 height: height,
-                bytesPerRow: effectiveBytesPerRow
+                bitsPerComponent: bitsPerComponent,
+                bitsPerPixel: self.bitsPerPixel,
+                bytesPerRow: effectiveBytesPerRow,
+                colorSpace: space,
+                bitmapInfo: bitmapInfo
             )
+        }
+        #if arch(wasm32)
+        if backend == .software {
+            guard let softwareRenderer else { return nil }
+            self.rendererDelegate = softwareRenderer
         } else {
             let renderer = CGWebGPUContextRenderer(width: width, height: height)
             renderer.setup()
             self.rendererDelegate = renderer
         }
         #else
-        if bitsPerComponent == 8,
-           bitsPerPixel == 32,
-           let pointer = self.data {
-            self.rendererDelegate = CGSoftwareContextRenderer(
-                pointer: pointer,
-                width: width,
-                height: height,
-                bytesPerRow: effectiveBytesPerRow
-            )
-        }
+        guard let softwareRenderer else { return nil }
+        self.rendererDelegate = softwareRenderer
         #endif
     }
 
@@ -295,6 +294,22 @@ public class CGContext: @unchecked Sendable {
         let dataCopy = Data(bytes: data, count: totalBytes)
         let provider = CGDataProvider(data: dataCopy)
 
+        if currentState.edrTargetHeadroom > 1 {
+            return CGImage(
+                headroom: currentState.edrTargetHeadroom,
+                width: width,
+                height: height,
+                bitsPerComponent: bitsPerComponent,
+                bitsPerPixel: bitsPerPixel,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo,
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: currentState.interpolationQuality != .none,
+                intent: .defaultIntent
+            )
+        }
         return CGImage(
             width: width,
             height: height,
@@ -1264,7 +1279,8 @@ public class CGContext: @unchecked Sendable {
 
     /// Draws an image in the specified rectangle.
     public func draw(_ image: CGImage, in rect: CGRect) {
-        if image.requiresToneMappingFor8BitOutput {
+        let requiresSDROutput = bitsPerComponent == 8 && !bitmapInfo.isFloatComponents
+        if requiresSDROutput && image.requiresToneMappingFor8BitOutput {
             let request = currentState.contentToneMappingInfo.methodAndOptions
             guard let mappedImage = image.toneMapped(
                 by: request.method,

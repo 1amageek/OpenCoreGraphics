@@ -13,6 +13,8 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         let width: Int
         let height: Int
         let bytesPerRow: Int
+        let colorSpace: CGColorSpace
+        let layout: CGColorBufferConverter.Layout
     }
 
     private struct RGBA {
@@ -24,12 +26,37 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
 
     private let storage: Mutex<Storage>
 
-    init(pointer: UnsafeMutableRawPointer, width: Int, height: Int, bytesPerRow: Int) {
+    init?(
+        pointer: UnsafeMutableRawPointer,
+        width: Int,
+        height: Int,
+        bitsPerComponent: Int,
+        bitsPerPixel: Int,
+        bytesPerRow: Int,
+        colorSpace: CGColorSpace,
+        bitmapInfo: CGBitmapInfo
+    ) {
+        let format = CGColorBufferFormat(
+            version: 0,
+            bitmapInfo: bitmapInfo,
+            bitsPerComponent: bitsPerComponent,
+            bitsPerPixel: bitsPerPixel,
+            bytesPerRow: bytesPerRow
+        )
+        guard let layout = CGColorBufferConverter.Layout(
+            format: format,
+            colorSpace: colorSpace,
+            width: width
+        ) else {
+            return nil
+        }
         self.storage = Mutex(Storage(
             pointerAddress: UInt(bitPattern: pointer),
             width: width,
             height: height,
-            bytesPerRow: bytesPerRow
+            bytesPerRow: bytesPerRow,
+            colorSpace: colorSpace,
+            layout: layout
         ))
     }
 
@@ -158,25 +185,42 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
             let minY = max(0, Int(floor(bounds.minY)))
             let maxY = min(storage.height, Int(ceil(bounds.maxY)))
             guard minX < maxX, minY < maxY else { return }
+            guard let pointer = UnsafeMutableRawPointer(bitPattern: storage.pointerAddress) else {
+                return
+            }
+            let bytes = pointer.assumingMemoryBound(to: UInt8.self)
 
             for y in minY..<maxY {
                 for x in minX..<maxX {
                     let point = CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
                     guard isVisible(point, state: state), let source = sourceAt(point) else { continue }
-                    let offset = y * storage.bytesPerRow + x * 4
-                    guard let pointer = UnsafeMutableRawPointer(bitPattern: storage.pointerAddress) else { return }
-                    let bytes = pointer.assumingMemoryBound(to: UInt8.self)
-                    let destination = RGBA(
-                        red: CGFloat(bytes[offset]) / 255,
-                        green: CGFloat(bytes[offset + 1]) / 255,
-                        blue: CGFloat(bytes[offset + 2]) / 255,
-                        alpha: CGFloat(bytes[offset + 3]) / 255
-                    )
+                    let offset = y * storage.bytesPerRow + x * storage.layout.bytesPerPixel
+                    guard let decoded = CGColorBufferConverter.decodePixel(
+                        UnsafePointer(bytes),
+                        offset: offset,
+                        layout: storage.layout
+                    ), let destination = rgba(
+                        components: decoded.components,
+                        alpha: decoded.alpha,
+                        colorSpace: storage.colorSpace
+                    ) else { continue }
                     let output = blend(source: source, destination: destination, mode: blendMode())
-                    bytes[offset] = byte(output.red)
-                    bytes[offset + 1] = byte(output.green)
-                    bytes[offset + 2] = byte(output.blue)
-                    bytes[offset + 3] = byte(output.alpha)
+                    let outputComponents: [CGFloat]
+                    switch storage.colorSpace.model {
+                    case .rgb:
+                        outputComponents = [output.red, output.green, output.blue]
+                    case .monochrome:
+                        outputComponents = [output.red]
+                    default:
+                        continue
+                    }
+                    _ = CGColorBufferConverter.encodePixel(
+                        outputComponents,
+                        alpha: output.alpha,
+                        into: bytes,
+                        offset: offset,
+                        layout: storage.layout
+                    )
                 }
             }
         }
@@ -191,16 +235,16 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
 
     private func rgba(color: CGColor, alpha: CGFloat, state: CGDrawingState) -> RGBA? {
         guard let converted = state.convertedColor(color),
-              let components = converted.components,
-              components.count == 4 else {
+              let components = converted.components else {
             return nil
         }
-        return RGBA(
-            red: components[0],
-            green: components[1],
-            blue: components[2],
-            alpha: components[3] * alpha
-        )
+        guard var result = rgba(
+            components: Array(components.dropLast()),
+            alpha: components.last ?? 1,
+            colorSpace: state.destinationColorSpace
+        ) else { return nil }
+        result.alpha *= alpha
+        return result
     }
 
     private func sample(
@@ -212,7 +256,6 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         alpha: CGFloat,
         state: CGDrawingState
     ) -> RGBA? {
-        guard image.bitsPerComponent == 8 else { return nil }
         let x = min(max(u, 0), 1) * CGFloat(max(image.width - 1, 0))
         let y = (1 - min(max(v, 0), 1)) * CGFloat(max(image.height - 1, 0))
         if !linear {
@@ -246,51 +289,48 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         alpha: CGFloat,
         state: CGDrawingState
     ) -> RGBA? {
-        guard x >= 0, x < image.width, y >= 0, y < image.height else { return nil }
-        let bytesPerPixel = image.bitsPerPixel / 8
-        guard bytesPerPixel == 3 || bytesPerPixel == 4,
+        guard x >= 0, x < image.width, y >= 0, y < image.height,
               let sourceSpace = image.colorSpace,
-              sourceSpace.model == .rgb,
-              sourceSpace.numberOfComponents == 3 else {
+              let layout = CGColorBufferConverter.Layout(
+                format: CGColorBufferFormat(
+                    version: 0,
+                    bitmapInfo: image.bitmapInfo,
+                    bitsPerComponent: image.bitsPerComponent,
+                    bitsPerPixel: image.bitsPerPixel,
+                    bytesPerRow: image.bytesPerRow
+              ),
+                colorSpace: sourceSpace,
+                width: image.width
+              ) else {
             return nil
         }
-        let offset = y * image.bytesPerRow + x * bytesPerPixel
-        guard offset + bytesPerPixel <= data.count else { return nil }
+        let offset = y * layout.bytesPerRow + x * layout.bytesPerPixel
+        guard offset >= 0, offset + layout.bytesPerPixel <= data.count else { return nil }
         return data.withUnsafeBytes { raw -> RGBA? in
             guard let bytes = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return nil }
-            let firstAlpha = bytesPerPixel == 4 && (
-                image.alphaInfo == .premultipliedFirst || image.alphaInfo == .first || image.alphaInfo == .noneSkipFirst
-            )
-            let redIndex = firstAlpha ? 1 : 0
-            let imageAlpha: CGFloat
-            if bytesPerPixel == 4 {
-                imageAlpha = CGFloat(bytes[offset + (firstAlpha ? 0 : 3)]) / 255
-            } else {
-                imageAlpha = 1
-            }
-            var red = CGFloat(bytes[offset + redIndex]) / 255
-            var green = CGFloat(bytes[offset + redIndex + 1]) / 255
-            var blue = CGFloat(bytes[offset + redIndex + 2]) / 255
-            if imageAlpha > 0,
-               image.alphaInfo == .premultipliedFirst || image.alphaInfo == .premultipliedLast {
-                red /= imageAlpha
-                green /= imageAlpha
-                blue /= imageAlpha
-            }
+            guard let decoded = CGColorBufferConverter.decodePixel(
+                bytes,
+                offset: offset,
+                layout: layout
+            ) else { return nil }
             let source = CGColor(
                 space: sourceSpace,
-                componentArray: [red, green, blue, imageAlpha]
+                componentArray: decoded.components + [decoded.alpha]
             )
             guard let converted = state.convertedColor(source, forSampledImage: true),
                   let components = converted.components,
-                  components.count == 4 else {
+                  let result = rgba(
+                    components: Array(components.dropLast()),
+                    alpha: components.last ?? decoded.alpha,
+                    colorSpace: state.destinationColorSpace
+                  ) else {
                 return nil
             }
             return RGBA(
-                red: components[0],
-                green: components[1],
-                blue: components[2],
-                alpha: components[3] * alpha
+                red: result.red,
+                green: result.green,
+                blue: result.blue,
+                alpha: result.alpha * alpha
             )
         }
     }
@@ -350,7 +390,28 @@ internal final class CGSoftwareContextRenderer: CGContextStatefulRendererDelegat
         )
     }
 
-    private func byte(_ value: CGFloat) -> UInt8 {
-        UInt8((min(max(value, 0), 1) * 255).rounded())
+    private func rgba(
+        components: [CGFloat],
+        alpha: CGFloat,
+        colorSpace: CGColorSpace
+    ) -> RGBA? {
+        switch colorSpace.model {
+        case .rgb where components.count == 3:
+            return RGBA(
+                red: components[0],
+                green: components[1],
+                blue: components[2],
+                alpha: alpha
+            )
+        case .monochrome where components.count == 1:
+            return RGBA(
+                red: components[0],
+                green: components[0],
+                blue: components[0],
+                alpha: alpha
+            )
+        default:
+            return nil
+        }
     }
 }

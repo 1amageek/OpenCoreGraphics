@@ -169,7 +169,8 @@ internal struct CGColorBufferConverter {
             color = Array(stored.dropFirst().prefix(layout.colorComponentCount))
             alpha = 1
         case .alphaOnly:
-            return nil
+            color = [CGFloat](repeating: 0, count: layout.colorComponentCount)
+            alpha = stored.first ?? 0
         }
 
         guard color.count == layout.colorComponentCount else { return nil }
@@ -221,7 +222,7 @@ internal struct CGColorBufferConverter {
         )
     }
 
-    private static func encodePixel(
+    static func encodePixel(
         _ components: [CGFloat],
         alpha: CGFloat,
         into bytes: UnsafeMutablePointer<UInt8>,
@@ -243,7 +244,7 @@ internal struct CGColorBufferConverter {
         case .noneSkipFirst:
             stored = [0] + encodedColor
         case .alphaOnly:
-            return false
+            stored = [alpha]
         }
         stored = denormalizePackedByteOrder(stored, layout: layout)
 
