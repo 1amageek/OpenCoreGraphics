@@ -71,12 +71,11 @@ public class CGContext: @unchecked Sendable {
     /// will call the corresponding delegate methods to perform actual rendering.
     /// This is configured internally based on the target architecture (e.g., WebGPU for WASM).
     ///
-    /// On wasm32 this is always assigned in `init` to a stateful WebGPU renderer
-    /// (non-nil in practice). On other platforms it remains nil on the test path
-    /// because tests exercise bitmap state only, not GPU output. The type is
-    /// uniformly optional so that architecture-specific conditionals stay at the
-    /// init site and out of method bodies.
-    var rendererDelegate: CGContextRendererDelegate?
+    /// Every concrete backend implements the stateful contract so clipping,
+    /// shadows, blending, and color conversion cannot be discarded by a
+    /// runtime protocol cast. The reference remains optional only until the
+    /// selected backend has been constructed during initialization.
+    var rendererDelegate: (any CGContextStatefulRendererDelegate)?
 
     // MARK: - Graphics State Structure
 
@@ -565,48 +564,25 @@ public class CGContext: @unchecked Sendable {
 
         // Check if pattern is set
         if let pattern = currentState.fillPattern {
-            if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-                statefulDelegate.fillWithPattern(
-                    path: transformedPath,
-                    pattern: pattern,
-                    patternSpace: currentState.fillColorSpace ?? .deviceRGB,
-                    colorComponents: currentState.fillPatternColorComponents,
-                    patternPhase: currentState.patternPhase,
-                    alpha: currentState.alpha,
-                    blendMode: currentState.blendMode,
-                    rule: rule,
-                    state: currentDrawingState
-                )
-            } else {
-                rendererDelegate?.fillWithPattern(
-                    path: transformedPath,
-                    pattern: pattern,
-                    patternSpace: currentState.fillColorSpace ?? .deviceRGB,
-                    colorComponents: currentState.fillPatternColorComponents,
-                    patternPhase: currentState.patternPhase,
-                    alpha: currentState.alpha,
-                    blendMode: currentState.blendMode,
-                    rule: rule
-                )
-            }
-        } else if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            // Prefer stateful delegate for full state support (clip, shadow)
-            statefulDelegate.fill(
+            rendererDelegate?.fillWithPattern(
                 path: transformedPath,
-                color: currentState.fillColor,
+                pattern: pattern,
+                patternSpace: currentState.fillColorSpace ?? .deviceRGB,
+                colorComponents: currentState.fillPatternColorComponents,
+                patternPhase: currentState.patternPhase,
                 alpha: currentState.alpha,
                 blendMode: currentState.blendMode,
                 rule: rule,
                 state: currentDrawingState
             )
         } else {
-            // Fall back to basic delegate
             rendererDelegate?.fill(
                 path: transformedPath,
                 color: currentState.fillColor,
                 alpha: currentState.alpha,
                 blendMode: currentState.blendMode,
-                rule: rule
+                rule: rule,
+                state: currentDrawingState
             )
         }
 
@@ -633,45 +609,12 @@ public class CGContext: @unchecked Sendable {
 
         // Check if pattern is set
         if let pattern = currentState.strokePattern {
-            if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-                statefulDelegate.strokeWithPattern(
-                    path: transformedPath,
-                    pattern: pattern,
-                    patternSpace: currentState.strokeColorSpace ?? .deviceRGB,
-                    colorComponents: currentState.strokePatternColorComponents,
-                    patternPhase: currentState.patternPhase,
-                    lineWidth: currentState.lineWidth,
-                    lineCap: currentState.lineCap,
-                    lineJoin: currentState.lineJoin,
-                    miterLimit: currentState.miterLimit,
-                    dashPhase: currentState.lineDash?.phase ?? 0,
-                    dashLengths: currentState.lineDash?.lengths ?? [],
-                    alpha: currentState.alpha,
-                    blendMode: currentState.blendMode,
-                    state: currentDrawingState
-                )
-            } else {
-                rendererDelegate?.strokeWithPattern(
-                    path: transformedPath,
-                    pattern: pattern,
-                    patternSpace: currentState.strokeColorSpace ?? .deviceRGB,
-                    colorComponents: currentState.strokePatternColorComponents,
-                    patternPhase: currentState.patternPhase,
-                    lineWidth: currentState.lineWidth,
-                    lineCap: currentState.lineCap,
-                    lineJoin: currentState.lineJoin,
-                    miterLimit: currentState.miterLimit,
-                    dashPhase: currentState.lineDash?.phase ?? 0,
-                    dashLengths: currentState.lineDash?.lengths ?? [],
-                    alpha: currentState.alpha,
-                    blendMode: currentState.blendMode
-                )
-            }
-        } else if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            // Prefer stateful delegate for full state support (clip, shadow)
-            statefulDelegate.stroke(
+            rendererDelegate?.strokeWithPattern(
                 path: transformedPath,
-                color: currentState.strokeColor,
+                pattern: pattern,
+                patternSpace: currentState.strokeColorSpace ?? .deviceRGB,
+                colorComponents: currentState.strokePatternColorComponents,
+                patternPhase: currentState.patternPhase,
                 lineWidth: currentState.lineWidth,
                 lineCap: currentState.lineCap,
                 lineJoin: currentState.lineJoin,
@@ -683,7 +626,6 @@ public class CGContext: @unchecked Sendable {
                 state: currentDrawingState
             )
         } else {
-            // Fall back to basic delegate
             rendererDelegate?.stroke(
                 path: transformedPath,
                 color: currentState.strokeColor,
@@ -694,7 +636,8 @@ public class CGContext: @unchecked Sendable {
                 dashPhase: currentState.lineDash?.phase ?? 0,
                 dashLengths: currentState.lineDash?.lengths ?? [],
                 alpha: currentState.alpha,
-                blendMode: currentState.blendMode
+                blendMode: currentState.blendMode,
+                state: currentDrawingState
             )
         }
 
@@ -786,11 +729,7 @@ public class CGContext: @unchecked Sendable {
         // Apply CTM to the rect
         let transformedRect = rect.applying(currentState.ctm)
 
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.clear(rect: transformedRect, state: currentDrawingState)
-        } else {
-            rendererDelegate?.clear(rect: transformedRect)
-        }
+        rendererDelegate?.clear(rect: transformedRect, state: currentDrawingState)
     }
 
     // MARK: - Clipping
@@ -895,11 +834,11 @@ public class CGContext: @unchecked Sendable {
         saveGState()
 
         // Notify the renderer to begin transparency layer
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.beginTransparencyLayer(in: nil, auxiliaryInfo: auxiliaryInfo, state: currentDrawingState)
-        } else {
-            rendererDelegate?.beginTransparencyLayer(in: nil, auxiliaryInfo: auxiliaryInfo)
-        }
+        rendererDelegate?.beginTransparencyLayer(
+            in: nil,
+            auxiliaryInfo: auxiliaryInfo,
+            state: currentDrawingState
+        )
     }
 
     /// Begins a transparency layer whose contents are bounded by the specified rectangle.
@@ -915,11 +854,11 @@ public class CGContext: @unchecked Sendable {
         let transformedRect = rect.applying(currentState.ctm)
 
         // Notify the renderer to begin transparency layer
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.beginTransparencyLayer(in: transformedRect, auxiliaryInfo: auxiliaryInfo, state: currentDrawingState)
-        } else {
-            rendererDelegate?.beginTransparencyLayer(in: transformedRect, auxiliaryInfo: auxiliaryInfo)
-        }
+        rendererDelegate?.beginTransparencyLayer(
+            in: transformedRect,
+            auxiliaryInfo: auxiliaryInfo,
+            state: currentDrawingState
+        )
     }
 
     /// Ends a transparency layer.
@@ -929,11 +868,11 @@ public class CGContext: @unchecked Sendable {
         restoreGState()
 
         // Composite with the restored state's alpha and blend mode
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.endTransparencyLayer(alpha: currentState.alpha, blendMode: currentState.blendMode, state: currentDrawingState)
-        } else {
-            rendererDelegate?.endTransparencyLayer(alpha: currentState.alpha, blendMode: currentState.blendMode)
-        }
+        rendererDelegate?.endTransparencyLayer(
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode,
+            state: currentDrawingState
+        )
     }
 
     // MARK: - Color and Color Space
@@ -1301,24 +1240,14 @@ public class CGContext: @unchecked Sendable {
         // Apply CTM to the rect
         let transformedRect = rect.applying(currentState.ctm)
 
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.draw(
-                image: image,
-                in: transformedRect,
-                alpha: currentState.alpha,
-                blendMode: currentState.blendMode,
-                interpolationQuality: currentState.interpolationQuality,
-                state: currentDrawingState
-            )
-        } else {
-            rendererDelegate?.draw(
-                image: image,
-                in: transformedRect,
-                alpha: currentState.alpha,
-                blendMode: currentState.blendMode,
-                interpolationQuality: currentState.interpolationQuality
-            )
-        }
+        rendererDelegate?.draw(
+            image: image,
+            in: transformedRect,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode,
+            interpolationQuality: currentState.interpolationQuality,
+            state: currentDrawingState
+        )
     }
 
     /// Draws an image after applying the requested HDR tone-mapping method.
@@ -1403,22 +1332,13 @@ public class CGContext: @unchecked Sendable {
         let transformedStart = start.applying(currentState.ctm)
         let transformedEnd = end.applying(currentState.ctm)
 
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.drawLinearGradient(
-                gradient,
-                start: transformedStart,
-                end: transformedEnd,
-                options: options,
-                state: currentDrawingState
-            )
-        } else {
-            rendererDelegate?.drawLinearGradient(
-                gradient,
-                start: transformedStart,
-                end: transformedEnd,
-                options: options
-            )
-        }
+        rendererDelegate?.drawLinearGradient(
+            gradient,
+            start: transformedStart,
+            end: transformedEnd,
+            options: options,
+            state: currentDrawingState
+        )
     }
 
     /// Draws a radial gradient.
@@ -1439,26 +1359,15 @@ public class CGContext: @unchecked Sendable {
         let transformedStartRadius = startRadius * averageScale
         let transformedEndRadius = endRadius * averageScale
 
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.drawRadialGradient(
-                gradient,
-                startCenter: transformedStartCenter,
-                startRadius: transformedStartRadius,
-                endCenter: transformedEndCenter,
-                endRadius: transformedEndRadius,
-                options: options,
-                state: currentDrawingState
-            )
-        } else {
-            rendererDelegate?.drawRadialGradient(
-                gradient,
-                startCenter: transformedStartCenter,
-                startRadius: transformedStartRadius,
-                endCenter: transformedEndCenter,
-                endRadius: transformedEndRadius,
-                options: options
-            )
-        }
+        rendererDelegate?.drawRadialGradient(
+            gradient,
+            startCenter: transformedStartCenter,
+            startRadius: transformedStartRadius,
+            endCenter: transformedEndCenter,
+            endRadius: transformedEndRadius,
+            options: options,
+            state: currentDrawingState
+        )
     }
 
     // MARK: - Drawing Shading
@@ -1470,20 +1379,12 @@ public class CGContext: @unchecked Sendable {
     ///
     /// - Parameter shading: The shading to draw.
     public func drawShading(_ shading: CGShading) {
-        if let statefulDelegate = rendererDelegate as? CGContextStatefulRendererDelegate {
-            statefulDelegate.drawShading(
-                shading,
-                alpha: currentState.alpha,
-                blendMode: currentState.blendMode,
-                state: currentDrawingState
-            )
-        } else {
-            rendererDelegate?.drawShading(
-                shading,
-                alpha: currentState.alpha,
-                blendMode: currentState.blendMode
-            )
-        }
+        rendererDelegate?.drawShading(
+            shading,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode,
+            state: currentDrawingState
+        )
     }
 
     // MARK: - Drawing PDF Content

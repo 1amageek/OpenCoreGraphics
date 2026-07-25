@@ -11,7 +11,7 @@ import Testing
 @Suite("Glyph Outline Tests")
 struct CGGlyphOutlineTests {
 
-    private final class RecordingRenderer: CGContextRendererDelegate {
+    private final class RecordingRenderer: CGContextStatefulRendererDelegate {
         private let fillBounds = Mutex<[CGRect]>([])
 
         func snapshot() -> [CGRect] {

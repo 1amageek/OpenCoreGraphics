@@ -45,6 +45,32 @@ struct CGSoftwareContextRendererTests {
         #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 6, y: 4) == [0, 0, 0, 0])
     }
 
+    @Test("Transformed path clip restricts every subsequent fill")
+    func transformedPathClip() throws {
+        let context = try #require(CGContext(
+            data: nil,
+            width: 8,
+            height: 8,
+            bitsPerComponent: 8,
+            bytesPerRow: 32,
+            space: .deviceRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ))
+        context.translateBy(x: 0, y: 8)
+        context.scaleBy(x: 1, y: -1)
+        context.clip(to: CGRect(x: 0, y: 0, width: 4, height: 8))
+
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 8))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 4, y: 0, width: 4, height: 8))
+
+        let image = try #require(context.makeImage())
+        let data = try #require(image.data ?? image.dataProvider?.data)
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 2, y: 4) == [0, 0, 255, 255])
+        #expect(pixel(data, bytesPerRow: image.bytesPerRow, x: 6, y: 4) == [0, 0, 0, 0])
+    }
+
     @Test("Premultiplied contexts store premultiplied color components")
     func premultipliedStorageContract() throws {
         let context = try #require(CGContext(

@@ -233,6 +233,28 @@ struct CGColorConversionInfoTests {
 
             #expect(info != nil)
         }
+
+        @Test("Indexed and pattern models are rejected without fallback")
+        func unsupportedModelsAreRejected() throws {
+            let rgb = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let table: [UInt8] = [0, 0, 0, 255, 255, 255]
+            let indexedSpace = table.withUnsafeBufferPointer {
+                buffer -> CGColorSpace? in
+                guard let baseAddress = buffer.baseAddress else { return nil }
+                return CGColorSpace(
+                    indexedBaseSpace: rgb,
+                    last: 1,
+                    colorTable: baseAddress
+                )
+            }
+            let indexed = try #require(indexedSpace)
+            let pattern = try #require(CGColorSpace(patternBaseSpace: rgb))
+
+            #expect(CGColorConversionInfo(src: indexed, dst: rgb) == nil)
+            #expect(CGColorConversionInfo(src: rgb, dst: indexed) == nil)
+            #expect(CGColorConversionInfo(src: pattern, dst: rgb) == nil)
+            #expect(CGColorConversionInfo(src: rgb, dst: pattern) == nil)
+        }
     }
 
     @Suite("Properties")

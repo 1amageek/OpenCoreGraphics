@@ -120,7 +120,7 @@ public struct CGColorBufferFormat: Sendable {
 ///
 /// A `CGColorConversionInfo` object specifies a conversion between two or more color spaces,
 /// including information about the intent of the conversion.
-public class CGColorConversionInfo: @unchecked Sendable {
+public class CGColorConversionInfo {
 
     /// The source color space.
     public let sourceColorSpace: CGColorSpace
@@ -197,9 +197,8 @@ public class CGColorConversionInfo: @unchecked Sendable {
     }
 
     private static func supportsConversion(from source: CGColorSpace, to destination: CGColorSpace) -> Bool {
-        let unsupportedModels: Set<CGColorSpaceModel> = [.unknown, .indexed, .pattern]
-        guard !unsupportedModels.contains(source.model),
-              !unsupportedModels.contains(destination.model),
+        guard !isUnsupportedConversionModel(source.model),
+              !isUnsupportedConversionModel(destination.model),
               destination.supportsOutput else {
             return false
         }
@@ -222,6 +221,17 @@ public class CGColorConversionInfo: @unchecked Sendable {
         }
 
         return true
+    }
+
+    private static func isUnsupportedConversionModel(
+        _ model: CGColorSpaceModel
+    ) -> Bool {
+        switch model {
+        case .unknown, .indexed, .pattern:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Type ID
