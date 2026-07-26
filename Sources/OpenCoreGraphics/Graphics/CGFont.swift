@@ -28,7 +28,7 @@ public let kCGFontIndexInvalid: CGFontIndex = 0xFFFF
 // MARK: - CGFont
 
 /// A set of character glyphs and layout information for drawing text.
-public class CGFont: @unchecked Sendable {
+public class CGFont {
 
     // MARK: - Internal Storage
 
@@ -41,33 +41,34 @@ public class CGFont: @unchecked Sendable {
     /// A parsed Adobe Type 1 font program for PFA/PFB input.
     private let type1Program: Type1FontProgram?
 
-    /// Cached parsed tables.
-    private var cachedHead: HeadTable?
-    private var cachedHhea: HheaTable?
-    private var cachedMaxp: MaxpTable?
-    private var cachedHmtx: HmtxTable?
-    private var cachedVhea: VheaTable?
-    private var cachedVmtx: VmtxTable?
-    private var cachedVorg: VorgTable?
-    private var cachedPost: PostTable?
-    private var cachedOS2: OS2Table?
-    private var cachedName: NameTable?
-    private var cachedLoca: LocaTable?
-    private var cachedFvar: FvarTable?
-    private var cachedAvar: AvarTable?
-    private var cachedHvar: HvarTable?
-    private var cachedVvar: VvarTable?
-    private var cachedGvar: GvarTable?
-    private var cachedColr: ColrTable?
-    private var cachedCpal: CpalTable?
-    private var cachedCFF: CFFFontProgram?
-    private var cachedCFF2: CFF2FontProgram?
+    private struct ParsedTables {
+        var head: HeadTable?
+        var hhea: HheaTable?
+        var maxp: MaxpTable?
+        var hmtx: HmtxTable?
+        var vhea: VheaTable?
+        var vmtx: VmtxTable?
+        var vorg: VorgTable?
+        var post: PostTable?
+        var os2: OS2Table?
+        var name: NameTable?
+        var loca: LocaTable?
+        var fvar: FvarTable?
+        var avar: AvarTable?
+        var hvar: HvarTable?
+        var vvar: VvarTable?
+        var gvar: GvarTable?
+        var colr: ColrTable?
+        var cpal: CpalTable?
+        var cff: CFFFontProgram?
+        var cff2: CFF2FontProgram?
+    }
 
-    /// Lock for thread-safe lazy initialization (recursive to allow nested table loading).
-    private let cacheLock = NSRecursiveLock()
+    /// All font tables are parsed before publication so a font has immutable state.
+    private let tables: ParsedTables
 
     /// Current variation coordinates (for variable fonts).
-    private var variationCoordinates: [String: CGFloat]?
+    private let variationCoordinates: [String: CGFloat]?
 
     // MARK: - Initializers
 
@@ -80,6 +81,7 @@ public class CGFont: @unchecked Sendable {
             self.fontData = data
             self.parser = nil
             self.type1Program = type1Program
+            self.tables = ParsedTables()
             self.variationCoordinates = nil
             return
         }
@@ -88,23 +90,24 @@ public class CGFont: @unchecked Sendable {
         self.parser = parser
         self.type1Program = nil
         self.variationCoordinates = nil
+        var tables = ParsedTables()
 
         // Pre-parse essential tables
         do {
-            self.cachedHead = try parser.parseHeadTable()
-            self.cachedMaxp = try parser.parseMaxpTable()
+            tables.head = try parser.parseHeadTable()
+            tables.maxp = try parser.parseMaxpTable()
         } catch {
             return nil
         }
-        let glyphCount = Int(cachedMaxp?.numGlyphs ?? 0)
+        let glyphCount = Int(tables.maxp?.numGlyphs ?? 0)
         let hasVerticalHeader = parser.hasTable(FontTableTag.vhea)
         let hasVerticalMetrics = parser.hasTable(FontTableTag.vmtx)
         guard hasVerticalHeader == hasVerticalMetrics else { return nil }
         if hasVerticalHeader {
             do {
                 let vhea = try parser.parseVheaTable()
-                self.cachedVhea = vhea
-                self.cachedVmtx = try parser.parseVmtxTable(
+                tables.vhea = vhea
+                tables.vmtx = try parser.parseVmtxTable(
                     numberOfGlyphs: glyphCount,
                     numberOfVMetrics: Int(vhea.numberOfVMetrics)
                 )
@@ -114,10 +117,10 @@ public class CGFont: @unchecked Sendable {
         }
         if parser.hasTable(FontTableTag.VORG)
             && (parser.hasTable(FontTableTag.CFF) || parser.hasTable(FontTableTag.CFF2)) {
-            guard cachedVmtx != nil else { return nil }
+            guard tables.vmtx != nil else { return nil }
             do {
                 guard let vorg = try parser.parseVorgTable(glyphCount: glyphCount) else { return nil }
-                self.cachedVorg = vorg
+                tables.vorg = vorg
             } catch {
                 return nil
             }
@@ -125,12 +128,12 @@ public class CGFont: @unchecked Sendable {
         if parser.hasTable(FontTableTag.fvar) {
             do {
                 guard let fvar = try parser.parseFvarTable() else { return nil }
-                self.cachedFvar = fvar
-                self.cachedAvar = try parser.parseAvarTable(axisCount: fvar.axes.count)
+                tables.fvar = fvar
+                tables.avar = try parser.parseAvarTable(axisCount: fvar.axes.count)
                 if parser.hasTable(FontTableTag.HVAR) || parser.hasTable(FontTableTag.gvar) {
                     let hhea = try parser.parseHheaTable()
-                    self.cachedHhea = hhea
-                    self.cachedHmtx = try parser.parseHmtxTable(
+                    tables.hhea = hhea
+                    tables.hmtx = try parser.parseHmtxTable(
                         numberOfGlyphs: glyphCount,
                         numberOfHMetrics: Int(hhea.numberOfHMetrics)
                     )
@@ -142,17 +145,17 @@ public class CGFont: @unchecked Sendable {
                     ) else {
                         return nil
                     }
-                    self.cachedHvar = hvar
+                    tables.hvar = hvar
                 }
                 if parser.hasTable(FontTableTag.VVAR) {
-                    guard self.cachedVmtx != nil else { return nil }
+                    guard tables.vmtx != nil else { return nil }
                     guard let vvar = try parser.parseVvarTable(
                         axisCount: fvar.axes.count,
                         glyphCount: glyphCount
                     ) else {
                         return nil
                     }
-                    self.cachedVvar = vvar
+                    tables.vvar = vvar
                 }
                 if parser.hasTable(FontTableTag.gvar) {
                     guard parser.hasTable(FontTableTag.glyf),
@@ -162,7 +165,7 @@ public class CGFont: @unchecked Sendable {
                           ) else {
                         return nil
                     }
-                    self.cachedGvar = gvar
+                    tables.gvar = gvar
                 }
             } catch {
                 return nil
@@ -176,20 +179,59 @@ public class CGFont: @unchecked Sendable {
         if parser.hasTable(FontTableTag.CFF) {
             guard !parser.hasTable(FontTableTag.CFF2),
                   let cff = parser.parseCFFFontProgram(),
-                  cff.charStrings.ranges.count == Int(cachedMaxp?.numGlyphs ?? 0) else {
+                  cff.charStrings.ranges.count == Int(tables.maxp?.numGlyphs ?? 0) else {
                 return nil
             }
-            self.cachedCFF = cff
+            tables.cff = cff
         } else if parser.hasTable(FontTableTag.CFF2) {
-            let axisCount = cachedFvar?.axes.count ?? 0
+            let axisCount = tables.fvar?.axes.count ?? 0
             guard let cff2 = parser.parseCFF2FontProgram(
                 axisCount: axisCount,
-                unitsPerEm: Int(cachedHead?.unitsPerEm ?? 0)
-            ), cff2.charStrings.ranges.count == Int(cachedMaxp?.numGlyphs ?? 0) else {
+                unitsPerEm: Int(tables.head?.unitsPerEm ?? 0)
+            ), cff2.charStrings.ranges.count == Int(tables.maxp?.numGlyphs ?? 0) else {
                 return nil
             }
-            self.cachedCFF2 = cff2
+            tables.cff2 = cff2
         }
+
+        do {
+            if tables.hhea == nil, parser.hasTable(FontTableTag.hhea) {
+                tables.hhea = try parser.parseHheaTable()
+            }
+            if tables.hmtx == nil,
+               let hhea = tables.hhea,
+               parser.hasTable(FontTableTag.hmtx) {
+                tables.hmtx = try parser.parseHmtxTable(
+                    numberOfGlyphs: glyphCount,
+                    numberOfHMetrics: Int(hhea.numberOfHMetrics)
+                )
+            }
+            if parser.hasTable(FontTableTag.post) {
+                tables.post = try parser.parsePostTable()
+            }
+            if parser.hasTable(FontTableTag.OS2) {
+                tables.os2 = try parser.parseOS2Table()
+            }
+            if parser.hasTable(FontTableTag.name) {
+                tables.name = try parser.parseNameTable()
+            }
+            if let head = tables.head,
+               parser.hasTable(FontTableTag.loca) {
+                tables.loca = try parser.parseLocaTable(
+                    numGlyphs: glyphCount,
+                    indexToLocFormat: head.indexToLocFormat
+                )
+            }
+            if parser.hasTable(FontTableTag.COLR) {
+                tables.colr = try parser.parseColrTable()
+            }
+            if parser.hasTable(FontTableTag.CPAL) {
+                tables.cpal = try parser.parseCpalTable()
+            }
+        } catch {
+            return nil
+        }
+        self.tables = tables
     }
 
     /// Creates a font object corresponding to the font specified by a PostScript or full name.
@@ -205,51 +247,13 @@ public class CGFont: @unchecked Sendable {
     private init(
         fontData: Data?,
         parser: SFNTParser?,
-        cachedHead: HeadTable?,
-        cachedHhea: HheaTable?,
-        cachedMaxp: MaxpTable?,
-        cachedHmtx: HmtxTable?,
-        cachedVhea: VheaTable?,
-        cachedVmtx: VmtxTable?,
-        cachedVorg: VorgTable?,
-        cachedPost: PostTable?,
-        cachedOS2: OS2Table?,
-        cachedName: NameTable?,
-        cachedLoca: LocaTable?,
-        cachedFvar: FvarTable?,
-        cachedAvar: AvarTable?,
-        cachedHvar: HvarTable?,
-        cachedVvar: VvarTable?,
-        cachedGvar: GvarTable?,
-        cachedColr: ColrTable?,
-        cachedCpal: CpalTable?,
-        cachedCFF: CFFFontProgram?,
-        cachedCFF2: CFF2FontProgram?,
+        tables: ParsedTables,
         type1Program: Type1FontProgram?,
         variationCoordinates: [String: CGFloat]?
     ) {
         self.fontData = fontData
         self.parser = parser
-        self.cachedHead = cachedHead
-        self.cachedHhea = cachedHhea
-        self.cachedMaxp = cachedMaxp
-        self.cachedHmtx = cachedHmtx
-        self.cachedVhea = cachedVhea
-        self.cachedVmtx = cachedVmtx
-        self.cachedVorg = cachedVorg
-        self.cachedPost = cachedPost
-        self.cachedOS2 = cachedOS2
-        self.cachedName = cachedName
-        self.cachedLoca = cachedLoca
-        self.cachedFvar = cachedFvar
-        self.cachedAvar = cachedAvar
-        self.cachedHvar = cachedHvar
-        self.cachedVvar = cachedVvar
-        self.cachedGvar = cachedGvar
-        self.cachedColr = cachedColr
-        self.cachedCpal = cachedCpal
-        self.cachedCFF = cachedCFF
-        self.cachedCFF2 = cachedCFF2
+        self.tables = tables
         self.type1Program = type1Program
         self.variationCoordinates = variationCoordinates
     }
@@ -257,188 +261,51 @@ public class CGFont: @unchecked Sendable {
     // MARK: - Lazy Table Loading
 
     private func getHheaTable() -> HheaTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedHhea == nil, let parser = parser {
-            do {
-                cachedHhea = try parser.parseHheaTable()
-            } catch {
-                print("CGFont: failed to parse hhea table: \(error)")
-                cachedHhea = nil
-            }
-        }
-        return cachedHhea
+        tables.hhea
     }
 
     private func getHmtxTable() -> HmtxTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedHmtx == nil {
-            guard let hhea = getHheaTable(),
-                  let maxp = cachedMaxp,
-                  let parser = parser else { return nil }
-            do {
-                cachedHmtx = try parser.parseHmtxTable(
-                    numberOfGlyphs: Int(maxp.numGlyphs),
-                    numberOfHMetrics: Int(hhea.numberOfHMetrics)
-                )
-            } catch {
-                print("CGFont: failed to parse hmtx table: \(error)")
-                cachedHmtx = nil
-            }
-        }
-        return cachedHmtx
+        tables.hmtx
     }
 
     private func getPostTable() -> PostTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedPost == nil, let parser = parser {
-            do {
-                cachedPost = try parser.parsePostTable()
-            } catch {
-                print("CGFont: failed to parse post table: \(error)")
-                cachedPost = nil
-            }
-        }
-        return cachedPost
+        tables.post
     }
 
     private func getOS2Table() -> OS2Table? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedOS2 == nil, let parser = parser {
-            do {
-                cachedOS2 = try parser.parseOS2Table()
-            } catch {
-                print("CGFont: failed to parse OS/2 table: \(error)")
-                cachedOS2 = nil
-            }
-        }
-        return cachedOS2
+        tables.os2
     }
 
     private func getNameTable() -> NameTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedName == nil, let parser = parser {
-            do {
-                cachedName = try parser.parseNameTable()
-            } catch {
-                print("CGFont: failed to parse name table: \(error)")
-                cachedName = nil
-            }
-        }
-        return cachedName
+        tables.name
     }
 
     private func getLocaTable() -> LocaTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedLoca == nil {
-            guard let head = cachedHead,
-                  let maxp = cachedMaxp,
-                  let parser = parser else { return nil }
-            do {
-                cachedLoca = try parser.parseLocaTable(
-                    numGlyphs: Int(maxp.numGlyphs),
-                    indexToLocFormat: head.indexToLocFormat
-                )
-            } catch {
-                print("CGFont: failed to parse loca table: \(error)")
-                cachedLoca = nil
-            }
-        }
-        return cachedLoca
+        tables.loca
     }
 
     private func getFvarTable() -> FvarTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedFvar == nil, let parser = parser {
-            do {
-                cachedFvar = try parser.parseFvarTable()
-            } catch {
-                print("CGFont: failed to parse fvar table: \(error)")
-                cachedFvar = nil
-            }
-        }
-        return cachedFvar
+        tables.fvar
     }
 
     private func getAvarTable() -> AvarTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedAvar == nil, let parser, let fvar = getFvarTable() {
-            do {
-                cachedAvar = try parser.parseAvarTable(axisCount: fvar.axes.count)
-            } catch {
-                print("CGFont: failed to parse avar table: \(error)")
-                cachedAvar = nil
-            }
-        }
-        return cachedAvar
+        tables.avar
     }
 
     private func getColrTable() -> ColrTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedColr == nil, let parser = parser {
-            do {
-                cachedColr = try parser.parseColrTable()
-            } catch {
-                print("CGFont: failed to parse COLR table: \(error)")
-                cachedColr = nil
-            }
-        }
-        return cachedColr
+        tables.colr
     }
 
     private func getCpalTable() -> CpalTable? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedCpal == nil, let parser = parser {
-            do {
-                cachedCpal = try parser.parseCpalTable()
-            } catch {
-                print("CGFont: failed to parse CPAL table: \(error)")
-                cachedCpal = nil
-            }
-        }
-        return cachedCpal
+        tables.cpal
     }
 
     private func getCFFProgram() -> CFFFontProgram? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedCFF == nil, let parser {
-            cachedCFF = parser.parseCFFFontProgram()
-        }
-        return cachedCFF
+        tables.cff
     }
 
     private func getCFF2Program() -> CFF2FontProgram? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-
-        if cachedCFF2 == nil, let parser {
-            cachedCFF2 = parser.parseCFF2FontProgram(
-                axisCount: getFvarTable()?.axes.count ?? 0,
-                unitsPerEm: Int(cachedHead?.unitsPerEm ?? 0)
-            )
-        }
-        return cachedCFF2
+        tables.cff2
     }
 
     // MARK: - Font Metadata
@@ -458,13 +325,13 @@ public class CGFont: @unchecked Sendable {
     /// Returns the number of glyphs in a font.
     public var numberOfGlyphs: Int {
         if let type1Program { return type1Program.glyphs.count }
-        return Int(cachedMaxp?.numGlyphs ?? 0)
+        return Int(tables.maxp?.numGlyphs ?? 0)
     }
 
     /// Returns the number of glyph space units per em for the provided font.
     public var unitsPerEm: Int32 {
         if let type1Program { return Int32(type1Program.unitsPerEm) }
-        return Int32(cachedHead?.unitsPerEm ?? 1000)
+        return Int32(tables.head?.unitsPerEm ?? 1000)
     }
 
     /// Returns the ascent of a font.
@@ -512,7 +379,7 @@ public class CGFont: @unchecked Sendable {
     /// Returns the bounding box of a font.
     public var fontBBox: CGRect {
         if let type1Program { return type1Program.fontBBox }
-        return cachedHead?.fontBBox ?? .zero
+        return tables.head?.fontBBox ?? .zero
     }
 
     /// Returns the italic angle of a font.
@@ -567,7 +434,7 @@ public class CGFont: @unchecked Sendable {
         }
         guard let hmtx = getHmtxTable() else { return false }
         let regionScalars: [CGFloat]?
-        if let hvar = cachedHvar {
+        if let hvar = tables.hvar {
             guard let coordinates = normalizedVariationCoordinates(),
                   let scalars = hvar.regionScalars(for: coordinates) else {
                 return false
@@ -581,7 +448,7 @@ public class CGFont: @unchecked Sendable {
             let glyphIndex = Int(glyphs[i])
             guard let baseAdvance = hmtx.advanceWidth(for: glyphIndex) else { return false }
             let delta: CGFloat
-            if let hvar = cachedHvar, let regionScalars {
+            if let hvar = tables.hvar, let regionScalars {
                 guard let resolvedDelta = hvar.advanceWidthDelta(
                     for: glyphIndex,
                     regionScalars: regionScalars
@@ -589,7 +456,7 @@ public class CGFont: @unchecked Sendable {
                     return false
                 }
                 delta = resolvedDelta
-            } else if cachedGvar != nil {
+            } else if tables.gvar != nil {
                 guard let metrics = trueTypeVariationMetrics(for: glyphs[i]) else { return false }
                 delta = metrics.advanceWidth - CGFloat(baseAdvance)
             } else {
@@ -607,7 +474,7 @@ public class CGFont: @unchecked Sendable {
         for glyph: CGGlyph
     ) -> (advanceWidth: CGFloat, leftSideBearing: CGFloat, advanceHeight: CGFloat?, topSideBearing: CGFloat?)? {
         guard let parser,
-              let gvar = cachedGvar,
+              let gvar = tables.gvar,
               let loca = getLocaTable(),
               let hmtx = getHmtxTable(),
               let coordinates = normalizedVariationCoordinates() else {
@@ -619,21 +486,21 @@ public class CGFont: @unchecked Sendable {
             gvar: gvar,
             normalizedCoordinates: coordinates,
             hmtx: hmtx,
-            vmtx: cachedVmtx
+            vmtx: tables.vmtx
         )
     }
 
     /// Returns the variable vertical advance height in font design units.
     internal func verticalAdvance(for glyph: CGGlyph) -> Int32? {
-        guard let vmtx = cachedVmtx,
+        guard let vmtx = tables.vmtx,
               let baseAdvance = vmtx.advanceHeight(for: Int(glyph)) else {
             return nil
         }
-        if cachedVvar == nil, cachedGvar != nil {
+        if tables.vvar == nil, tables.gvar != nil {
             guard let varied = trueTypeVariationMetrics(for: glyph)?.advanceHeight else { return nil }
             return Self.adjustedMetric(base: varied, delta: 0)
         }
-        guard let vvar = cachedVvar else { return Int32(baseAdvance) }
+        guard let vvar = tables.vvar else { return Int32(baseAdvance) }
         guard let coordinates = normalizedVariationCoordinates(),
               let delta = vvar.advanceHeightDelta(
                 for: Int(glyph),
@@ -654,11 +521,11 @@ public class CGFont: @unchecked Sendable {
               let baseBearing = hmtx.leftSideBearing(for: Int(glyph)) else {
             return nil
         }
-        if cachedHvar == nil, cachedGvar != nil {
+        if tables.hvar == nil, tables.gvar != nil {
             guard let varied = trueTypeVariationMetrics(for: glyph) else { return nil }
             return Self.adjustedMetric(base: varied.leftSideBearing, delta: 0)
         }
-        guard let hvar = cachedHvar else { return Int32(baseBearing) }
+        guard let hvar = tables.hvar else { return Int32(baseBearing) }
         guard let coordinates = normalizedVariationCoordinates(),
               let delta = hvar.leftSideBearingDelta(
                 for: Int(glyph),
@@ -671,15 +538,15 @@ public class CGFont: @unchecked Sendable {
 
     /// Returns the variable vertical top side bearing in font design units.
     internal func verticalTopSideBearing(for glyph: CGGlyph) -> Int32? {
-        guard let vmtx = cachedVmtx,
+        guard let vmtx = tables.vmtx,
               let baseBearing = vmtx.topSideBearing(for: Int(glyph)) else {
             return nil
         }
-        if cachedVvar == nil, cachedGvar != nil {
+        if tables.vvar == nil, tables.gvar != nil {
             guard let varied = trueTypeVariationMetrics(for: glyph)?.topSideBearing else { return nil }
             return Self.adjustedMetric(base: varied, delta: 0)
         }
-        guard let vvar = cachedVvar else { return Int32(baseBearing) }
+        guard let vvar = tables.vvar else { return Int32(baseBearing) }
         guard let coordinates = normalizedVariationCoordinates(),
               let delta = vvar.topSideBearingDelta(
                 for: Int(glyph),
@@ -693,10 +560,10 @@ public class CGFont: @unchecked Sendable {
     /// Returns the variable vertical origin Y coordinate in font design units.
     internal func verticalOriginY(for glyph: CGGlyph) -> Int32? {
         let glyphIndex = Int(glyph)
-        if let vorg = cachedVorg {
+        if let vorg = tables.vorg {
             guard let baseOrigin = vorg.originY(for: glyphIndex) else { return nil }
             let delta: CGFloat
-            if let vvar = cachedVvar {
+            if let vvar = tables.vvar {
                 guard let coordinates = normalizedVariationCoordinates(),
                       let resolved = vvar.verticalOriginDelta(
                         for: glyphIndex,
@@ -773,7 +640,7 @@ public class CGFont: @unchecked Sendable {
             ? getHmtxTable()
             : nil
 
-        if cachedGvar != nil {
+        if tables.gvar != nil {
             for index in 0..<count {
                 guard let variedPath = path(for: glyphs[index]) else { return false }
                 bboxes[index] = variedPath.isEmpty ? .zero : variedPath.boundingBox
@@ -821,7 +688,7 @@ public class CGFont: @unchecked Sendable {
             )
         }
         guard let loca = getLocaTable() else { return nil }
-        if let gvar = cachedGvar {
+        if let gvar = tables.gvar {
             guard let coordinates = normalizedVariationCoordinates(),
                   let hmtx = getHmtxTable() else { return nil }
             return parser.parseGlyphPath(
@@ -830,7 +697,7 @@ public class CGFont: @unchecked Sendable {
                 gvar: gvar,
                 normalizedCoordinates: coordinates,
                 hmtx: hmtx,
-                vmtx: cachedVmtx
+                vmtx: tables.vmtx
             )
         }
         let hmtx = parser.hasTable(FontTableTag.hhea) && parser.hasTable(FontTableTag.hmtx)
@@ -840,7 +707,7 @@ public class CGFont: @unchecked Sendable {
             glyphIndex: Int(glyph),
             loca: loca,
             hmtx: hmtx,
-            vmtx: cachedVmtx
+            vmtx: tables.vmtx
         )
     }
 
@@ -941,26 +808,7 @@ public class CGFont: @unchecked Sendable {
         return CGFont(
             fontData: fontData,
             parser: parser,
-            cachedHead: cachedHead,
-            cachedHhea: cachedHhea,
-            cachedMaxp: cachedMaxp,
-            cachedHmtx: cachedHmtx,
-            cachedVhea: cachedVhea,
-            cachedVmtx: cachedVmtx,
-            cachedVorg: cachedVorg,
-            cachedPost: cachedPost,
-            cachedOS2: cachedOS2,
-            cachedName: cachedName,
-            cachedLoca: cachedLoca,
-            cachedFvar: cachedFvar,
-            cachedAvar: cachedAvar,
-            cachedHvar: cachedHvar,
-            cachedVvar: cachedVvar,
-            cachedGvar: cachedGvar,
-            cachedColr: cachedColr,
-            cachedCpal: cachedCpal,
-            cachedCFF: cachedCFF,
-            cachedCFF2: cachedCFF2,
+            tables: tables,
             type1Program: type1Program,
             variationCoordinates: coords.isEmpty ? nil : coords
         )

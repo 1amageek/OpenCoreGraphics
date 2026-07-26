@@ -42,7 +42,10 @@ async function waitForWasmTests(page: Page): Promise<WasmTestsState> {
 
 test("swift-testing: all @Test functions pass on WebGPU readback", async ({ page }) => {
     page.on("console", (msg) => console.log(`[page:${msg.type()}]`, msg.text()));
-    page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+    page.on(
+        "pageerror",
+        (err) => console.error("[pageerror]", err.stack ?? err.message)
+    );
 
     await page.goto("/");
     const state = await waitForWasmTests(page);

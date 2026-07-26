@@ -10,9 +10,9 @@ OpenCoreGraphics enables cross-platform Swift code to use a broad CoreGraphics-c
 
 | Evidence | Result |
 |---|---|
-| Native package | 976 tests passed |
+| Native package | 977 tests passed |
 | Browser | 10 real-browser tests passed through WebGPU readback, including fills, image masks, callback patterns, HDR tone mapping, image rendering, and cap/join/dash stroke geometry |
-| Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC, LUT, and floating-point multi-process profiles convert through D50 XYZ or Lab PCS; graphics-state rendering intents reach solid, gradient, shading, pattern, image, and shadow rendering without silent source-color fallback |
+| Color management | Named RGB/gray/HDR, calibrated RGB/gray, and ICC matrix/TRC, LUT, and floating-point multi-process profiles convert through D50 XYZ or Lab PCS; graphics-state rendering intents reach solid, gradient, shading, pattern, image, and shadow rendering without silent source-color fallback. Device-dependent and profiled spaces with the same color model preserve their finite component contract when no shared profile transform exists, while incompatible ICC endpoints still fail explicitly. Immutable `CGColor` and `CGColorSpace` use checked `Sendable` conformance |
 | Font outlines and metrics | Static and `gvar`-variable TrueType `glyf`, OpenType CFF1/Type2, and CFF2 variable outlines execute through the normal `CGContext` path; `gvar` tuple decoding, IUP interpolation, composite placement, phantom-point metrics, and shared ItemVariationStore HVAR/VVAR processing are active. Skia variable bounds and advances plus CFF1/CFF2 conformance are checked against Apple CoreText/CoreGraphics |
 | PostScript fonts | PFA and PFB Type 1 fonts load through encrypted eexec/CharStrings parsing with Subrs, Flex, `seac`, metrics, names, and FontMatrix normalization. Type 1 subsets are generated from TrueType, CFF1, and CFF2 outlines; Type 42 produces a physically subsetted, checksum-correct TrueType SFNT. Generated and reloaded fonts are validated by Apple CoreGraphics/CoreText |
 | Path normalization | Winding and even-odd normalization resolves overlapping contours into filled boundaries; connected-component separation keeps holes with their direct outer contour and emits filled islands independently. Nested-contour behavior is checked against Apple Core Graphics |
@@ -218,7 +218,8 @@ perl -e 'alarm 30; exec @ARGV' -- \
   -only-testing:OpenCoreGraphicsTests
 
 # Build for WASM (requires Swift SDK for WASM)
-swift build --swift-sdk swift-6.3.1-RELEASE_wasm
+TOOLCHAINS=org.swift.64202607171a xcrun swift build \
+  --swift-sdk swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a_wasm
 
 # Run the real-browser WebGPU suite
 cd Tests/e2e && npm test
@@ -236,7 +237,7 @@ swift sdk list
 
 ## Requirements
 
-- Swift 6.3.1+
+- Swift `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a`
 - For WASM builds: Swift WASM SDK
 
 ## WASM Compatibility

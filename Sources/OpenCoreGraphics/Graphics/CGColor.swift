@@ -11,7 +11,7 @@ import Foundation
 
 /// A set of components that define a color, with a color space specifying
 /// how to interpret them.
-public class CGColor: @unchecked Sendable {
+public final class CGColor: Sendable {
 
     /// The color space associated with the color.
     public let colorSpace: CGColorSpace?
@@ -133,6 +133,24 @@ public class CGColor: @unchecked Sendable {
 
         // Color conversion between different models
         switch (sourceSpace.model, space.model) {
+
+        // Device-dependent spaces do not provide a profile transform.
+        // Preserve component values when the source and destination share
+        // the same model and component contract, allowing either endpoint
+        // to define the device interpretation.
+        case (.monochrome, .monochrome),
+             (.rgb, .rgb),
+             (.cmyk, .cmyk),
+             (.lab, .lab),
+             (.XYZ, .XYZ):
+            guard sourceSpace.numberOfComponents
+                    == space.numberOfComponents else {
+                return nil
+            }
+            return CGColor(
+                space: space,
+                componentArray: components
+            )
 
         // MARK: Monochrome conversions
         case (.monochrome, .rgb):

@@ -14,10 +14,10 @@ import Foundation
 ///
 /// An alternative to using a CGShading instance is to use the CGGradient type.
 /// For applications that run in modern systems, CGGradient objects are much simpler to use.
-public class CGShading: @unchecked Sendable {
+public final class CGShading {
 
     /// The type of shading.
-    public enum ShadingType {
+    public enum ShadingType: Sendable {
         case axial
         case radial
     }
@@ -334,4 +334,3 @@ extension CGShading {
         return nil
     }
 }
-

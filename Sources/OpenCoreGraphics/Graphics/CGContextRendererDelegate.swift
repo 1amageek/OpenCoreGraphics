@@ -13,7 +13,7 @@ import Foundation
 ///
 /// This structure provides renderers with all the context state needed to properly
 /// render drawing operations, including clipping, shadows, and transformations.
-internal struct CGDrawingState: Sendable {
+internal struct CGDrawingState {
 
     /// The destination color space of the graphics context.
     var destinationColorSpace: CGColorSpace
@@ -218,7 +218,7 @@ internal struct CGDrawingState: Sendable {
 ///     // ... implement other methods
 /// }
 /// ```
-internal protocol CGContextRendererDelegate: AnyObject, Sendable {
+internal protocol CGContextRendererDelegate: AnyObject {
 
     /// Whether drawing commands update CGContext's owned or borrowed pixel storage.
     /// GPU renderers return false because a failed readback must not be replaced by
@@ -464,11 +464,15 @@ internal protocol CGContextRendererDelegate: AnyObject, Sendable {
     ///   - height: The height of the image in pixels.
     ///   - colorSpace: The color space for the resulting image.
     /// - Returns: A CGImage containing the rendered content, or nil if readback fails.
-    func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage?
+    nonisolated(nonsending) func makeImage(
+        width: Int,
+        height: Int,
+        colorSpace: CGColorSpace
+    ) async -> CGImage?
 }
 
 /// Renderer capability for drawing a CGLayer without a CPU readback.
-internal protocol CGLayerRendererDelegate: AnyObject, Sendable {
+internal protocol CGLayerRendererDelegate: AnyObject {
     func draw(
         layer: CGLayer,
         in rect: CGRect,
@@ -494,7 +498,11 @@ extension CGContextRendererDelegate {
     public func endTransparencyLayer(alpha: CGFloat, blendMode: CGBlendMode) {}
 
     /// Default implementation returns nil.
-    public func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
+    public nonisolated(nonsending) func makeImage(
+        width: Int,
+        height: Int,
+        colorSpace: CGColorSpace
+    ) async -> CGImage? {
         return nil
     }
 

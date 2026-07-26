@@ -574,7 +574,7 @@ internal struct Type1FontProgram: Sendable {
     }
 }
 
-internal struct Type1Glyph: Sendable {
+internal struct Type1Glyph {
     let path: CGPath
     let sideBearing: CGPoint
     let advance: CGSize

@@ -60,7 +60,7 @@ public struct CGWebGPUVertexBatch: Sendable {
         return try vertices.withUnsafeBytes(body)
     }
 
-    /// Convert to flat Float array for efficient GPU transfer via JSTypedArray
+    /// Converts to flat scalar storage for the renderer's reusable WebGPU upload staging.
     public func toFloatArray() -> [Float] {
         var floatData: [Float] = []
         floatData.reserveCapacity(vertices.count * 6)  // x, y, r, g, b, a

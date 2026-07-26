@@ -303,17 +303,6 @@ struct CGFontTests {
         #expect(font.numberOfGlyphs >= 0)
     }
 
-    // MARK: - Sendable Tests
-
-    @Test("CGFont is Sendable")
-    func cgFontIsSendable() {
-        let fontData = createMinimalFontData()
-        let provider = OpenCoreGraphics.CGDataProvider(data: fontData)
-        let font = OpenCoreGraphics.CGFont(provider)
-        let sendableFont: (any Sendable)? = font
-        #expect(sendableFont != nil)
-    }
-
     @Test("CGFontPostScriptFormat is Sendable")
     func postScriptFormatIsSendable() {
         let format = OpenCoreGraphics.CGFontPostScriptFormat.type1

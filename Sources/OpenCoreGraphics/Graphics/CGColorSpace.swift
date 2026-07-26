@@ -64,7 +64,7 @@ public enum CGColorRenderingIntent: Int32, Sendable {
 // MARK: - CGColorSpace
 
 /// A profile that specifies how to interpret a color value for display.
-public final class CGColorSpace: Hashable, Equatable, @unchecked Sendable {
+public final class CGColorSpace: Hashable, Equatable, Sendable {
 
     /// The color space model.
     public let model: CGColorSpaceModel

@@ -8,13 +8,12 @@
 #if arch(wasm32)
 import Foundation
 import SwiftWebGPU
-import JavaScriptKit
 
 /// Internal vertex buffer pool using ring buffer pattern.
 ///
 /// Maintains reusable GPU buffers organized as a ring that rotates each frame,
 /// preventing GPU/CPU synchronization stalls.
-internal final class BufferPool: @unchecked Sendable {
+internal final class BufferPool {
 
     // MARK: - Types
 
@@ -51,6 +50,7 @@ internal final class BufferPool: @unchecked Sendable {
 
     private let device: GPUDevice
     private let config: Configuration
+    private let uploadStaging: WebGPUUploadStaging
 
     /// Buffer for each frame in flight
     private var buffers: [GPUBuffer]
@@ -74,8 +74,13 @@ internal final class BufferPool: @unchecked Sendable {
     /// - Parameters:
     ///   - device: The WebGPU device
     ///   - configuration: Pool configuration
-    init(device: GPUDevice, configuration: Configuration = Configuration()) {
+    init(
+        device: GPUDevice,
+        uploadStaging: WebGPUUploadStaging,
+        configuration: Configuration = Configuration()
+    ) {
         self.device = device
+        self.uploadStaging = uploadStaging
         self.config = configuration
 
         // Initialize buffers for each frame
@@ -193,11 +198,10 @@ internal final class BufferPool: @unchecked Sendable {
     }
 
     private func writeData(_ data: [Float], to buffer: GPUBuffer, offset: UInt64) {
-        let floatArray = JSTypedArray<Float>(data)
         device.queue.writeBuffer(
             buffer,
             bufferOffset: offset,
-            data: floatArray.jsObject
+            data: uploadStaging.float32Array(copying: data)
         )
     }
 

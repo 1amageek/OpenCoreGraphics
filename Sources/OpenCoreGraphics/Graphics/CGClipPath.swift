@@ -13,7 +13,7 @@ import Foundation
 /// Stored inside `CGDrawingState.clipPaths` to preserve the fill rule that
 /// was passed to `CGContext.clip(using:)`. Without this, even-odd clipping
 /// silently collapses to winding when the renderer tessellates the path.
-internal struct CGClipPath: Sendable {
+internal struct CGClipPath {
     /// The clipping path (already transformed by the CTM).
     let path: CGPath
 

@@ -15,18 +15,19 @@ routes them through the GPU, and asserts the pixel bytes through Swift Testing.
 
 ## Prerequisites
 
-1. **Toolchain.** Swift 6.3.1 + the matching WASM SDK. The toolchain must be
-   6.3.1 (not 6.2.3) — 6.2.3 deadlocks inside any `@MainActor` hop on WASM.
-   `build.sh` prefers `~/.swiftly/bin/swift` when available so the build does
-   not accidentally use Xcode's `/usr/bin/swift`.
+1. **Toolchain.** Swift
+   `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a` and the matching WASM SDK.
+   `build.sh` selects the fixed `org.swift.64202607171a` toolchain through
+   `xcrun`, so the compiler and SDK cannot drift independently.
 
 2. **Build the WASM artifact.**
    ```bash
    ./build.sh
    ```
-   This pins JavaScriptKit to `0.56.1`, compiles `Examples/SmokeTest` with
-   the `swift-6.3.1-RELEASE_wasm` SDK, and copies `OCGSmoke.wasm` next to the
-   HTML/JS loader. `server.mjs` aborts early if the `.wasm` is missing.
+   This compiles `Examples/SmokeTest` with the
+   `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a_wasm` SDK and copies
+   `OCGSmoke.wasm` next to the HTML/JS loader. `server.mjs` aborts early if
+   the `.wasm` is missing.
 
 3. **Install Playwright (first run only).**
    ```bash

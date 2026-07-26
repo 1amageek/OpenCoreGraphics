@@ -20,7 +20,7 @@ internal enum PathCommand: Sendable {
 
 /// An immutable graphics path: a mathematical description of shapes or lines
 /// to be drawn in a graphics context.
-public class CGPath: @unchecked Sendable {
+public class CGPath {
 
     internal var commands: [PathCommand]
 

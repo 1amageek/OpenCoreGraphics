@@ -6,7 +6,7 @@
 import Foundation
 
 /// An image mask mapped from user space into device space as part of graphics state.
-internal struct CGImageMaskClip: Sendable, Equatable {
+internal struct CGImageMaskClip: Equatable {
     let rect: CGRect
     let transform: CGAffineTransform
     let image: CGImage

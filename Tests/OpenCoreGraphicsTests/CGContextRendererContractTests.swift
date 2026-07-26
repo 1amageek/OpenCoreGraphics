@@ -43,14 +43,14 @@ struct CGContextRendererContractTests {
 
     private final class RecordingRenderer: CGContextStatefulRendererDelegate, CGLayerRendererDelegate {
         private let operations = Mutex<[Operation]>([])
-        private let drawingStates = Mutex<[CGDrawingState]>([])
+        private var drawingStates: [CGDrawingState] = []
 
         func snapshot() -> [Operation] {
             operations.withLock { $0 }
         }
 
         func stateSnapshot() -> [CGDrawingState] {
-            drawingStates.withLock { $0 }
+            drawingStates
         }
 
         func fill(path: CGPath, color: CGColor, alpha: CGFloat, blendMode: CGBlendMode, rule: CGPathFillRule) {}
@@ -145,7 +145,7 @@ struct CGContextRendererContractTests {
         ) {}
 
         func fill(path: CGPath, color: CGColor, alpha: CGFloat, blendMode: CGBlendMode, rule: CGPathFillRule, state: CGDrawingState) {
-            drawingStates.withLock { $0.append(state) }
+            drawingStates.append(state)
             operations.withLock {
                 $0.append(
                     .fill(

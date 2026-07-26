@@ -7,6 +7,7 @@
 
 
 import Foundation
+import Synchronization
 
 
 // MARK: - CGDataConsumerCallbacks
@@ -18,14 +19,15 @@ import Foundation
 ///   - buffer: A pointer to the buffer containing the data to copy.
 ///   - count: The number of bytes to copy.
 /// - Returns: The number of bytes actually written.
-public typealias CGDataConsumerPutBytesCallback = (
+public typealias CGDataConsumerPutBytesCallback = @Sendable (
     UnsafeMutableRawPointer?,       // info
     UnsafeRawPointer?,              // buffer
     Int                             // count
 ) -> Int
 
 /// Releases any private data or resources associated with the data consumer.
-public typealias CGDataConsumerReleaseInfoCallback = (UnsafeMutableRawPointer?) -> Void
+public typealias CGDataConsumerReleaseInfoCallback =
+    @Sendable (UnsafeMutableRawPointer?) -> Void
 
 /// A structure that contains pointers to callback functions that manage
 /// the copying of data for a data consumer.
@@ -33,7 +35,7 @@ public typealias CGDataConsumerReleaseInfoCallback = (UnsafeMutableRawPointer?) 
 /// The functions specified by the `CGDataConsumerCallbacks` structure are responsible
 /// for copying data that Core Graphics sends to your consumer and for handling the
 /// consumer's basic memory management.
-public struct CGDataConsumerCallbacks: @unchecked Sendable {
+public struct CGDataConsumerCallbacks: Sendable {
     /// A pointer to the callback function that copies data to the consumer.
     public var putBytes: CGDataConsumerPutBytesCallback?
 
@@ -56,9 +58,18 @@ public struct CGDataConsumerCallbacks: @unchecked Sendable {
 
 // MARK: - CGDataConsumer
 
+internal enum CGDataConsumerError: Error, Equatable {
+    case finalizationInProgress
+}
+
 /// An abstraction for data-writing tasks that eliminates the need to
 /// manage a raw memory buffer.
-public class CGDataConsumer: @unchecked Sendable {
+public final class CGDataConsumer {
+    private enum FinalizePlan {
+        case none
+        case write(URL, Data)
+        case busy
+    }
 
     /// The type of data consumer.
     private enum ConsumerType {
@@ -67,18 +78,14 @@ public class CGDataConsumer: @unchecked Sendable {
         case data
     }
 
-    /// The consumer type.
+    private struct State {
+        var accumulatedData: Data?
+        var isFinalizing = false
+        var isFinalized = false
+    }
+
     private let consumerType: ConsumerType
-
-    /// Accumulated data for data-backed consumers.
-    private var accumulatedData: Data?
-
-    /// Tracks whether `finalize()` has already written a URL-backed consumer to disk.
-    ///
-    /// Callers should prefer `finalize()` for URL-backed consumers so write
-    /// errors are surfaced explicitly. `deinit` only performs a best-effort
-    /// write when this flag is false, and errors there cannot be thrown.
-    private var finalized: Bool = false
+    private let state: Mutex<State>
 
     // MARK: - Initializers
 
@@ -89,7 +96,13 @@ public class CGDataConsumer: @unchecked Sendable {
     ///   - cbks: A pointer to a callbacks structure.
     public init?(info: UnsafeMutableRawPointer?, cbks: UnsafePointer<CGDataConsumerCallbacks>) {
         guard cbks.pointee.putBytes != nil else { return nil }
-        self.consumerType = .callback(info: info, callbacks: cbks.pointee)
+        self.consumerType = .callback(
+            info: info,
+            callbacks: cbks.pointee
+        )
+        self.state = Mutex(
+            State()
+        )
     }
 
     /// Creates a data consumer that writes data to a location specified by a URL.
@@ -97,7 +110,11 @@ public class CGDataConsumer: @unchecked Sendable {
     /// - Parameter url: The URL to write to.
     public init?(url: URL) {
         self.consumerType = .url(url)
-        self.accumulatedData = Data()
+        self.state = Mutex(
+            State(
+                accumulatedData: Data()
+            )
+        )
     }
 
     /// Creates a data consumer that writes to a Data object.
@@ -105,10 +122,20 @@ public class CGDataConsumer: @unchecked Sendable {
     /// - Parameter data: Initial data to start with (optional).
     public init?(data: Data = Data()) {
         self.consumerType = .data
-        self.accumulatedData = data
+        self.state = Mutex(
+            State(
+                accumulatedData: data
+            )
+        )
     }
 
     deinit {
+        let teardown = state.withLock {
+            (
+                $0.accumulatedData,
+                $0.isFinalized
+            )
+        }
         switch consumerType {
         case .callback(let info, let callbacks):
             callbacks.releaseConsumer?(info)
@@ -116,7 +143,7 @@ public class CGDataConsumer: @unchecked Sendable {
             // Best-effort write at teardown when caller did not call `finalize()`.
             // deinit can't throw, so failures are reported via stderr rather than
             // swallowed silently.
-            if !finalized, let data = accumulatedData {
+            if !teardown.1, let data = teardown.0 {
                 do {
                     try data.write(to: url)
                 } catch {
@@ -139,16 +166,41 @@ public class CGDataConsumer: @unchecked Sendable {
     ///
     /// - Throws: Any error produced by `Data.write(to:)`.
     internal func finalize() throws {
-        switch consumerType {
-        case .url(let url):
-            guard !finalized else { return }
-            if let data = accumulatedData {
-                try data.write(to: url)
+        let writePlan = state.withLock {
+            state -> FinalizePlan in
+            guard case .url(let url) = consumerType,
+                  !state.isFinalized,
+                  let data = state.accumulatedData else {
+                return .none
             }
-            finalized = true
-        case .callback, .data:
-            // No explicit finalization is needed for these consumer kinds.
-            break
+            guard !state.isFinalizing else {
+                return .busy
+            }
+            state.isFinalizing = true
+            return .write(url, data)
+        }
+        let url: URL
+        let data: Data
+        switch writePlan {
+        case .none:
+            return
+        case .busy:
+            throw CGDataConsumerError.finalizationInProgress
+        case .write(let plannedURL, let plannedData):
+            url = plannedURL
+            data = plannedData
+        }
+        do {
+            try data.write(to: url)
+            state.withLock {
+                $0.isFinalizing = false
+                $0.isFinalized = true
+            }
+        } catch {
+            state.withLock {
+                $0.isFinalizing = false
+            }
+            throw error
         }
     }
 
@@ -167,9 +219,34 @@ public class CGDataConsumer: @unchecked Sendable {
         switch consumerType {
         case .callback(let info, let callbacks):
             return callbacks.putBytes?(info, buffer, count) ?? 0
-        case .url, .data:
-            let bufferPointer = UnsafeRawBufferPointer(start: buffer, count: count)
-            accumulatedData?.append(contentsOf: bufferPointer)
+        case .url:
+            let accepted = state.withLock {
+                state -> Bool in
+                guard !state.isFinalizing,
+                      !state.isFinalized else {
+                    return false
+                }
+                let bufferPointer = UnsafeRawBufferPointer(
+                    start: buffer,
+                    count: count
+                )
+                state.accumulatedData?.append(
+                    contentsOf: bufferPointer
+                )
+                return true
+            }
+            return accepted ? count : 0
+        case .data:
+            state.withLock {
+                state in
+                let bufferPointer = UnsafeRawBufferPointer(
+                    start: buffer,
+                    count: count
+                )
+                state.accumulatedData?.append(
+                    contentsOf: bufferPointer
+                )
+            }
             return count
         }
     }
@@ -183,11 +260,13 @@ public class CGDataConsumer: @unchecked Sendable {
     ///
     /// - Returns: The data written to the consumer, or `nil` for callback consumers.
     public var data: Data? {
-        switch consumerType {
-        case .data, .url:
-            return accumulatedData
-        case .callback:
-            return nil
+        state.withLock {
+            switch consumerType {
+            case .data, .url:
+                return $0.accumulatedData
+            case .callback:
+                return nil
+            }
         }
     }
 

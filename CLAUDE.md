@@ -45,7 +45,8 @@ perl -e 'alarm 30; exec @ARGV' -- \
   -only-testing:OpenCoreGraphicsTests
 
 # Build for WASM
-swift build --swift-sdk swift-6.3.1-RELEASE_wasm
+TOOLCHAINS=org.swift.64202607171a xcrun swift build \
+  --swift-sdk swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a_wasm
 ```
 
 ## Architecture
@@ -214,7 +215,7 @@ public init?(data: UnsafeMutableRawPointer?, width: Int, height: Int, ...) {
 
 **重要**:
 - `rendererDelegate` は `internal` です。ユーザーがレンダラーを意識したり設定したりする必要はありません。
-- `setupGraphicsContext()` を呼び出さずに `CGContext` を作成すると `fatalError` が発生します。
+- `setupGraphicsContext()` を呼び出さずに WebGPU-backed `CGContext` を作成すると、初期化は `nil` を返します。初期化失敗を成功値や software fallback に丸めません。
 
 ### Platform Differences: Foundation, CoreGraphics, and swift-corelibs-foundation
 
@@ -521,7 +522,8 @@ import Testing
 ### Building for WASM
 
 ```bash
-swift build --swift-sdk swift-6.3.1-RELEASE_wasm
+TOOLCHAINS=org.swift.64202607171a xcrun swift build \
+  --swift-sdk swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a_wasm
 ```
 
 - Uses swift-corelibs-foundation (has protocol conformances)
@@ -747,7 +749,7 @@ public protocol CGContextStatefulRendererDelegate: CGContextRendererDelegate {
 #### CGDrawingState Structure
 
 ```swift
-public struct CGDrawingState: Sendable {
+public struct CGDrawingState {
     /// Multiple clip paths (intersection of all)
     public var clipPaths: [CGPath]
 

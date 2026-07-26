@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Synchronization
 import Testing
 @testable import OpenCoreGraphics
 
@@ -308,16 +309,6 @@ struct CGDataConsumerTests {
     @Suite("Sendable Conformance")
     struct SendableTests {
 
-        @Test("CGDataConsumer is Sendable")
-        func dataConsumerIsSendable() {
-            let data = Data()
-            let consumer = CGDataConsumer(data: data)
-
-            // Verify CGDataConsumer can be used as Sendable
-            let sendableConsumer: (any Sendable)? = consumer
-            #expect(sendableConsumer != nil)
-        }
-
         @Test("CGDataConsumerCallbacks is Sendable")
         func callbacksIsSendable() {
             let callbacks = CGDataConsumerCallbacks(
@@ -425,6 +416,89 @@ struct CGDataConsumerTests {
             #expect(written == Data([0xCA, 0xFE]))
         }
 
+        @Test("URL-backed consumer rejects writes after finalization")
+        func finalize_urlBacked_rejectsLaterWrites() throws {
+            let url = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent(
+                    "cgdataconsumer-finalized-\(UUID().uuidString).bin"
+                )
+            defer {
+                do {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
+                } catch {
+                    Issue.record(
+                        "Failed to remove temporary file: \(error)"
+                    )
+                }
+            }
+            let consumer = try #require(CGDataConsumer(url: url))
+            let initial: [UInt8] = [0xCA, 0xFE]
+            initial.withUnsafeBufferPointer {
+                #expect(
+                    consumer.putBytes(
+                        $0.baseAddress,
+                        count: $0.count
+                    ) == $0.count
+                )
+            }
+            try consumer.finalize()
+
+            let later: [UInt8] = [0xBA, 0xBE]
+            later.withUnsafeBufferPointer {
+                #expect(
+                    consumer.putBytes(
+                        $0.baseAddress,
+                        count: $0.count
+                    ) == 0
+                )
+            }
+            #expect(try Data(contentsOf: url) == Data(initial))
+        }
+
+        @Test("URL-backed consumer can retry after a failed finalization")
+        func finalize_urlBacked_failureRemainsRetryable() throws {
+            let parent = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent(
+                    "cgdataconsumer-retry-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            let url = parent.appendingPathComponent("output.bin")
+            defer {
+                do {
+                    if FileManager.default.fileExists(atPath: parent.path) {
+                        try FileManager.default.removeItem(at: parent)
+                    }
+                } catch {
+                    Issue.record(
+                        "Failed to remove temporary directory: \(error)"
+                    )
+                }
+            }
+            let consumer = try #require(CGDataConsumer(url: url))
+            let bytes: [UInt8] = [0x12, 0x34]
+            bytes.withUnsafeBufferPointer {
+                #expect(
+                    consumer.putBytes(
+                        $0.baseAddress,
+                        count: $0.count
+                    ) == $0.count
+                )
+            }
+
+            #expect(throws: (any Error).self) {
+                try consumer.finalize()
+            }
+
+            try FileManager.default.createDirectory(
+                at: parent,
+                withIntermediateDirectories: false
+            )
+            try consumer.finalize()
+            #expect(try Data(contentsOf: url) == Data(bytes))
+        }
+
         @Test("URL-backed consumer flushes to disk on deinit when finalize not called")
         func urlBacked_deinitFlushes_bestEffort() throws {
             // deinit performs a best-effort write when the caller never called
@@ -503,13 +577,15 @@ struct CGDataConsumerTests {
 
         @Test("Custom callback receives correct data")
         func customCallbackReceivesData() {
-            var receivedData = Data()
+            let receivedData = Mutex(Data())
 
             var callbacks = CGDataConsumerCallbacks(
                 putBytes: { info, buffer, count in
                     guard let buffer = buffer else { return 0 }
                     let bufferPointer = UnsafeRawBufferPointer(start: buffer, count: count)
-                    receivedData.append(contentsOf: bufferPointer)
+                    receivedData.withLock {
+                        $0.append(contentsOf: bufferPointer)
+                    }
                     return count
                 },
                 releaseConsumer: nil
@@ -528,8 +604,9 @@ struct CGDataConsumerTests {
             }
 
             #expect(written == 5)
-            #expect(receivedData.count == 5)
-            #expect(Array(receivedData) == testBytes)
+            let result = receivedData.withLock { $0 }
+            #expect(result.count == 5)
+            #expect(Array(result) == testBytes)
         }
 
         @Test("Custom callback can return partial write")

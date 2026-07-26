@@ -12,27 +12,29 @@ import Foundation
 // MARK: - Sequential Callbacks
 
 /// A callback function that moves the current position in the data stream back to the beginning.
-public typealias CGDataProviderRewindCallback = (UnsafeMutableRawPointer?) -> Void
+public typealias CGDataProviderRewindCallback =
+    @Sendable (UnsafeMutableRawPointer?) -> Void
 
 /// A callback function that copies from a provider data stream into a Core Graphics buffer.
-public typealias CGDataProviderGetBytesCallback = (
+public typealias CGDataProviderGetBytesCallback = @Sendable (
     UnsafeMutableRawPointer?,       // info
     UnsafeMutableRawPointer?,       // buffer
     Int                             // count
 ) -> Int
 
 /// A callback function that advances the current position in the data stream supplied by the provider.
-public typealias CGDataProviderSkipForwardCallback = (
+public typealias CGDataProviderSkipForwardCallback = @Sendable (
     UnsafeMutableRawPointer?,       // info
     Int64                           // count
 ) -> Int64
 
 /// A callback function that releases any private data or resources associated with the data provider.
-public typealias CGDataProviderReleaseInfoCallback = (UnsafeMutableRawPointer?) -> Void
+public typealias CGDataProviderReleaseInfoCallback =
+    @Sendable (UnsafeMutableRawPointer?) -> Void
 
 /// Defines a structure containing pointers to client-defined callback functions
 /// that manage the sending of data for a sequential-access data provider.
-public struct CGDataProviderSequentialCallbacks: @unchecked Sendable {
+public struct CGDataProviderSequentialCallbacks: Sendable {
     /// The version of the structure. Set to 0.
     public var version: UInt32
 
@@ -74,10 +76,11 @@ public struct CGDataProviderSequentialCallbacks: @unchecked Sendable {
 // MARK: - Direct Access Callbacks
 
 /// A callback function that returns a generic pointer to the provider data.
-public typealias CGDataProviderGetBytePointerCallback = (UnsafeMutableRawPointer?) -> UnsafeRawPointer?
+public typealias CGDataProviderGetBytePointerCallback =
+    @Sendable (UnsafeMutableRawPointer?) -> UnsafeRawPointer?
 
 /// A callback function that copies data from the provider into a Core Graphics buffer.
-public typealias CGDataProviderGetBytesAtPositionCallback = (
+public typealias CGDataProviderGetBytesAtPositionCallback = @Sendable (
     UnsafeMutableRawPointer?,       // info
     UnsafeMutableRawPointer?,       // buffer
     Int64,                          // position
@@ -85,13 +88,13 @@ public typealias CGDataProviderGetBytesAtPositionCallback = (
 ) -> Int
 
 /// A callback function that releases the pointer Core Graphics obtained by calling CGDataProviderGetBytePointerCallback.
-public typealias CGDataProviderReleaseBytePointerCallback = (
+public typealias CGDataProviderReleaseBytePointerCallback = @Sendable (
     UnsafeMutableRawPointer?,       // info
     UnsafeRawPointer?               // pointer
 ) -> Void
 
 /// A callback function that releases data you supply to the data provider.
-public typealias CGDataProviderReleaseDataCallback = (
+public typealias CGDataProviderReleaseDataCallback = @Sendable (
     UnsafeMutableRawPointer?,       // info
     UnsafeRawPointer?,              // data
     Int                             // size
@@ -99,7 +102,7 @@ public typealias CGDataProviderReleaseDataCallback = (
 
 /// Defines pointers to client-defined callback functions that manage the sending
 /// of data for a direct-access data provider.
-public struct CGDataProviderDirectCallbacks: @unchecked Sendable {
+public struct CGDataProviderDirectCallbacks: Sendable {
     /// The version of the structure. Set to 0.
     public var version: UInt32
 
@@ -141,7 +144,7 @@ public struct CGDataProviderDirectCallbacks: @unchecked Sendable {
 // MARK: - CGDataProvider
 
 /// An abstraction for data-reading tasks that eliminates the need to manage a raw memory buffer.
-public class CGDataProvider: @unchecked Sendable {
+public final class CGDataProvider {
 
     /// The type of data provider.
     private enum ProviderType {

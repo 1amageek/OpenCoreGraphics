@@ -23,7 +23,7 @@ import Foundation
 // requires actual PDF parsing, which should be implemented in OpenPDFKit.
 
 /// A type that represents a page in a PDF document.
-public class CGPDFPage: @unchecked Sendable {
+public class CGPDFPage {
 
     /// The document containing this page.
     public private(set) weak var document: CGPDFDocument?

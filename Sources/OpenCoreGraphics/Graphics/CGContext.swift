@@ -8,7 +8,7 @@
 import Foundation
 
 /// A Quartz 2D drawing destination.
-public class CGContext: @unchecked Sendable {
+public class CGContext {
 
     // MARK: - Properties
 
@@ -249,7 +249,9 @@ public class CGContext: @unchecked Sendable {
             guard let softwareRenderer else { return nil }
             self.rendererDelegate = softwareRenderer
         } else {
-            let renderer = CGWebGPUContextRenderer(width: width, height: height)
+            guard let renderer = CGWebGPUContextRenderer(width: width, height: height) else {
+                return nil
+            }
             renderer.setup()
             self.rendererDelegate = renderer
         }
@@ -346,7 +348,7 @@ public class CGContext: @unchecked Sendable {
     /// ```
     ///
     /// - Returns: A `CGImage` containing the rendered content, or `nil` if readback fails.
-    public func makeImageAsync() async -> CGImage? {
+    public nonisolated(nonsending) func makeImageAsync() async -> CGImage? {
         guard let delegate = rendererDelegate else {
             return makeImage()
         }

@@ -8,7 +8,6 @@
 #if arch(wasm32)
 import Foundation
 import SwiftWebGPU
-import JavaScriptKit
 
 /// Internal texture manager with LRU eviction.
 ///
@@ -20,7 +19,7 @@ import JavaScriptKit
 /// Cache identity includes the source image, destination color space, and
 /// rendering intent. A single image may therefore have distinct GPU textures
 /// when it is drawn into contexts with different color-management state.
-internal final class TextureManager: @unchecked Sendable {
+internal final class TextureManager {
 
     // MARK: - Types
 
@@ -41,7 +40,6 @@ internal final class TextureManager: @unchecked Sendable {
         let textureView: GPUTextureView
         let width: Int
         let height: Int
-        var lastAccess: UInt64
 
         var memorySize: Int {
             // RGBA8 = 4 bytes per pixel
@@ -49,22 +47,26 @@ internal final class TextureManager: @unchecked Sendable {
         }
     }
 
+    private struct CacheRecord {
+        let key: TextureKey
+        let entry: TextureEntry
+    }
+
     // MARK: - Properties
 
     private let device: GPUDevice
     private let queue: GPUQueue
+    private let uploadStaging: WebGPUUploadStaging
 
     /// Maximum number of textures to cache
     private let capacity: Int
 
-    /// Cached textures keyed by image identity and color conversion state.
-    private var cache: [TextureKey: TextureEntry] = [:]
-
-    /// Access order for LRU eviction (oldest first)
-    private var accessOrder: [TextureKey] = []
-
-    /// Current access counter for LRU tracking
-    private var accessCounter: UInt64 = 0
+    /// Cached textures ordered from least to most recently used.
+    ///
+    /// The cache is intentionally array-backed. Swift 6.4 release-WASM can
+    /// miscompile `_DictionaryStorage` resizing for this composite key, while
+    /// the bounded capacity keeps the linear lookup cost deterministic.
+    private var cache: [CacheRecord] = []
 
     /// Approximate total GPU memory usage (bytes)
     private(set) var totalMemoryUsage: Int = 0
@@ -87,9 +89,14 @@ internal final class TextureManager: @unchecked Sendable {
     /// - Parameters:
     ///   - device: The WebGPU device
     ///   - capacity: Maximum texture count (default: 100)
-    init(device: GPUDevice, capacity: Int = 100) {
+    init(
+        device: GPUDevice,
+        uploadStaging: WebGPUUploadStaging,
+        capacity: Int = 100
+    ) {
         self.device = device
         self.queue = device.queue
+        self.uploadStaging = uploadStaging
         self.capacity = capacity
     }
 
@@ -113,22 +120,13 @@ internal final class TextureManager: @unchecked Sendable {
             intent: intent
         )
 
-        guard var entry = cache[key] else {
+        guard let index = cache.firstIndex(where: { $0.key == key }) else {
             return nil
         }
 
-        // Update access time
-        accessCounter += 1
-        entry.lastAccess = accessCounter
-        cache[key] = entry
-
-        // Move to end of access order (most recently used)
-        if let index = accessOrder.firstIndex(of: key) {
-            accessOrder.remove(at: index)
-        }
-        accessOrder.append(key)
-
-        return entry.textureView
+        let record = cache.remove(at: index)
+        cache.append(record)
+        return record.entry.textureView
     }
 
     /// Gets or creates a texture for the specified image.
@@ -167,12 +165,15 @@ internal final class TextureManager: @unchecked Sendable {
             intent: intent
         )
 
-        // Evict if necessary
-        evictIfNeeded()
+        guard entry.memorySize <= maxMemoryUsage else {
+            entry.texture.destroy()
+            return nil
+        }
 
-        // Add to cache
-        cache[key] = entry
-        accessOrder.append(key)
+        // Evict before insertion so both capacity and memory limits remain
+        // true immediately after this method returns.
+        evictIfNeeded(additionalMemory: entry.memorySize)
+        cache.append(CacheRecord(key: key, entry: entry))
         totalMemoryUsage += entry.memorySize
 
         return entry.textureView
@@ -208,18 +209,16 @@ internal final class TextureManager: @unchecked Sendable {
             return nil
         }
 
-        uploadPixelData(pixelData, to: texture, width: width, height: height)
-
-        let textureView = texture.createView()
-        accessCounter += 1
+        guard uploadPixelData(pixelData, to: texture, width: width, height: height) else {
+            return nil
+        }
 
         return TextureEntry(
             cgImage: image,
             texture: texture,
-            textureView: textureView,
+            textureView: texture.createView(),
             width: width,
-            height: height,
-            lastAccess: accessCounter
+            height: height
         )
     }
 
@@ -286,13 +285,18 @@ internal final class TextureManager: @unchecked Sendable {
     }
 
     /// Uploads pixel data to a GPU texture.
-    private func uploadPixelData(_ data: Data, to texture: GPUTexture, width: Int, height: Int) {
-        let bytes = [UInt8](data)
-        let uint8Array = JSTypedArray<UInt8>(bytes)
-
+    private func uploadPixelData(
+        _ data: Data,
+        to texture: GPUTexture,
+        width: Int,
+        height: Int
+    ) -> Bool {
+        guard let uint8Array = uploadStaging.uint8Array(copying: data) else {
+            return false
+        }
         queue.writeTexture(
             destination: GPUImageCopyTexture(texture: texture),
-            data: uint8Array.jsObject,
+            data: uint8Array,
             dataLayout: GPUImageDataLayout(
                 offset: 0,
                 bytesPerRow: UInt32(width * 4),
@@ -300,64 +304,55 @@ internal final class TextureManager: @unchecked Sendable {
             ),
             size: GPUExtent3D(width: UInt32(width), height: UInt32(height))
         )
+        return true
     }
 
     // MARK: - Cache Management
 
     /// Evicts entries if over capacity or memory limit.
-    private func evictIfNeeded() {
-        // Evict by count
-        while cache.count >= capacity && !accessOrder.isEmpty {
-            evictLeastRecentlyUsed()
-        }
-
-        // Evict by memory
-        while totalMemoryUsage > maxMemoryUsage && !accessOrder.isEmpty {
+    private func evictIfNeeded(additionalMemory: Int) {
+        while !cache.isEmpty,
+              cache.count >= capacity
+                || totalMemoryUsage + additionalMemory > maxMemoryUsage {
             evictLeastRecentlyUsed()
         }
     }
 
     /// Evicts the least recently used entry.
     private func evictLeastRecentlyUsed() {
-        guard let lruKey = accessOrder.first else { return }
-
-        accessOrder.removeFirst()
-
-        if let entry = cache.removeValue(forKey: lruKey) {
-            totalMemoryUsage -= entry.memorySize
-            onEvict?(entry.cgImage)
-        }
+        guard !cache.isEmpty else { return }
+        let record = cache.removeFirst()
+        totalMemoryUsage -= record.entry.memorySize
+        record.entry.texture.destroy()
+        onEvict?(record.entry.cgImage)
     }
 
     /// Clears all cached textures.
     func clear() {
-        // Snapshot evicted images first so the callback can run after the
-        // dictionary is fully drained — avoids iteration-during-mutation
-        // if the callback indirectly inserts back into the cache.
-        let evicted = cache.values.map { $0.cgImage }
+        // Snapshot records first so callbacks run after the cache is drained.
+        let evicted = cache.map(\.entry)
         cache.removeAll()
-        accessOrder.removeAll()
         totalMemoryUsage = 0
 
-        if let onEvict = onEvict {
-            for cgImage in evicted {
-                onEvict(cgImage)
-            }
+        for entry in evicted {
+            entry.texture.destroy()
+            onEvict?(entry.cgImage)
         }
     }
 
     /// Removes a specific image from the cache.
     func remove(image: CGImage) {
         let identifier = ObjectIdentifier(image)
-        let keys = cache.keys.filter { $0.imageIdentifier == identifier }
-        for key in keys {
-            guard let entry = cache.removeValue(forKey: key) else { continue }
-            totalMemoryUsage -= entry.memorySize
-
-            if let index = accessOrder.firstIndex(of: key) {
-                accessOrder.remove(at: index)
+        var index = cache.count
+        while index > 0 {
+            index -= 1
+            guard cache[index].key.imageIdentifier == identifier else {
+                continue
             }
-            onEvict?(entry.cgImage)
+            let record = cache.remove(at: index)
+            totalMemoryUsage -= record.entry.memorySize
+            record.entry.texture.destroy()
+            onEvict?(record.entry.cgImage)
         }
     }
 

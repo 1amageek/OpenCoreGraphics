@@ -27,7 +27,7 @@ import Foundation
 /// PDF provides an efficient format for cross-platform exchange of documents with rich content.
 /// PDF files can contain multiple pages of images and text. A PDF document object contains all
 /// the information relating to a PDF document, including its catalog and contents.
-public class CGPDFDocument: @unchecked Sendable {
+public class CGPDFDocument {
 
     /// The data provider supplying the PDF data.
     internal let dataProvider: CGDataProvider?

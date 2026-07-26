@@ -16,7 +16,7 @@ import Foundation
 /// to create offscreen images for patterns or backgrounds. When you draw
 /// into a CGLayer object, you can then draw the contents of that object
 /// into any graphics context.
-public class CGLayer: @unchecked Sendable {
+public class CGLayer {
 
     /// The size of the layer, in points.
     public let size: CGSize

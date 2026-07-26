@@ -10,12 +10,12 @@ import Foundation
 
 
 /// A class that provides rendering buffers for graphics operations.
-public final class CGRenderingBufferProvider: Hashable, Equatable, @unchecked Sendable {
+public final class CGRenderingBufferProvider: Hashable, Equatable {
 
     // MARK: - Info Protocol
 
     /// A protocol that provides information about a rendering buffer.
-    public protocol Info: Sendable {
+    public protocol Info {
         /// The width of the buffer in pixels.
         var width: Int { get }
 
@@ -158,5 +158,3 @@ public final class CGRenderingBufferProvider: Hashable, Equatable, @unchecked Se
 extension CGRenderingBufferProvider: CGRenderingBufferProvider.Info {
     // CGRenderingBufferProvider itself conforms to its own Info protocol
 }
-
-

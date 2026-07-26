@@ -12,17 +12,18 @@ import Foundation
 // MARK: - CGFunctionCallbacks
 
 /// Performs custom operations on the supplied input data to produce output data.
-public typealias CGFunctionEvaluateCallback = (
+public typealias CGFunctionEvaluateCallback = @Sendable (
     UnsafeMutableRawPointer?,           // info
     UnsafePointer<CGFloat>?,            // in
     UnsafeMutablePointer<CGFloat>?      // out
 ) -> Void
 
 /// Performs custom clean-up tasks when Core Graphics deallocates a CGFunction object.
-public typealias CGFunctionReleaseInfoCallback = (UnsafeMutableRawPointer?) -> Void
+public typealias CGFunctionReleaseInfoCallback =
+    @Sendable (UnsafeMutableRawPointer?) -> Void
 
 /// A structure that contains callbacks needed by a CGFunction object.
-public struct CGFunctionCallbacks {
+public struct CGFunctionCallbacks: Sendable {
     /// The version of the structure. Set to 0.
     public var version: UInt32
 
@@ -49,7 +50,7 @@ public struct CGFunctionCallbacks {
 /// These functions can take an arbitrary number of floating-point input values
 /// and pass back an arbitrary number of floating-point output values.
 /// Core Graphics uses function objects to implement shadings.
-public class CGFunction: @unchecked Sendable {
+public final class CGFunction {
 
     /// The number of input values.
     public let domainDimension: Int
@@ -154,7 +155,11 @@ public class CGFunction: @unchecked Sendable {
         var output = [CGFloat](repeating: 0, count: rangeDimension)
         input.withUnsafeBufferPointer { inputPtr in
             output.withUnsafeMutableBufferPointer { outputPtr in
-                callbacks.evaluate?(info, inputPtr.baseAddress, outputPtr.baseAddress)
+                callbacks.evaluate?(
+                    info,
+                    inputPtr.baseAddress,
+                    outputPtr.baseAddress
+                )
             }
         }
         return output
@@ -183,4 +188,3 @@ extension CGFunction: Hashable {
         hasher.combine(ObjectIdentifier(self))
     }
 }
-

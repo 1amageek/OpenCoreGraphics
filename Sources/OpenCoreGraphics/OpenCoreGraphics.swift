@@ -11,15 +11,16 @@
 #if arch(wasm32)
 import SwiftWebGPU
 import JavaScriptKit
+import Synchronization
 
 /// Global storage for the WebGPU device.
 /// This is set by `setupGraphicsContext()` and accessed by `CGWebGPUContextRenderer`.
-nonisolated(unsafe) var _cgGlobalDevice: GPUDevice?
+private let cgGlobalDevice = Mutex<GPUDevice?>(nil)
 
 /// Returns the global WebGPU device.
 /// - Returns: The GPUDevice set by `setupGraphicsContext()`, or nil if not initialized.
 public func getGlobalDevice() -> GPUDevice? {
-    return _cgGlobalDevice
+    cgGlobalDevice.withLock { $0 }
 }
 
 /// Initializes WebGPU for graphics rendering.
@@ -59,7 +60,9 @@ public func setupGraphicsContext() async throws {
     // Request device
     do {
         let device = try await adapter.requestDevice()
-        _cgGlobalDevice = device
+        cgGlobalDevice.withLock { storedDevice in
+            storedDevice = device
+        }
     } catch {
         throw GraphicsContextError.deviceNotAvailable
     }

@@ -33,7 +33,7 @@ import JavaScriptKit
 /// context.addRect(CGRect(x: 100, y: 100, width: 200, height: 150))
 /// context.fillPath()
 /// ```
-internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, CGLayerRendererDelegate, @unchecked Sendable {
+internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate, CGLayerRendererDelegate {
 
     private struct PatternCell {
         let pattern: CGPattern
@@ -72,6 +72,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     /// Buffer pool for efficient vertex buffer allocation
     private var bufferPool: BufferPool
 
+    /// Reusable JavaScript typed arrays for synchronous WebGPU uploads.
+    private let uploadStaging: WebGPUUploadStaging
+
     /// Geometry cache for tessellation result caching
     private var geometryCache: GeometryCache
 
@@ -80,10 +83,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     private var nearestSampler: GPUSampler?
 
     /// Callback-rendered pattern cells retained with their offscreen contexts.
-    private var patternCells: [ObjectIdentifier: PatternCell] = [:]
+    private var patternCells: [PatternCell] = []
 
     /// Prevents a pattern callback from recursively requesting its own cell.
-    private var activePatternCells: Set<ObjectIdentifier> = []
+    private var activePatternCells: [ObjectIdentifier] = []
 
     // MARK: - Offscreen Textures
 
@@ -153,14 +156,16 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     /// - Parameters:
     ///   - width: Width of the viewport in pixels.
     ///   - height: Height of the viewport in pixels.
-    init(width: Int, height: Int) {
+    init?(width: Int, height: Int) {
         // Get device from Swift global (set by setupGraphicsContext())
-        guard let device = getGlobalDevice() else {
-            fatalError("WebGPU not initialized. Call setupGraphicsContext() before using CGContext.")
+        guard let device = getGlobalDevice(),
+              let uploadStaging = WebGPUUploadStaging() else {
+            return nil
         }
 
         self.device = device
         self.queue = device.queue
+        self.uploadStaging = uploadStaging
         self.textureFormat = .bgra8unorm
         self.viewportWidth = CGFloat(width)
         self.viewportHeight = CGFloat(height)
@@ -172,8 +177,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             viewportHeight: CGFloat(height)
         )
         self.pipelineRegistry = PipelineRegistry(device: device, textureFormat: textureFormat)
-        self.textureManager = TextureManager(device: device)
-        self.bufferPool = BufferPool(device: device)
+        self.textureManager = TextureManager(device: device, uploadStaging: uploadStaging)
+        self.bufferPool = BufferPool(device: device, uploadStaging: uploadStaging)
         self.geometryCache = GeometryCache()
     }
 
@@ -184,14 +189,18 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     ///   - textureFormat: The texture format for the render target.
     ///   - viewportWidth: Width of the viewport in pixels.
     ///   - viewportHeight: Height of the viewport in pixels.
-    init(
+    init?(
         device: GPUDevice,
         textureFormat: GPUTextureFormat,
         viewportWidth: CGFloat = 800,
         viewportHeight: CGFloat = 600
     ) {
+        guard let uploadStaging = WebGPUUploadStaging() else {
+            return nil
+        }
         self.device = device
         self.queue = device.queue
+        self.uploadStaging = uploadStaging
         self.textureFormat = textureFormat
         self.viewportWidth = viewportWidth
         self.viewportHeight = viewportHeight
@@ -203,8 +212,8 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             viewportHeight: viewportHeight
         )
         self.pipelineRegistry = PipelineRegistry(device: device, textureFormat: textureFormat)
-        self.textureManager = TextureManager(device: device)
-        self.bufferPool = BufferPool(device: device)
+        self.textureManager = TextureManager(device: device, uploadStaging: uploadStaging)
+        self.bufferPool = BufferPool(device: device, uploadStaging: uploadStaging)
         self.geometryCache = GeometryCache()
     }
 
@@ -212,9 +221,6 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     /// Initialize rendering pipelines. Must be called before rendering.
     func setup() {
-        // Warm up the pipeline registry (pre-creates commonly used pipelines)
-        pipelineRegistry.warmUp()
-
         // Create linear sampler for texture sampling
         linearSampler = device.createSampler(descriptor: GPUSamplerDescriptor(
             addressModeU: .clampToEdge,
@@ -1659,7 +1665,9 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
     private func patternCell(for pattern: CGPattern) -> PatternCell? {
         let key = ObjectIdentifier(pattern)
-        if let cached = patternCells[key] {
+        if let cached = patternCells.first(
+            where: { ObjectIdentifier($0.pattern) == key }
+        ) {
             return cached
         }
         guard !activePatternCells.contains(key),
@@ -1668,8 +1676,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             return nil
         }
 
-        activePatternCells.insert(key)
-        defer { activePatternCells.remove(key) }
+        activePatternCells.append(key)
+        defer {
+            if let index = activePatternCells.firstIndex(of: key) {
+                activePatternCells.remove(at: index)
+            }
+        }
 
         let width = max(1, Int(ceil(pattern.bounds.width)))
         let height = max(1, Int(ceil(pattern.bounds.height)))
@@ -1699,7 +1711,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard let textureView = renderer.effectiveRenderTarget else { return nil }
 
         let cell = PatternCell(pattern: pattern, context: context, textureView: textureView)
-        patternCells[key] = cell
+        patternCells.append(cell)
         return cell
     }
 
@@ -1724,11 +1736,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             pixelData = buffer.rgba8
         }
 
-        let bytes = [UInt8](pixelData)
-        let typedArray = JSTypedArray<UInt8>(bytes)
+        guard let typedArray = uploadStaging.uint8Array(copying: pixelData) else {
+            return nil
+        }
         queue.writeTexture(
             destination: GPUImageCopyTexture(texture: texture),
-            data: typedArray.jsObject,
+            data: typedArray,
             dataLayout: GPUImageDataLayout(
                 offset: 0,
                 bytesPerRow: UInt32(width * 4),
@@ -2365,8 +2378,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "Blur Uniforms"
         ))
 
-        let jsArray = JSTypedArray<Float32>(data)
-        queue.writeBuffer(buffer, bufferOffset: 0, data: jsArray.jsObject)
+        queue.writeBuffer(
+            buffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: data)
+        )
         return buffer
     }
 
@@ -2389,8 +2405,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "Shadow Uniforms"
         ))
 
-        let jsArray = JSTypedArray<Float32>(data)
-        queue.writeBuffer(buffer, bufferOffset: 0, data: jsArray.jsObject)
+        queue.writeBuffer(
+            buffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: data)
+        )
         return buffer
     }
 
@@ -2418,8 +2437,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         guard !batch.vertices.isEmpty else { return buffer }
 
         let floatData = batch.toFloatArray()
-        let jsTypedArray = JSTypedArray<Float32>(floatData)
-        queue.writeBuffer(buffer, bufferOffset: 0, data: jsTypedArray.jsObject)
+        queue.writeBuffer(
+            buffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: floatData)
+        )
 
         return buffer
     }
@@ -2468,8 +2490,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "Pattern Uniforms"
         ))
 
-        let jsArray = JSTypedArray<Float32>(data)
-        queue.writeBuffer(buffer, bufferOffset: 0, data: jsArray.jsObject)
+        queue.writeBuffer(
+            buffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: data)
+        )
         return buffer
     }
 
@@ -2779,8 +2804,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "Image Vertex Buffer"
         ))
 
-        let jsArray = JSTypedArray<Float32>(vertices)
-        queue.writeBuffer(buffer, bufferOffset: 0, data: jsArray.jsObject)
+        queue.writeBuffer(
+            buffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: vertices)
+        )
 
         return buffer
     }
@@ -2797,8 +2825,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "Image Uniforms"
         ))
 
-        let jsArray = JSTypedArray<Float32>(data)
-        queue.writeBuffer(buffer, bufferOffset: 0, data: jsArray.jsObject)
+        queue.writeBuffer(
+            buffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: data)
+        )
 
         return buffer
     }
@@ -2815,7 +2846,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     ///   - height: The height of the image in pixels.
     ///   - colorSpace: The color space for the resulting image.
     /// - Returns: A CGImage containing the rendered content, or nil if readback fails.
-    func makeImage(width: Int, height: Int, colorSpace: CGColorSpace) async -> CGImage? {
+    nonisolated(nonsending) func makeImage(
+        width: Int,
+        height: Int,
+        colorSpace: CGColorSpace
+    ) async -> CGImage? {
         // Resolve MSAA content to the internal render texture if needed
         resolveMSAAIfNeeded()
 
@@ -3035,8 +3070,11 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             label: "Blit Vertex Buffer"
         ))
 
-        let jsArray = JSTypedArray<Float32>(vertices)
-        queue.writeBuffer(vertexBuffer, bufferOffset: 0, data: jsArray.jsObject)
+        queue.writeBuffer(
+            vertexBuffer,
+            bufferOffset: 0,
+            data: uploadStaging.float32Array(copying: vertices)
+        )
 
         // Create uniform buffer with alpha = 1.0
         let uniformBuffer = createImageUniformBuffer(alpha: 1.0)
@@ -3108,10 +3146,12 @@ extension CGWebGPUContextRenderer {
 
         let device = try await adapter.requestDevice()
 
-        let renderer = CGWebGPUContextRenderer(
+        guard let renderer = CGWebGPUContextRenderer(
             device: device,
             textureFormat: gpu.preferredCanvasFormat
-        )
+        ) else {
+            return nil
+        }
         renderer.setup()
 
         return renderer

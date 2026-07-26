@@ -38,13 +38,15 @@ public enum CGPatternTiling: Int32, Sendable {
 // MARK: - CGPatternCallbacks
 
 /// Draws a pattern cell.
-public typealias CGPatternDrawPatternCallback = (UnsafeMutableRawPointer?, CGContext?) -> Void
+public typealias CGPatternDrawPatternCallback =
+    @Sendable (UnsafeMutableRawPointer?, CGContext?) -> Void
 
 /// Release private data or resources associated with the pattern.
-public typealias CGPatternReleaseInfoCallback = (UnsafeMutableRawPointer?) -> Void
+public typealias CGPatternReleaseInfoCallback =
+    @Sendable (UnsafeMutableRawPointer?) -> Void
 
 /// A structure that holds a version and two callback functions for drawing a custom pattern.
-public struct CGPatternCallbacks {
+public struct CGPatternCallbacks: Sendable {
     /// The version of the structure. Set to 0.
     public var version: UInt32
 
@@ -67,7 +69,7 @@ public struct CGPatternCallbacks {
 // MARK: - CGPattern
 
 /// A 2D pattern to be used for drawing graphics paths.
-public class CGPattern: @unchecked Sendable {
+public final class CGPattern {
 
     /// The bounding box of the pattern.
     public let bounds: CGRect

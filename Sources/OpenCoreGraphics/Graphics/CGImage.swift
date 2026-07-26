@@ -11,7 +11,7 @@ import Foundation
 ///
 /// A bitmap image is a rectangular array of pixels, each of which represents
 /// a single sample or data point from a source image.
-public final class CGImage: @unchecked Sendable {
+public final class CGImage {
 
     /// The width, in pixels, of the image.
     public let width: Int

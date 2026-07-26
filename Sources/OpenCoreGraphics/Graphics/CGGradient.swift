@@ -14,7 +14,7 @@ import Foundation
 ///
 /// A gradient defines a smooth transition between colors across an area.
 /// Colors can be provided as component values or as CGColor objects.
-public class CGGradient: @unchecked Sendable {
+public final class CGGradient: Sendable {
 
     /// The color space in which the gradient colors are specified.
     public let colorSpace: CGColorSpace
@@ -234,4 +234,3 @@ public class CGGradient: @unchecked Sendable {
         return CGColor(space: colorSpace, componentArray: interpolated)
     }
 }
-

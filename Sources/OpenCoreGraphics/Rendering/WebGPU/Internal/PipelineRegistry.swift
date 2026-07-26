@@ -11,8 +11,8 @@ import SwiftWebGPU
 
 /// Internal pipeline registry for CGWebGPUContextRenderer.
 ///
-/// Manages WebGPU render pipelines with caching and optional pre-warming.
-internal final class PipelineRegistry: @unchecked Sendable {
+/// Manages WebGPU render pipelines with demand-driven caching.
+internal final class PipelineRegistry {
 
     // MARK: - Types
 
@@ -20,6 +20,11 @@ internal final class PipelineRegistry: @unchecked Sendable {
     private struct PipelineCacheKey: Hashable {
         let type: PipelineType
         let sampleCount: Int
+    }
+
+    private struct PipelineCacheEntry {
+        let key: PipelineCacheKey
+        let pipeline: GPURenderPipeline
     }
 
     /// Pipeline type identifier.
@@ -45,10 +50,8 @@ internal final class PipelineRegistry: @unchecked Sendable {
     /// Current sample count for MSAA. 1 = no MSAA, 4 = 4x MSAA.
     private(set) var sampleCount: Int
 
-    private var pipelines: [PipelineCacheKey: GPURenderPipeline] = [:]
+    private var pipelines: [PipelineCacheEntry] = []
     private var shaderModules: [String: GPUShaderModule] = [:]
-    private var isWarmedUp: Bool = false
-
     // MARK: - Initialization
 
     init(device: GPUDevice, textureFormat: GPUTextureFormat, sampleCount: Int = 1) {
@@ -63,78 +66,41 @@ internal final class PipelineRegistry: @unchecked Sendable {
         self.sampleCount = count
     }
 
-    // MARK: - Warm-up
-
-    /// Pre-creates commonly used pipelines for the current sample count.
-    func warmUp() {
-        guard !isWarmedUp else { return }
-
-        createShaderModules()
-
-        let supportedModes: [CGBlendMode] = [
-            .normal, .copy, .sourceIn, .sourceOut, .sourceAtop,
-            .destinationOver, .destinationIn, .destinationOut, .destinationAtop,
-            .xor, .plusLighter, .darken, .lighten
-        ]
-
-        for mode in supportedModes {
-            let blendKey = PipelineCacheKey(type: .blend(mode), sampleCount: sampleCount)
-            let clippedKey = PipelineCacheKey(type: .clipped(mode), sampleCount: sampleCount)
-            pipelines[blendKey] = createBlendPipeline(for: mode)
-            pipelines[clippedKey] = createClippedPipeline(for: mode)
-        }
-
-        pipelines[PipelineCacheKey(type: .stencilWrite, sampleCount: sampleCount)] = createStencilWritePipeline()
-        pipelines[PipelineCacheKey(type: .image(.normal, false), sampleCount: sampleCount)] = createImagePipeline(for: .normal, clipped: false)
-        pipelines[PipelineCacheKey(type: .image(.normal, true), sampleCount: sampleCount)] = createImagePipeline(for: .normal, clipped: true)
-        pipelines[PipelineCacheKey(type: .maskedBlend(.normal, false), sampleCount: sampleCount)] = createMaskedBlendPipeline(for: .normal, clipped: false)
-        pipelines[PipelineCacheKey(type: .maskedBlend(.normal, true), sampleCount: sampleCount)] = createMaskedBlendPipeline(for: .normal, clipped: true)
-        pipelines[PipelineCacheKey(type: .maskedImage(.normal, false), sampleCount: sampleCount)] = createMaskedImagePipeline(for: .normal, clipped: false)
-        pipelines[PipelineCacheKey(type: .maskedImage(.normal, true), sampleCount: sampleCount)] = createMaskedImagePipeline(for: .normal, clipped: true)
-        pipelines[PipelineCacheKey(type: .pattern(.normal, false), sampleCount: sampleCount)] = createPatternPipeline(for: .normal, clipped: false)
-        pipelines[PipelineCacheKey(type: .pattern(.normal, true), sampleCount: sampleCount)] = createPatternPipeline(for: .normal, clipped: true)
-        pipelines[PipelineCacheKey(type: .blurHorizontal, sampleCount: sampleCount)] = createBlurHorizontalPipeline()
-        pipelines[PipelineCacheKey(type: .blurVertical, sampleCount: sampleCount)] = createBlurVerticalPipeline()
-        pipelines[PipelineCacheKey(type: .shadowComposite, sampleCount: sampleCount)] = createShadowCompositePipeline()
-
-        isWarmedUp = true
-    }
-
     // MARK: - Pipeline Access
 
     func getPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
         let key = PipelineCacheKey(type: .blend(mode), sampleCount: sampleCount)
-        if let existing = pipelines[key] {
+        if let existing = cachedPipeline(for: key) {
             return existing
         }
 
         ensureShaderModulesCreated()
 
         let pipeline = createBlendPipeline(for: mode)
-        if let pipeline = pipeline {
-            pipelines[key] = pipeline
+        if let pipeline {
+            cache(pipeline, for: key)
         }
         return pipeline
     }
 
     func getClippedPipeline(for mode: CGBlendMode) -> GPURenderPipeline? {
         let key = PipelineCacheKey(type: .clipped(mode), sampleCount: sampleCount)
-        if let existing = pipelines[key] {
+        if let existing = cachedPipeline(for: key) {
             return existing
         }
 
         ensureShaderModulesCreated()
 
         let pipeline = createClippedPipeline(for: mode)
-        if let pipeline = pipeline {
-            pipelines[key] = pipeline
+        if let pipeline {
+            cache(pipeline, for: key)
         }
         return pipeline
     }
 
     func getPipeline(_ type: PipelineType) -> GPURenderPipeline? {
         let key = PipelineCacheKey(type: type, sampleCount: sampleCount)
-        if let existing = pipelines[key] {
+        if let existing = cachedPipeline(for: key) {
             return existing
         }
 
@@ -164,10 +130,37 @@ internal final class PipelineRegistry: @unchecked Sendable {
             pipeline = createShadowCompositePipeline()
         }
 
-        if let pipeline = pipeline {
-            pipelines[key] = pipeline
+        if let pipeline {
+            cache(pipeline, for: key)
         }
         return pipeline
+    }
+
+    private func cachedPipeline(
+        for key: PipelineCacheKey
+    ) -> GPURenderPipeline? {
+        pipelines.first(where: { $0.key == key })?.pipeline
+    }
+
+    private func cache(
+        _ pipeline: GPURenderPipeline,
+        for key: PipelineCacheKey
+    ) {
+        if let index = pipelines.firstIndex(
+            where: { $0.key == key }
+        ) {
+            pipelines[index] = PipelineCacheEntry(
+                key: key,
+                pipeline: pipeline
+            )
+            return
+        }
+        pipelines.append(
+            PipelineCacheEntry(
+                key: key,
+                pipeline: pipeline
+            )
+        )
     }
 
     private func ensureShaderModulesCreated() {

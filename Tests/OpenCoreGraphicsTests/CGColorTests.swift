@@ -454,6 +454,42 @@ struct CGColorTests {
             #expect(converted?.numberOfComponents == rgb1.numberOfComponents)
         }
 
+        @Test("Device and profiled RGB preserve components without a shared profile transform")
+        func deviceAndProfiledRGBConversion() throws {
+            let sRGB = try #require(
+                CGColorSpace(name: CGColorSpace.sRGB)
+            )
+            let deviceColor = CGColor(
+                red: 0.25,
+                green: 0.5,
+                blue: 0.75,
+                alpha: 0.875
+            )
+            let profiledColor = try #require(
+                deviceColor.converted(
+                    to: sRGB,
+                    intent: .defaultIntent,
+                    options: nil
+                )
+            )
+            #expect(
+                profiledColor.components
+                    == [0.25, 0.5, 0.75, 0.875]
+            )
+
+            let deviceRoundTrip = try #require(
+                profiledColor.converted(
+                    to: .deviceRGB,
+                    intent: .defaultIntent,
+                    options: nil
+                )
+            )
+            #expect(
+                deviceRoundTrip.components
+                    == [0.25, 0.5, 0.75, 0.875]
+            )
+        }
+
         @Test("CMYK color can be created")
         func cmykColorCreation() {
             // Verify CMYK color can be created and has correct properties

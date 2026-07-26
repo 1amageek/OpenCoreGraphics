@@ -12,7 +12,7 @@ import Foundation
 ///
 /// Tessellation is CPU-intensive. This cache stores tessellated vertices
 /// for reuse when the same path is drawn multiple times.
-internal final class GeometryCache: @unchecked Sendable {
+internal final class GeometryCache {
 
     // MARK: - Types
 
@@ -39,16 +39,21 @@ internal final class GeometryCache: @unchecked Sendable {
         var lastAccess: UInt64
     }
 
+    private struct CacheRecord {
+        let hash: PathHash
+        var geometry: CachedGeometry
+    }
+
     // MARK: - Properties
 
     /// Maximum number of cached geometries
     private let capacity: Int
 
-    /// Cache storage
-    private var cache: [PathHash: CachedGeometry] = [:]
-
-    /// Access order for LRU eviction (oldest first)
-    private var accessOrder: [PathHash] = []
+    /// Cache storage ordered from least to most recently used.
+    ///
+    /// This bounded array avoids the Swift 6.4 release-WASM
+    /// `_DictionaryStorage` miscompile observed for custom key types.
+    private var cache: [CacheRecord] = []
 
     /// Current access counter
     private var accessCounter: UInt64 = 0
@@ -132,24 +137,18 @@ internal final class GeometryCache: @unchecked Sendable {
     /// - Parameter hash: The path hash
     /// - Returns: Cached geometry, or nil if not found
     func get(_ hash: PathHash) -> CachedGeometry? {
-        guard var entry = cache[hash] else {
+        guard let index = cache.firstIndex(where: { $0.hash == hash }) else {
             misses += 1
             return nil
         }
 
-        // Update access time
+        var record = cache.remove(at: index)
         accessCounter += 1
-        entry.lastAccess = accessCounter
-        cache[hash] = entry
-
-        // Move to end of access order
-        if let index = accessOrder.firstIndex(of: hash) {
-            accessOrder.remove(at: index)
-        }
-        accessOrder.append(hash)
+        record.geometry.lastAccess = accessCounter
+        cache.append(record)
 
         hits += 1
-        return entry
+        return record.geometry
     }
 
     /// Gets cached geometry or tessellates and caches the result.
@@ -211,8 +210,7 @@ internal final class GeometryCache: @unchecked Sendable {
         evictIfNeeded()
 
         // Store in cache
-        cache[hash] = geometry
-        accessOrder.append(hash)
+        cache.append(CacheRecord(hash: hash, geometry: geometry))
 
         return geometry
     }
@@ -223,36 +221,36 @@ internal final class GeometryCache: @unchecked Sendable {
     ///   - geometry: The geometry to cache
     ///   - hash: The path hash
     func store(_ geometry: CachedGeometry, for hash: PathHash) {
+        if let existing = cache.firstIndex(where: { $0.hash == hash }) {
+            cache.remove(at: existing)
+        }
         evictIfNeeded()
 
         var entry = geometry
         accessCounter += 1
         entry.lastAccess = accessCounter
 
-        cache[hash] = entry
-        accessOrder.append(hash)
+        cache.append(CacheRecord(hash: hash, geometry: entry))
     }
 
     // MARK: - Cache Management
 
     /// Evicts entries if over capacity.
     private func evictIfNeeded() {
-        while cache.count >= capacity && !accessOrder.isEmpty {
+        while cache.count >= capacity && !cache.isEmpty {
             evictLeastRecentlyUsed()
         }
     }
 
     /// Evicts the least recently used entry.
     private func evictLeastRecentlyUsed() {
-        guard let lruKey = accessOrder.first else { return }
-        cache.removeValue(forKey: lruKey)
-        accessOrder.removeFirst()
+        guard !cache.isEmpty else { return }
+        cache.removeFirst()
     }
 
     /// Clears all cached geometry.
     func clear() {
         cache.removeAll()
-        accessOrder.removeAll()
         hits = 0
         misses = 0
     }

@@ -4,7 +4,6 @@
 //
 
 import Foundation
-import Synchronization
 import Testing
 @testable import OpenCoreGraphics
 
@@ -146,10 +145,10 @@ struct CGImageMaskClipTests {
     @Test("Context forwards image-mask clips without replacing them by rectangles")
     func contextStateContainsImageMask() throws {
         final class Renderer: CGContextStatefulRendererDelegate {
-            private let maskClips = Mutex<[CGImageMaskClip]>([])
+            private var maskClips: [CGImageMaskClip] = []
 
             func receivedMaskClips() -> [CGImageMaskClip] {
-                return maskClips.withLock { $0 }
+                maskClips
             }
 
             func fill(path: CGPath, color: CGColor, alpha: CGFloat, blendMode: CGBlendMode, rule: CGPathFillRule) {}
@@ -163,7 +162,7 @@ struct CGImageMaskClipTests {
             func strokeWithPattern(path: CGPath, pattern: CGPattern, patternSpace: CGColorSpace, colorComponents: [CGFloat]?, patternPhase: CGSize, lineWidth: CGFloat, lineCap: CGLineCap, lineJoin: CGLineJoin, miterLimit: CGFloat, dashPhase: CGFloat, dashLengths: [CGFloat], alpha: CGFloat, blendMode: CGBlendMode) {}
 
             func fill(path: CGPath, color: CGColor, alpha: CGFloat, blendMode: CGBlendMode, rule: CGPathFillRule, state: CGDrawingState) {
-                maskClips.withLock { $0 = state.imageMaskClips }
+                maskClips = state.imageMaskClips
             }
         }
 

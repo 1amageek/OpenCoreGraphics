@@ -11,7 +11,7 @@ import Foundation
 
 /// A mutable graphics path: a mathematical description of shapes or lines
 /// to be drawn in a graphics context.
-public class CGMutablePath: CGPath, @unchecked Sendable {
+public class CGMutablePath: CGPath {
 
     /// Creates a mutable graphics path.
     public override init() {
@@ -337,4 +337,3 @@ public class CGMutablePath: CGPath, @unchecked Sendable {
         commands.append(.closeSubpath)
     }
 }
-
