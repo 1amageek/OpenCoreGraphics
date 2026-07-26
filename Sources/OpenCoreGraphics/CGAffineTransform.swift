@@ -298,7 +298,16 @@ extension CGAffineTransform {
         self.init(a: cos(angle), b: sin(angle), c: -sin(angle), d: cos(angle), tx: 0, ty: 0)
     }
 
-    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+    public static var identity: CGAffineTransform {
+        CGAffineTransform(
+            a: CGFloat(1),
+            b: CGFloat(0),
+            c: CGFloat(0),
+            d: CGFloat(1),
+            tx: CGFloat(0),
+            ty: CGFloat(0)
+        )
+    }
 
     @inlinable
     public var isIdentity: Bool {
