@@ -5,7 +5,7 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// A Quartz 2D drawing destination.
 public class CGContext {
@@ -1308,15 +1308,14 @@ public class CGContext {
     /// Draws the contents of a layer into the specified rectangle.
     public func draw(_ layer: CGLayer, in rect: CGRect) {
         let transformedRect = rect.applying(currentState.ctm)
-        if let layerRenderer = rendererDelegate as? CGLayerRendererDelegate {
-            layerRenderer.draw(
-                layer: layer,
-                in: transformedRect,
-                alpha: currentState.alpha,
-                blendMode: currentState.blendMode,
-                interpolationQuality: currentState.interpolationQuality,
-                state: currentDrawingState
-            )
+        if rendererDelegate?.draw(
+            layer: layer,
+            in: transformedRect,
+            alpha: currentState.alpha,
+            blendMode: currentState.blendMode,
+            interpolationQuality: currentState.interpolationQuality,
+            state: currentDrawingState
+        ) == true {
             return
         }
 

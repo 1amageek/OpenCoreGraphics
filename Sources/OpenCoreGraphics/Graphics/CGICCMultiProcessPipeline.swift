@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CGICCMultiProcessPipeline: Hashable, Sendable {
     let inputChannels: Int

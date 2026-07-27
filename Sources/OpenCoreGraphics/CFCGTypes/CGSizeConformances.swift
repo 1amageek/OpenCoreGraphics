@@ -7,7 +7,7 @@
 //
 
 #if canImport(Darwin)
-import Foundation
+import OpenCoreGraphicsSupport
 
 extension CGSize: @retroactive Equatable {
 

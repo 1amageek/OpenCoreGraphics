@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 /// Component type and bit depth information.

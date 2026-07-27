@@ -5,7 +5,7 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// A bitmap image or image mask.
 ///
@@ -563,10 +563,9 @@ public final class CGImage {
                         return false
                     }
 
-                    memcpy(
-                        destBase.advanced(by: destOffset),
-                        sourceBase.advanced(by: sourceOffset),
-                        newBytesPerRow
+                    destBase.advanced(by: destOffset).copyMemory(
+                        from: sourceBase.advanced(by: sourceOffset),
+                        byteCount: newBytesPerRow
                     )
                 }
                 return true

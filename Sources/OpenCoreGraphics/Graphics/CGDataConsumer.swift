@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 import Synchronization
 
 
@@ -147,7 +147,7 @@ public final class CGDataConsumer {
                 do {
                     try data.write(to: url)
                 } catch {
-                    print("CGDataConsumer: fallback write failed in deinit: \(error)")
+                    print("CGDataConsumer: fallback write failed in deinit for \(url)")
                 }
             }
         case .data:

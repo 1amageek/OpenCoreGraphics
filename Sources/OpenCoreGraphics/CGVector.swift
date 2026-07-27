@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 #if arch(wasm32)
 
@@ -66,6 +66,7 @@ extension CGVector: Hashable {
 
 // MARK: - Codable
 
+#if !hasFeature(Embedded)
 extension CGVector: Codable {
     enum CodingKeys: String, CodingKey {
         case dx
@@ -85,6 +86,7 @@ extension CGVector: Codable {
         try container.encode(dy, forKey: .dy)
     }
 }
+#endif
 
 // MARK: - CustomDebugStringConvertible
 

@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal final class Type2CharStringInterpreter {
     enum Format {
@@ -453,7 +453,7 @@ internal final class Type2CharStringInterpreter {
         default:
             return false
         }
-        return stack.count <= stackLimit && stack.allSatisfy(\.isFinite)
+        return stack.count <= stackLimit && stack.allSatisfy({ $0.isFinite })
     }
 
     private func applyVariationIndex() -> Bool {

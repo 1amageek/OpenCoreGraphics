@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 import SwiftWebGPU
 
 /// Internal pipeline registry for CGWebGPUContextRenderer.

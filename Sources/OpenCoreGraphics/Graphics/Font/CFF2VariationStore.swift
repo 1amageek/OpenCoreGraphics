@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CFF2VariationStore: Sendable {
     private let store: ItemVariationStore

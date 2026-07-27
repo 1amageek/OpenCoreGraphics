@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// An image mask mapped from user space into device space as part of graphics state.
 internal struct CGImageMaskClip: Equatable {

@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 import SwiftWebGPU
 
 /// Internal texture manager with LRU eviction.
@@ -330,7 +330,7 @@ internal final class TextureManager {
     /// Clears all cached textures.
     func clear() {
         // Snapshot records first so callbacks run after the cache is drained.
-        let evicted = cache.map(\.entry)
+        let evicted = cache.map({ $0.entry })
         cache.removeAll()
         totalMemoryUsage = 0
 

@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 /// Internal representation of a path element for storage

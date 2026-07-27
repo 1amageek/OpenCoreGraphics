@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CFFIndex: Sendable {
     let data: Data

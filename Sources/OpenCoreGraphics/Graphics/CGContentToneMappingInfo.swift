@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 /// Tone mapping information for HDR content.

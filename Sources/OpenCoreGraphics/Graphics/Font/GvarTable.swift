@@ -5,7 +5,7 @@
 //  OpenType `gvar` tuple variation decoding and IUP interpolation.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct GvarTable: Sendable {
     private struct TupleHeader: Sendable {

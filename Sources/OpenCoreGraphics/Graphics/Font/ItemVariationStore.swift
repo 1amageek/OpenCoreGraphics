@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Shared OpenType item variation store used by HVAR, VVAR, CFF2, and other variable tables.
 internal struct ItemVariationStore: Sendable {

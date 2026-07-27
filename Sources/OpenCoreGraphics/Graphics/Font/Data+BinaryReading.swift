@@ -7,7 +7,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 extension Data {
 

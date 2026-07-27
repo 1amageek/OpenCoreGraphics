@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal enum CGICCFloatCurveSegment: Hashable, Sendable {
     case formula(CGICCFloatFormula)

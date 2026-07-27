@@ -22,7 +22,7 @@
 //  typical of vector-illustration workloads.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - Operation

@@ -6,7 +6,7 @@
 //  https://developer.apple.com/documentation/coregraphics/cgpath
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 extension CGPath {
@@ -264,7 +264,7 @@ private func _polygonInteriorPoint(_ points: [CGPoint]) -> CGPoint? {
         }
     }
 
-    let yCoordinates = Array(Set(points.map(\.y))).sorted()
+    let yCoordinates = Array(Set(points.map({ $0.y }))).sorted()
     guard yCoordinates.count >= 2 else { return nil }
 
     for index in 0..<(yCoordinates.count - 1) {

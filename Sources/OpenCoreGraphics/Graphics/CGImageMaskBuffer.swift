@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// A device-sized, multiplicatively composed image-mask clip buffer.
 internal struct CGImageMaskBuffer: Sendable {

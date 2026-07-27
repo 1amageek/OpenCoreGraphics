@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal enum CGICCMultiProcessParser {
     enum Result {
@@ -70,7 +70,7 @@ internal enum CGICCMultiProcessParser {
             }
             positions.append((tag.offset + relativeOffset, size))
         }
-        guard positions.map(\.offset).min() == tableEnd else { return .invalid }
+        guard positions.map({ $0.offset }).min() == tableEnd else { return .invalid }
 
         var elements: [CGICCMultiProcessElement] = []
         elements.reserveCapacity(elementCount)
@@ -161,7 +161,7 @@ internal enum CGICCMultiProcessParser {
             }
             positions.append((offset + relativeOffset, curveSize))
         }
-        guard positions.map(\.offset).min() == tableEnd else { return nil }
+        guard positions.map({ $0.offset }).min() == tableEnd else { return nil }
         var curves: [CGICCFloatCurve] = []
         for position in positions {
             guard let curve = parseFloatCurve(data, offset: position.offset, size: position.size) else { return nil }

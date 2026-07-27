@@ -7,7 +7,7 @@
 //
 
 #if canImport(Darwin)
-import Foundation
+import OpenCoreGraphicsSupport
 extension CGPoint: @retroactive Equatable {
 
     public static func == (lhs: CGPoint, rhs: CGPoint) -> Bool {

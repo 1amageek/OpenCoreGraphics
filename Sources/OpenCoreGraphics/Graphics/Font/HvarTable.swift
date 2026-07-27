@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// OpenType horizontal metrics variations table.
 internal struct HvarTable: Sendable {

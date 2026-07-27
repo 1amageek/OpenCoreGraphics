@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Ear Clipping algorithm for polygon triangulation
 /// Handles both convex and concave (simple) polygons

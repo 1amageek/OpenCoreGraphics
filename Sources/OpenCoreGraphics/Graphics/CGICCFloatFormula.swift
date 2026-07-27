@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CGICCFloatFormula: Hashable, Sendable {
     let function: UInt16

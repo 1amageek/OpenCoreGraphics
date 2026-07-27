@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Packed mapping from a glyph or item index to an ItemVariationStore delta-set index.
 internal struct DeltaSetIndexMap: Sendable {

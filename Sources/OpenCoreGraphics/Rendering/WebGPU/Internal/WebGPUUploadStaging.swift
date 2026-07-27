@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 @_spi(JSObject_id) import JavaScriptKit
 import _CJavaScriptKit
 

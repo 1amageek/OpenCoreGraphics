@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 /// Shared stroke geometry consumed by public path conversion and both renderers.

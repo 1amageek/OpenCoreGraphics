@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 /// A set of color models that can be combined to describe content characteristics.

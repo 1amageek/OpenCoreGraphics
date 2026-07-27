@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CGICCFloatMatrix: Hashable, Sendable {
     let inputChannels: Int

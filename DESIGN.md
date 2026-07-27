@@ -46,12 +46,27 @@ so font reads do not require a recursive lock or target-specific synchronization
 |---|---|---|---|---|---|---|
 | Data consumer bytes and finalization | Native | `Mutex<State>` | `withLock` | `data`, `finalize()` snapshot | `putBytes`, finalization transitions | `deinit` snapshots state before I/O |
 | Data consumer bytes and finalization | WASM | `Mutex<State>` | `withLock` | Same source and entry points as Native | Same source and entry points as Native | Same source as Native |
-| Data consumer bytes and finalization | Embedded | Not compiled | OpenCoreGraphics requires Foundation and does not advertise an Embedded product | Not available | Not available | Not available |
+| Data consumer bytes and finalization | Embedded WASM | `Mutex<State>` | `withLock` | Same source and entry points as Native | Same source and entry points as Native | Same source as Native |
 | Global WebGPU device | Native | Not compiled | WebGPU source is WASM-only | Not available | Not available | Not available |
 | Global WebGPU device | WASM | `Mutex<GPUDevice?>` | `withLock` | `getGlobalDevice()` | `setupGraphicsContext()` | Process-owned WebGPU lifetime |
-| Global WebGPU device | Embedded | Not compiled | WebGPU browser backend is unavailable | Not available | Not available | Not available |
-| Parsed font tables | Native / WASM | Immutable `ParsedTables` value | Initialization boundary | Font property and glyph APIs | No mutation after initialization | Released with `CGFont` |
-| Renderer command and cache state | WASM | Context-owned non-`Sendable` renderer | Single owning context execution path | Renderer delegate methods | Renderer delegate methods | Released with `CGContext` |
+| Global WebGPU device | Embedded WASM | `Mutex<GPUDevice?>` | `withLock` | Same source as WASM | Same source as WASM | Process-owned WebGPU lifetime |
+| Parsed font tables | Native / WASM / Embedded WASM | Immutable `ParsedTables` value | Initialization boundary | Font property and glyph APIs | No mutation after initialization | Released with `CGFont` |
+| Software renderer storage | Native / WASM / Embedded WASM | `Mutex<Storage>` | `withLock` | Renderer delegate methods | Renderer delegate methods | Released with renderer owner |
+| Renderer command and cache state | WASM / Embedded WASM | Context-owned non-`Sendable` renderer | Single owning context execution path | Renderer delegate methods | Renderer delegate methods | Released with `CGContext` |
+
+## Embedded Support Boundary
+
+The `OpenCoreGraphicsSupport` target re-exports Foundation on ordinary targets
+and provides the Foundation-free geometry, byte storage, URL file I/O, string
+encoding, time, and C-math subset required by OpenCoreGraphics on Embedded
+Swift. Shared mutable framework state keeps the same `Mutex<State>` storage and
+entry points on Native, WASM, and Embedded WASM.
+
+The Embedded `Data` owner is a Swift copy-on-write byte array. C file reads
+transfer their allocation into this owner once at the file boundary and release
+the C allocation exactly once. Subsequent value copies preserve Swift CoW
+semantics. The portable attributed-string compatibility type currently carries
+only an immutable plain string and is explicitly marked incomplete in source.
 
 ## WebGPU Initialization
 

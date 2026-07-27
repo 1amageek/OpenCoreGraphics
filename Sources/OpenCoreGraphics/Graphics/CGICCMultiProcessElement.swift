@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal enum CGICCMultiProcessElement: Hashable, Sendable {
     case curveSet([CGICCFloatCurve])

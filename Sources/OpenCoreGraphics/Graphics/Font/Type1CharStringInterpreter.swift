@@ -5,7 +5,7 @@
 //  Adobe Type 1 CharString execution.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal final class Type1CharStringInterpreter {
     private enum Control {
@@ -125,7 +125,7 @@ internal final class Type1CharStringInterpreter {
             default:
                 return nil
             }
-            guard isValid, stack.count <= 24, stack.allSatisfy(\.isFinite) else { return nil }
+            guard isValid, stack.count <= 24, stack.allSatisfy({ $0.isFinite }) else { return nil }
         }
         return isSubroutine ? .returned : nil
     }

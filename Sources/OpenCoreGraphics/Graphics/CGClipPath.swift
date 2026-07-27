@@ -5,7 +5,7 @@
 //  A clipping region entry that preserves both the path and its fill rule.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// A clipping region entry that pairs a path with the fill rule used to
 /// interpret its interior.

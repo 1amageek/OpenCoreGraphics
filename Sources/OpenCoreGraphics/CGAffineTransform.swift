@@ -5,7 +5,7 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 #if arch(wasm32)
 
@@ -201,6 +201,7 @@ extension CGAffineTransform: Hashable {
 
 // MARK: - Codable
 
+#if !hasFeature(Embedded)
 extension CGAffineTransform: Codable {
     enum CodingKeys: String, CodingKey {
         case a, b, c, d, tx, ty
@@ -226,6 +227,7 @@ extension CGAffineTransform: Codable {
         try container.encode(ty, forKey: .ty)
     }
 }
+#endif
 
 // MARK: - CustomDebugStringConvertible
 

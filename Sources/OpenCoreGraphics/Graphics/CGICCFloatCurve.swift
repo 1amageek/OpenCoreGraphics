@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CGICCFloatCurve: Hashable, Sendable {
     let breakpoints: [CGFloat]

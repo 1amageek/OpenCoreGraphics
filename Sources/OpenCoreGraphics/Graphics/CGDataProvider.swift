@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - Sequential Callbacks
@@ -197,7 +197,7 @@ public final class CGDataProvider {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            print("CGDataProvider: failed to read \(url): \(error)")
+            print("CGDataProvider: failed to read \(url)")
             return nil
         }
         self.providerType = .direct(data)
@@ -211,7 +211,7 @@ public final class CGDataProvider {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            print("CGDataProvider: failed to read \(filename): \(error)")
+            print("CGDataProvider: failed to read \(filename)")
             return nil
         }
         self.providerType = .direct(data)
@@ -226,7 +226,7 @@ public final class CGDataProvider {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            print("CGDataProvider: failed to read \(path): \(error)")
+            print("CGDataProvider: failed to read \(path)")
             return nil
         }
         self.providerType = .direct(data)

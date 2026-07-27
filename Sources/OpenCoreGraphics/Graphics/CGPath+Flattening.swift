@@ -6,7 +6,7 @@
 //  and the internal polygon boolean engine.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - Internal Flattened Subpath

@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 import SwiftWebGPU
 import JavaScriptKit
 
@@ -56,7 +56,7 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
     private let depthStencilFormat: GPUTextureFormat = .depth24plusStencil8
 
     /// Current render target
-    private weak var renderTarget: GPUTextureView?
+    private var renderTarget: GPUTextureView?
 
     /// Path tessellator for converting paths to triangles
     private var tessellator: PathTessellator
@@ -741,13 +741,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
         blendMode: CGBlendMode,
         interpolationQuality: CGInterpolationQuality,
         state: CGDrawingState
-    ) {
+    ) -> Bool {
         guard let target = effectiveRenderTarget,
-              let sourceRenderer = layer.context?.rendererDelegate as? CGWebGPUContextRenderer else {
-            return
+              let sourceRenderer = layer.context?.rendererDelegate,
+              let sourceTextureView = sourceRenderer.webGPUTextureViewForLayerDrawing() else {
+            return false
         }
-        sourceRenderer.resolveMSAAIfNeeded()
-        guard let sourceTextureView = sourceRenderer.effectiveRenderTarget else { return }
 
         drawTexture(
             sourceTextureView,
@@ -760,6 +759,12 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
             imageMaskClips: state.imageMaskClips,
             shouldAntialias: state.shouldAntialias
         )
+        return true
+    }
+
+    func webGPUTextureViewForLayerDrawing() -> GPUTextureView? {
+        resolveMSAAIfNeeded()
+        return effectiveRenderTarget
     }
 
     func drawLinearGradient(
@@ -2683,7 +2688,10 @@ internal final class CGWebGPUContextRenderer: CGContextStatefulRendererDelegate,
 
             // Important: Do NOT set rendererDelegate on this context
             // to avoid infinite recursion when drawing the image
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(
+                image,
+                in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+            )
         }
 
         return result

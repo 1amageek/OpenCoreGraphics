@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CFFFontProgram: Sendable {
     private struct PrivateProgram: Sendable {

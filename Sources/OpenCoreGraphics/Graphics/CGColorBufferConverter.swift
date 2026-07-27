@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Converts packed color buffers through the same color model conversion used by `CGColor`.
 internal struct CGColorBufferConverter {

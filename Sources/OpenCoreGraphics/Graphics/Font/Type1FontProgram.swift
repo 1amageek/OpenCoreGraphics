@@ -5,7 +5,7 @@
 //  Adobe Type 1 PFA/PFB font parsing.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct Type1FontProgram: Sendable {
     struct Glyph: Sendable {
@@ -323,10 +323,10 @@ internal struct Type1FontProgram: Sendable {
             }
         }
         guard let matrix = fontMatrix, matrix.count == 6,
-              matrix.allSatisfy(\.isFinite),
+              matrix.allSatisfy({ $0.isFinite }),
               matrix[0] * matrix[3] - matrix[1] * matrix[2] != 0,
               let bbox = fontBBox, bbox.count == 4,
-              bbox.allSatisfy(\.isFinite),
+              bbox.allSatisfy({ $0.isFinite }),
               bbox[0] <= bbox[2], bbox[1] <= bbox[3] else {
             return nil
         }
@@ -486,8 +486,8 @@ internal struct Type1FontProgram: Sendable {
             CGPoint(x: rect.minX, y: rect.maxY).applying(transform),
             CGPoint(x: rect.maxX, y: rect.maxY).applying(transform),
         ]
-        let xs = points.map(\.x)
-        let ys = points.map(\.y)
+        let xs = points.map({ $0.x })
+        let ys = points.map({ $0.y })
         return CGRect(
             x: xs.min() ?? 0,
             y: ys.min() ?? 0,

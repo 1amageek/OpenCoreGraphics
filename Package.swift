@@ -19,11 +19,20 @@ let package = Package(
         .package(path: "../swift-webgpu"),
     ],
     targets: [
+        .target(
+            name: "COpenCoreGraphicsSupport",
+            publicHeadersPath: "include"
+        ),
+        .target(
+            name: "OpenCoreGraphicsSupport",
+            dependencies: ["COpenCoreGraphicsSupport"]
+        ),
         // Main target with CoreGraphics-compatible types
         // On WASM, includes WebGPU rendering via Rendering/WebGPU/
         .target(
             name: "OpenCoreGraphics",
             dependencies: [
+                "OpenCoreGraphicsSupport",
                 // SwiftWebGPU is only linked on WASM
                 .product(name: "SwiftWebGPU", package: "swift-webgpu", condition: .when(platforms: [.wasi])),
             ]

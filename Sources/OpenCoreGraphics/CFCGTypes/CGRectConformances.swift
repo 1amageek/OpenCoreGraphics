@@ -7,7 +7,7 @@
 //
 
 #if canImport(Darwin)
-import Foundation
+import OpenCoreGraphicsSupport
 // MARK: - Basic Properties (Darwin only - CoreGraphics provides these)
 
 extension CGRect {

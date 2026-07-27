@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// OpenType vertical metrics table.
 internal struct VmtxTable: Sendable {

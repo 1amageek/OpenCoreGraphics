@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - Design Note: CGPDFPage
@@ -26,7 +26,7 @@ import Foundation
 public class CGPDFPage {
 
     /// The document containing this page.
-    public private(set) weak var document: CGPDFDocument?
+    public private(set) var document: CGPDFDocument?
 
     /// The page number (1-indexed).
     public let pageNumber: Int

@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - __CGBitmapParameters (Internal Backing Type)
@@ -57,7 +57,6 @@ public struct __CGBitmapParameters: Sendable {
 // MARK: - CGBitmapParameters
 
 /// A structure that encapsulates bitmap parameters for creating bitmap contexts and images.
-@dynamicMemberLookup
 public struct CGBitmapParameters: Sendable {
 
     /// The internal backing store.
@@ -104,17 +103,34 @@ public struct CGBitmapParameters: Sendable {
         set { backing.colorSpace = newValue }
     }
 
-    // MARK: - Dynamic Member Lookup
-
-    /// Provides read access to properties of the backing parameters.
-    public subscript<T>(dynamicMember keyPath: KeyPath<__CGBitmapParameters, T>) -> T {
-        backing[keyPath: keyPath]
+    public var bitmapInfo: CGBitmapInfo {
+        get { backing.bitmapInfo }
+        set { backing.bitmapInfo = newValue }
     }
 
-    /// Provides read-write access to properties of the backing parameters.
-    public subscript<T>(dynamicMember keyPath: WritableKeyPath<__CGBitmapParameters, T>) -> T {
-        get { backing[keyPath: keyPath] }
-        set { backing[keyPath: keyPath] = newValue }
+    public var bitsPerComponent: Int {
+        get { backing.bitsPerComponent }
+        set { backing.bitsPerComponent = newValue }
+    }
+
+    public var bitsPerPixel: Int {
+        get { backing.bitsPerPixel }
+        set { backing.bitsPerPixel = newValue }
+    }
+
+    public var bytesPerRow: Int {
+        get { backing.bytesPerRow }
+        set { backing.bytesPerRow = newValue }
+    }
+
+    public var width: Int {
+        get { backing.width }
+        set { backing.width = newValue }
+    }
+
+    public var height: Int {
+        get { backing.height }
+        set { backing.height = newValue }
     }
 }
 
@@ -163,4 +179,3 @@ extension CGBitmapParameters: CustomDebugStringConvertible {
         """
     }
 }
-

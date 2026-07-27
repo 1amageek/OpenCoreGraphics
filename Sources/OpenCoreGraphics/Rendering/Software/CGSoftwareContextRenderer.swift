@@ -1,7 +1,7 @@
 // CGSoftwareContextRenderer.swift
 // OpenCoreGraphics
 
-import Foundation
+import OpenCoreGraphicsSupport
 import Synchronization
 
 /// CPU rasterizer for bitmap CGContext instances on native test platforms.

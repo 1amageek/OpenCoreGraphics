@@ -6,7 +6,7 @@
 //  signed area, point-in-polygon, segment intersection, edge splitting.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - Polygon Utilities

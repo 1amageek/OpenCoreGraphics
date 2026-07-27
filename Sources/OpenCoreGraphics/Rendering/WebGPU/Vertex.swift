@@ -7,7 +7,7 @@
 
 #if arch(wasm32)
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Vertex structure for 2D rendering with color
 /// Matches the layout expected by WebGPU shaders

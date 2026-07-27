@@ -5,7 +5,10 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
+#if arch(wasm32)
+import SwiftWebGPU
+#endif
 
 // MARK: - Drawing State
 
@@ -224,6 +227,22 @@ internal protocol CGContextRendererDelegate: AnyObject {
     /// GPU renderers return false because a failed readback must not be replaced by
     /// a stale context buffer that incorrectly appears to be a successful image.
     var storesPixelsInContextBuffer: Bool { get }
+
+    /// Draws a layer through the renderer's native composition path.
+    /// - Returns: `true` when the renderer consumed the layer.
+    func draw(
+        layer: CGLayer,
+        in rect: CGRect,
+        alpha: CGFloat,
+        blendMode: CGBlendMode,
+        interpolationQuality: CGInterpolationQuality,
+        state: CGDrawingState
+    ) -> Bool
+
+    #if arch(wasm32)
+    /// Returns the renderer-owned texture used as a layer composition source.
+    func webGPUTextureViewForLayerDrawing() -> GPUTextureView?
+    #endif
 
     // MARK: - Path Drawing
 
@@ -472,21 +491,27 @@ internal protocol CGContextRendererDelegate: AnyObject {
 }
 
 /// Renderer capability for drawing a CGLayer without a CPU readback.
-internal protocol CGLayerRendererDelegate: AnyObject {
-    func draw(
+internal protocol CGLayerRendererDelegate: CGContextRendererDelegate {}
+
+// MARK: - Default Implementations
+
+extension CGContextRendererDelegate {
+    public var storesPixelsInContextBuffer: Bool { false }
+
+    public func draw(
         layer: CGLayer,
         in rect: CGRect,
         alpha: CGFloat,
         blendMode: CGBlendMode,
         interpolationQuality: CGInterpolationQuality,
         state: CGDrawingState
-    )
-}
+    ) -> Bool {
+        false
+    }
 
-// MARK: - Default Implementations
-
-extension CGContextRendererDelegate {
-    public var storesPixelsInContextBuffer: Bool { false }
+    #if arch(wasm32)
+    public func webGPUTextureViewForLayerDrawing() -> GPUTextureView? { nil }
+    #endif
 
     /// Default implementation does nothing.
     public func clear(rect: CGRect) {}

@@ -5,7 +5,7 @@
 //  TrueType `glyf` outline decoding.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 extension SFNTParser {
 
@@ -269,7 +269,7 @@ private extension SFNTParser {
                 hmtx: hmtx,
                 vmtx: vmtx
             ) else { return nil }
-            var originalPoints = outline.points.map(\.position)
+            var originalPoints = outline.points.map({ $0.position })
             originalPoints.append(contentsOf: phantom)
             let contourRanges = outline.contourRanges
             let deltas: [CGPoint]

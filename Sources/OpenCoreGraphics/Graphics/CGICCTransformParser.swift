@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal enum CGICCTransformParser {
     enum Result {
@@ -84,7 +84,7 @@ internal enum CGICCTransformParser {
         let b2d1 = override("B2D1", direction: .fromPCS)
         let b2d2 = override("B2D2", direction: .fromPCS)
         let b2d3 = override("B2D3", direction: .fromPCS)
-        func resolved(_ override: OverrideResult, fallback: TableResult = .absent) -> TableResult {
+        func resolved(_ override: OverrideResult, fallback: TableResult) -> TableResult {
             switch override {
             case .valid(let transform): return .valid(transform)
             case .fallback: return fallback
@@ -95,11 +95,11 @@ internal enum CGICCTransformParser {
         let perceptualToPCS = resolved(d2b0, fallback: a2b0)
         let colorimetricToPCS = resolved(d2b1, fallback: a2b1)
         let saturationToPCS = resolved(d2b2, fallback: a2b2)
-        let absoluteToPCS = resolved(d2b3)
+        let absoluteToPCS = resolved(d2b3, fallback: .absent)
         let perceptualFromPCS = resolved(b2d0, fallback: b2a0)
         let colorimetricFromPCS = resolved(b2d1, fallback: b2a1)
         let saturationFromPCS = resolved(b2d2, fallback: b2a2)
-        let absoluteFromPCS = resolved(b2d3)
+        let absoluteFromPCS = resolved(b2d3, fallback: .absent)
         let results = [
             perceptualToPCS, colorimetricToPCS, saturationToPCS, absoluteToPCS,
             perceptualFromPCS, colorimetricFromPCS, saturationFromPCS, absoluteFromPCS

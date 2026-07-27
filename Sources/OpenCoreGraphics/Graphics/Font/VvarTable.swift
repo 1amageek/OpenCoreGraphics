@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// OpenType vertical metrics variations table.
 internal struct VvarTable: Sendable {

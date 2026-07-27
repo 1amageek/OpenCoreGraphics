@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 import SwiftWebGPU
 
 /// Internal vertex buffer pool using ring buffer pattern.

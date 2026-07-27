@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal enum CFFDictionary {
     static func parse(data: Data, range: Range<Int>) -> [UInt16: [CGFloat]]? {

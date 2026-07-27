@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal enum CGHLGTransfer {
     private static let a: CGFloat = 0.178_832_77

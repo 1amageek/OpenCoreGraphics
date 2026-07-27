@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// OpenType vertical origins for CFF and CFF2 glyphs.
 internal struct VorgTable: Sendable {

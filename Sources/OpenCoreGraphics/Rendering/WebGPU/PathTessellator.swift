@@ -6,7 +6,7 @@
 //
 
 #if arch(wasm32)
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Tessellates CGPath into triangles for GPU rendering
 public struct PathTessellator: Sendable {

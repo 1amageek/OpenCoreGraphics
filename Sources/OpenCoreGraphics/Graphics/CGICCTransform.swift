@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct CGICCTransformSet: Hashable, Sendable {
     let mediaWhitePoint: CGColorVector
@@ -155,10 +155,10 @@ internal struct CGICCTransform: Hashable, Sendable {
                 b: values[2] * 65_535 / 256 - 128
             )
         case .floatXYZ:
-            guard values.allSatisfy(\.isFinite) else { return nil }
+            guard values.allSatisfy({ $0.isFinite }) else { return nil }
             return CGColorVector(x: values[0], y: values[1], z: values[2])
         case .floatLab:
-            guard values.allSatisfy(\.isFinite) else { return nil }
+            guard values.allSatisfy({ $0.isFinite }) else { return nil }
             let xyz = Self.labToXYZ(lightness: values[0], a: values[1], b: values[2])
             guard xyz.x.isFinite, xyz.y.isFinite, xyz.z.isFinite else { return nil }
             return xyz

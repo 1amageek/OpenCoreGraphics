@@ -101,7 +101,7 @@ struct CGContextRendererContractTests {
             blendMode: CGBlendMode,
             interpolationQuality: CGInterpolationQuality,
             state: CGDrawingState
-        ) {
+        ) -> Bool {
             operations.withLock {
                 $0.append(
                     .layer(
@@ -113,6 +113,7 @@ struct CGContextRendererContractTests {
                     )
                 )
             }
+            return true
         }
 
         func drawShading(_ shading: CGShading, alpha: CGFloat, blendMode: CGBlendMode) {}

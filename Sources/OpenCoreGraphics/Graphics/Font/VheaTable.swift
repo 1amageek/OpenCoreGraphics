@@ -3,7 +3,7 @@
 //  OpenCoreGraphics
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// OpenType vertical header table values required to decode vmtx.
 internal struct VheaTable: Sendable {

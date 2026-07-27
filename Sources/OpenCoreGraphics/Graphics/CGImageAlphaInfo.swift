@@ -5,7 +5,7 @@
 //  Created by OpenCoreGraphics contributors.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 /// Storage options for alpha component data.
 ///

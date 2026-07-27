@@ -5,7 +5,7 @@
 //  Type 1 and Type 42 font subset generation.
 //
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 internal struct PostScriptFontEncoder {
     private let fontData: Data
@@ -592,7 +592,7 @@ internal struct PostScriptFontEncoder {
     private static func number(_ value: CGFloat) -> String {
         guard value.isFinite else { return "0" }
         if value.rounded() == value { return String(Int(value)) }
-        return String(format: "%.10g", Double(value))
+        return String(Double(value))
     }
 
     private static func integerPoint(_ point: CGPoint) -> CGPoint {

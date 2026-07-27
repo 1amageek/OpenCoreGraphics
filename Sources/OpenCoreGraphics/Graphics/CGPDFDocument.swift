@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 
 // MARK: - Design Note: CGPDFDocument
@@ -36,7 +36,7 @@ public class CGPDFDocument {
     internal let documentURL: URL?
 
     /// Internal storage for pages.
-    internal var pages: [CGPDFPage] = []
+    internal var pages: [CGPDFPageDescriptor] = []
 
     /// The major version number.
     internal var majorVersion: Int32 = 1
@@ -118,7 +118,13 @@ public class CGPDFDocument {
     /// - Returns: The page at the specified index, or nil if invalid.
     public func page(at pageNumber: Int) -> CGPDFPage? {
         guard pageNumber >= 1 && pageNumber <= pages.count else { return nil }
-        return pages[pageNumber - 1]
+        let descriptor = pages[pageNumber - 1]
+        return CGPDFPage(
+            document: self,
+            pageNumber: descriptor.pageNumber,
+            mediaBox: descriptor.mediaBox,
+            rotationAngle: descriptor.rotationAngle
+        )
     }
 
     /// Gets the outline (table of contents) for a PDF document.

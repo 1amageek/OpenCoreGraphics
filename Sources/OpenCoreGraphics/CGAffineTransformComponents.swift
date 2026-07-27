@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 #if arch(wasm32)
 
@@ -103,6 +103,7 @@ extension CGAffineTransformComponents: Hashable {
 
 // MARK: - Codable
 
+#if !hasFeature(Embedded)
 extension CGAffineTransformComponents: Codable {
     enum CodingKeys: String, CodingKey {
         case scale
@@ -133,6 +134,7 @@ extension CGAffineTransformComponents: Codable {
         try container.encode(translation, forKey: .translation)
     }
 }
+#endif
 
 // MARK: - CustomDebugStringConvertible
 

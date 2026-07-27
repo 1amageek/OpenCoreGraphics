@@ -6,7 +6,7 @@
 //
 
 
-import Foundation
+import OpenCoreGraphicsSupport
 
 // These `applying(_:)` methods are defined unconditionally because
 // OpenCoreGraphics does not `import CoreGraphics`: the Swift extension
