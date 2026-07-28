@@ -9,18 +9,18 @@
 @_exported import OpenCoreGraphicsSupport
 
 #if arch(wasm32)
-import SwiftWebGPU
+@_spi(JavaScriptOwner) import SwiftWebGPU
 import JavaScriptKit
-import Synchronization
 
-/// Global storage for the WebGPU device.
-/// This is set by `setupGraphicsContext()` and accessed by `CGWebGPUContextRenderer`.
-private let cgGlobalDevice = Mutex<GPUDevice?>(nil)
+private let cgDeviceGlobalKey = "__openCoreGraphicsGPUDevice"
 
-/// Returns the global WebGPU device.
-/// - Returns: The GPUDevice set by `setupGraphicsContext()`, or nil if not initialized.
+/// Returns the WebGPU device owned by the current JavaScript execution context.
+/// - Returns: The device set by `setupGraphicsContext()` on this JavaScript owner.
 public func getGlobalDevice() -> GPUDevice? {
-    cgGlobalDevice.withLock { $0 }
+    guard let jsObject = JSObject.global[cgDeviceGlobalKey].object else {
+        return nil
+    }
+    return GPUDevice(jsObject: jsObject)
 }
 
 /// Initializes WebGPU for graphics rendering.
@@ -46,23 +46,21 @@ public func getGlobalDevice() -> GPUDevice? {
 /// ```
 ///
 /// - Throws: `GraphicsContextError` if WebGPU is not supported or initialization fails.
-public func setupGraphicsContext() async throws {
+public nonisolated(nonsending) func setupGraphicsContext() async throws {
     // Check WebGPU support
     guard let gpu = GPU.shared else {
         throw GraphicsContextError.webGPUNotSupported
     }
 
     // Request adapter
-    guard let adapter = await gpu.requestAdapter() else {
-        throw GraphicsContextError.adapterNotAvailable
-    }
-
-    // Request device
     do {
-        let device = try await adapter.requestDevice()
-        cgGlobalDevice.withLock { storedDevice in
-            storedDevice = device
+        guard let adapter = try await gpu.requestAdapter() else {
+            throw GraphicsContextError.adapterNotAvailable
         }
+        let device = try await adapter.requestDevice()
+        JSObject.global[cgDeviceGlobalKey] = device.ownerBoundJSObject.jsValue
+    } catch let error as GraphicsContextError {
+        throw error
     } catch {
         throw GraphicsContextError.deviceNotAvailable
     }

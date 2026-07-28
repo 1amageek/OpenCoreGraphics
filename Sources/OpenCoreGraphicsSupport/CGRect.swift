@@ -69,7 +69,7 @@ public struct CGRect: Equatable, Hashable, Sendable, CustomDebugStringConvertibl
 
     public func contains(_ point: CGPoint) -> Bool {
         guard !isNull, !isEmpty else { return false }
-        return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
+        return point.x >= minX && point.x < maxX && point.y >= minY && point.y < maxY
     }
 
     public func contains(_ rect: CGRect) -> Bool {
@@ -79,7 +79,9 @@ public struct CGRect: Equatable, Hashable, Sendable, CustomDebugStringConvertibl
     }
 
     public func intersects(_ rect: CGRect) -> Bool {
-        !intersection(rect).isNull
+        guard !isNull, !rect.isNull, !isEmpty, !rect.isEmpty else { return false }
+        return minX < rect.maxX && rect.minX < maxX &&
+            minY < rect.maxY && rect.minY < maxY
     }
 
     public func intersection(_ rect: CGRect) -> CGRect {
@@ -88,7 +90,7 @@ public struct CGRect: Equatable, Hashable, Sendable, CustomDebugStringConvertibl
         let y1 = Swift.max(minY, rect.minY)
         let x2 = Swift.min(maxX, rect.maxX)
         let y2 = Swift.min(maxY, rect.maxY)
-        guard x2 > x1, y2 > y1 else { return .null }
+        guard x2 >= x1, y2 >= y1 else { return .null }
         return CGRect(x: x1, y: y1, width: x2 - x1, height: y2 - y1)
     }
 

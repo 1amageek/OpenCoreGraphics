@@ -3147,7 +3147,7 @@ extension CGWebGPUContextRenderer {
             return nil
         }
 
-        guard let adapter = await gpu.requestAdapter() else {
+        guard let adapter = try await gpu.requestAdapter() else {
             print("Failed to get GPU adapter")
             return nil
         }
